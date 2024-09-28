@@ -608,10 +608,15 @@ import SwiftUtils
             self.previousInputData = inputData
             return (result, nodes)
         }
+        #if os(iOS)
+        let needTypoCorrection = true
+        #else
+        let needTypoCorrection = false
+        #endif
 
         guard let previousInputData else {
             debug("convertToLattice: 新規計算用の関数を呼びますA")
-            let result = converter.kana2lattice_all(inputData, N_best: N_best)
+            let result = converter.kana2lattice_all(inputData, N_best: N_best, needTypoCorrection: needTypoCorrection)
             self.previousInputData = inputData
             return result
         }
@@ -628,7 +633,7 @@ import SwiftUtils
         // 文節確定の後の場合
         if let completedData, previousInputData.inputHasSuffix(inputOf: inputData) {
             debug("convertToLattice: 文節確定用の関数を呼びます、確定された文節は\(completedData)")
-            let result = converter.kana2lattice_afterComplete(inputData, completedData: completedData, N_best: N_best, previousResult: (inputData: previousInputData, nodes: nodes))
+            let result = converter.kana2lattice_afterComplete(inputData, completedData: completedData, N_best: N_best, previousResult: (inputData: previousInputData, nodes: nodes), needTypoCorrection: needTypoCorrection)
             self.previousInputData = inputData
             self.completedData = nil
             return result
@@ -650,7 +655,7 @@ import SwiftUtils
         // 一文字変わった場合
         if diff.deleted > 0 {
             debug("convertToLattice: 最後尾文字置換用の関数を呼びます、差分は\(diff)")
-            let result = converter.kana2lattice_changed(inputData, N_best: N_best, counts: (diff.deleted, diff.addedCount), previousResult: (inputData: previousInputData, nodes: nodes))
+            let result = converter.kana2lattice_changed(inputData, N_best: N_best, counts: (diff.deleted, diff.addedCount), previousResult: (inputData: previousInputData, nodes: nodes), needTypoCorrection: needTypoCorrection)
             self.previousInputData = inputData
             return result
         }
@@ -658,7 +663,7 @@ import SwiftUtils
         // 1文字増やした場合
         if diff.deleted == 0 && diff.addedCount != 0 {
             debug("convertToLattice: 最後尾追加用の関数を呼びます、追加文字数は\(diff.addedCount)")
-            let result = converter.kana2lattice_added(inputData, N_best: N_best, addedCount: diff.addedCount, previousResult: (inputData: previousInputData, nodes: nodes))
+            let result = converter.kana2lattice_added(inputData, N_best: N_best, addedCount: diff.addedCount, previousResult: (inputData: previousInputData, nodes: nodes), needTypoCorrection: needTypoCorrection)
             self.previousInputData = inputData
             return result
         }
@@ -666,7 +671,7 @@ import SwiftUtils
         // 一文字増やしていない場合
         if true {
             debug("convertToLattice: 新規計算用の関数を呼びますB")
-            let result = converter.kana2lattice_all(inputData, N_best: N_best)
+            let result = converter.kana2lattice_all(inputData, N_best: N_best, needTypoCorrection: needTypoCorrection)
             self.previousInputData = inputData
             return result
         }

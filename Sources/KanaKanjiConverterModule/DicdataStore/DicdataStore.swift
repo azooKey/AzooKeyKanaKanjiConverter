@@ -415,13 +415,16 @@ public final class DicdataStore {
     ///   - inputData: 入力データ
     ///   - from: 始点
     ///   - to: 終点
-    public func getLOUDSData(inputData: ComposingText, from fromIndex: Int, to toIndex: Int) -> [LatticeNode] {
+    public func getLOUDSData(inputData: ComposingText, from fromIndex: Int, to toIndex: Int, needTypoCorrection: Bool) -> [LatticeNode] {
         if toIndex - fromIndex > self.maxlength || fromIndex > toIndex {
             return []
         }
         let segment = inputData.input[fromIndex...toIndex].reduce(into: "") {$0.append($1.character)}.toKatakana()
 
-        let string2penalty = inputData.getRangeWithTypos(fromIndex, toIndex)
+        // TODO: 最適化の余地あり
+        let string2penalty = inputData.getRangeWithTypos(fromIndex, toIndex).filter {
+            needTypoCorrection || $0.value == 0.0
+        }
 
         // MARK: 検索によって得たindicesから辞書データを実際に取り出していく
         // 先頭の文字: そこで検索したい文字列の集合

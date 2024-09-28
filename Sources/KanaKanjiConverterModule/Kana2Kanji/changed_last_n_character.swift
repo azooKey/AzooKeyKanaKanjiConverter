@@ -24,7 +24,7 @@ extension Kana2Kanji {
     ///
     /// (5)ノードをアップデートした上で返却する。
 
-    func kana2lattice_changed(_ inputData: ComposingText, N_best: Int, counts: (deleted: Int, added: Int), previousResult: (inputData: ComposingText, nodes: Nodes)) -> (result: LatticeNode, nodes: Nodes) {
+    func kana2lattice_changed(_ inputData: ComposingText, N_best: Int, counts: (deleted: Int, added: Int), previousResult: (inputData: ComposingText, nodes: Nodes), needTypoCorrection: Bool) -> (result: LatticeNode, nodes: Nodes) {
         // (0)
         let count = inputData.input.count
         let commonCount = previousResult.inputData.input.count - counts.deleted
@@ -39,7 +39,7 @@ extension Kana2Kanji {
         }
         // (2)
         let addedNodes: [[LatticeNode]] = (0..<count).map {(i: Int) in
-            self.dicdataStore.getLOUDSDataInRange(inputData: inputData, from: i, toIndexRange: max(commonCount, i) ..< count)
+            self.dicdataStore.getLOUDSDataInRange(inputData: inputData, from: i, toIndexRange: max(commonCount, i) ..< count, needTypoCorrection: needTypoCorrection)
         }
 
         // (3)
