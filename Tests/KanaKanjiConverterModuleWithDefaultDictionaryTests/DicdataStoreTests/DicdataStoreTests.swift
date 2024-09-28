@@ -59,7 +59,7 @@ final class DicdataStoreTests: XCTestCase {
         for (key, word) in mustWords {
             var c = ComposingText()
             c.insertAtCursorPosition(key, inputStyle: .direct)
-            let result = dicdataStore.getLOUDSData(inputData: c, from: 0, to: c.input.endIndex - 1)
+            let result = dicdataStore.getLOUDSData(inputData: c, from: 0, to: c.input.endIndex - 1, needTypoCorrection: false)
             // 冗長な書き方だが、こうすることで「どの項目でエラーが発生したのか」がはっきりするため、こう書いている。
             XCTAssertEqual(result.first(where: {$0.data.word == word})?.data.word, word)
         }
@@ -80,7 +80,7 @@ final class DicdataStoreTests: XCTestCase {
         for (key, word) in mustWords {
             var c = ComposingText()
             c.insertAtCursorPosition(key, inputStyle: .direct)
-            let result = dicdataStore.getLOUDSData(inputData: c, from: 0, to: c.input.endIndex - 1)
+            let result = dicdataStore.getLOUDSData(inputData: c, from: 0, to: c.input.endIndex - 1, needTypoCorrection: false)
             XCTAssertNil(result.first(where: {$0.data.word == word && $0.data.ruby == key}))
         }
     }
