@@ -489,7 +489,9 @@ public final class DicdataStore {
         }
 
         dicdata.append(contentsOf: self.getWiseDicdata(convertTarget: segment, inputData: inputData, inputRange: fromIndex ..< toIndex + 1))
-        dicdata.append(contentsOf: self.getMatchDynamicUserDict(segment))
+        for segment in string2penalty.keys {
+            dicdata.append(contentsOf: self.getMatchDynamicUserDict(String(segment)))
+        }
 
         if fromIndex == .zero {
             let result: [LatticeNode] = dicdata.map {
