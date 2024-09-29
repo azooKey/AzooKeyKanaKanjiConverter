@@ -623,7 +623,7 @@ final class LearningManager {
             let string = try String(contentsOf: chidURL, encoding: .utf8)
             target = [Character: UInt8].init(uniqueKeysWithValues: string.enumerated().map {($0.element, UInt8($0.offset))})
         } catch {
-            debug("ファイルが存在しません: \(error)")
+            debug("Error: louds/charID.chidが存在しません。このエラーは深刻ですが、テスト時には無視できる場合があります。Description: \(error)")
         }
     }
     private var char2UInt8: [Character: UInt8] = [:]

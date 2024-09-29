@@ -60,7 +60,7 @@ extension LOUDS {
         do {
             nodeIndex2ID = try Array(Data(contentsOf: charsURL, options: [.uncached]))   // 2度読み込むことはないのでキャッシュ不要
         } catch {
-            debug("ファイルが存在しません: \(error)")
+            debug("Error: \(identifier)に対するLOUDSファイルが存在しません。このエラーは無視できる可能性があります。 Description: \(error)")
             return nil
         }
 

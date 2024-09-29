@@ -54,7 +54,7 @@ public final class DicdataStore {
             let string = try String(contentsOf: self.requestOptions.dictionaryResourceURL.appendingPathComponent("louds/charID.chid", isDirectory: false), encoding: String.Encoding.utf8)
             charsID = [Character: UInt8].init(uniqueKeysWithValues: string.enumerated().map {($0.element, UInt8($0.offset))})
         } catch {
-            debug("ファイルが存在しません: \(error)")
+            debug("Error: louds/charID.chidが存在しません。このエラーは深刻ですが、テスト時には無視できる場合があります。Description: \(error)")
         }
         do {
             let url = requestOptions.dictionaryResourceURL.appendingPathComponent("mm.binary", isDirectory: false)
@@ -62,7 +62,7 @@ public final class DicdataStore {
                 let binaryData = try Data(contentsOf: url, options: [.uncached])
                 self.mmValue = binaryData.toArray(of: Float.self).map {PValue($0)}
             } catch {
-                debug("Failed to read the file.")
+                debug("Error: mm.binaryが存在しません。このエラーは深刻ですが、テスト時には無視できる場合があります。Description: \(error)")
                 self.mmValue = [PValue].init(repeating: .zero, count: self.midCount * self.midCount)
             }
         }
@@ -180,7 +180,11 @@ public final class DicdataStore {
             self.loudses[query] = louds
             return louds
         } else {
-            debug("loudsの読み込みに失敗、identifierは\(query)(id: \(identifier))")
+            if identifier == "user" || identifier == "memory" {
+                debug("Error: IDが「\(identifier) (query: \(query))」のloudsファイルの読み込みに失敗しましたが、このエラーは深刻ではありません。")
+            } else {
+                debug("Error: IDが「\(identifier) (query: \(query))」のloudsファイルの読み込みに失敗しました。IDに対する辞書データが存在しないことが想定される場合はこのエラーは深刻ではありませんが、そうでない場合は深刻なエラーの可能性があります。")
+            }
             return nil
         }
     }
@@ -209,7 +213,6 @@ public final class DicdataStore {
     }
 
     package func getDicdataFromLoudstxt3(identifier: String, indices: some Sequence<Int>) -> [DicdataElement] {
-        debug("getDicdataFromLoudstxt3", identifier, indices)
         // split = 2048
         let dict = [Int: [Int]].init(grouping: indices, by: {$0 >> 11})
         var data: [DicdataElement] = []
@@ -240,7 +243,6 @@ public final class DicdataStore {
         }
         let toIndexLeft = toIndexRange?.startIndex ?? fromIndex
         let toIndexRight = min(toIndexRange?.endIndex ?? inputData.input.count, fromIndex + self.maxlength)
-        debug("getLOUDSDataInRange", fromIndex, toIndexRange?.description ?? "nil", toIndexLeft, toIndexRight)
         if fromIndex > toIndexLeft || toIndexLeft >= toIndexRight {
             debug("getLOUDSDataInRange: index is wrong")
             return []
@@ -514,7 +516,7 @@ public final class DicdataStore {
             let dicdata: [DicdataElement] = csvData.map {self.parseLoudstxt2FormattedEntry(from: $0)}
             return dicdata
         } catch {
-            debug(error)
+            debug("Error: 右品詞ID\(lastRcid)のためのZero Hint Predictionのためのデータの読み込みに失敗しました。このエラーは深刻ですが、テスト時には無視できる場合があります。 Description: \(error.localizedDescription)")
             return []
         }
     }
@@ -708,7 +710,7 @@ public final class DicdataStore {
             let binaryData = try Data(contentsOf: url, options: [.uncached])
             return binaryData.toArray(of: (Int32, Float).self)
         } catch {
-            debug("Failed to read the file.", error)
+            debug("Error: 品詞連接コストデータの読み込みに失敗しました。このエラーは深刻ですが、テスト時には無視できる場合があります。 Description: \(error.localizedDescription)")
             return []
         }
     }
