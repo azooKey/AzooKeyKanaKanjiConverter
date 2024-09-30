@@ -2,6 +2,7 @@
 // The swift-tools-version declares the minimum version of Swift required to build this package.
 
 import PackageDescription
+import Foundation
 
 let swiftSettings: [SwiftSetting] = [
     .enableUpcomingFeature("ExistentialAny"),
@@ -72,13 +73,6 @@ var targets: [Target] = [
 ]
 
 
-#if !(os(Windows))
-dependencies.append(
-    .package(url: "https://github.com/ensan-hcl/llama.cpp", branch: "6b862f4")
-)
-#endif
-
-
 #if os(Windows)
 targets.append(contentsOf: [
     .systemLibrary(
@@ -95,17 +89,36 @@ targets.append(contentsOf: [
     )
 ])
 #else
-targets.append(contentsOf: [
-    .target(
-        name: "KanaKanjiConverterModule",
-        dependencies: [
-            "SwiftUtils",
-            .product(name: "llama", package: "llama.cpp"),
-            .product(name: "Collections", package: "swift-collections")
-        ],
-        swiftSettings: swiftSettings
+if let envValue = ProcessInfo.processInfo.environment["LLAMA_MOCK"], envValue == "1" {
+    targets.append(contentsOf: [
+        .target(name: "llama-mock"),
+        .target(
+            name: "KanaKanjiConverterModule",
+            dependencies: [
+                "SwiftUtils",
+                "llama-mock",
+                .product(name: "Collections", package: "swift-collections")
+            ],
+            swiftSettings: swiftSettings
+        )
+    ])
+} else {
+    dependencies.append(
+        .package(url: "https://github.com/ensan-hcl/llama.cpp", branch: "6b862f4")
     )
-])
+
+    targets.append(contentsOf: [
+        .target(
+            name: "KanaKanjiConverterModule",
+            dependencies: [
+                "SwiftUtils",
+                .product(name: "llama", package: "llama.cpp"),
+                .product(name: "Collections", package: "swift-collections")
+            ],
+            swiftSettings: swiftSettings
+        )
+    ])
+}
 #endif
 
 let package = Package(

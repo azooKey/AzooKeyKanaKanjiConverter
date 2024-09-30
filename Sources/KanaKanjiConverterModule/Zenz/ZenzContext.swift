@@ -1,4 +1,8 @@
+#if canImport(llama)
 import llama
+#else
+import llama_mock
+#endif
 import SwiftUtils
 import HeapModule
 import Algorithms
@@ -160,9 +164,9 @@ class ZenzContext {
             // FIXME: there can be more efficient implementations, poossibly using Accelerate or other frameworks.
             var log_prob: Float = 0
             for index in ((i - 1) * Int(n_vocab)) ..< (i * Int(n_vocab)) {
-                log_prob += exp(logits[index])
+                log_prob += expf(logits[index])
             }
-            log_prob = log(log_prob)
+            log_prob = logf(log_prob)
             log_prob = logits[Int((i - 1) * Int(n_vocab) + Int(token_id))] - log_prob
             sum += log_prob
         }
@@ -228,7 +232,7 @@ class ZenzContext {
         for index in startIndex..<endIndex {
             let token = llama_token(index - startIndex)
             let repeat_penalty = Float(1.0 + token_to_penalty_weight[token, default: 0])
-            let v = exp(logits[index] / repeat_penalty)
+            let v = expf(logits[index] / repeat_penalty)
             exp_sum += v
 
             let tokenPieceData = Data((token_to_piece(token: token)).map(UInt8.init))
@@ -332,7 +336,7 @@ class ZenzContext {
             let endIndex = (i - startOffset) * Int(n_vocab)
             var tokenHeap = FixedSizeHeap<TokenAndExpLogit>(size: requestRichCandidates ? 3 : 1)
             for index in startIndex ..< endIndex {
-                let v = exp(logits[index])
+                let v = expf(logits[index])
                 exp_sum += v
                 tokenHeap.insertIfPossible(TokenAndExpLogit(token: llama_token(index - startIndex), expLogit: v))
             }
@@ -353,7 +357,7 @@ class ZenzContext {
                     let wholeResult = String(string.dropFirst(prompt.count))
                     return .wholeResult(wholeResult)
                 } else {
-                    let actual_exp: Float = exp(logits[startIndex + Int(token_id)])
+                    let actual_exp: Float = expf(logits[startIndex + Int(token_id)])
                     // 学習されたトークンであり、なおかつactual_expのある程度大きければ、学習されたトークンを優先する
                     let preferLearnedToken = is_learned_token[i].isLearned && actual_exp * is_learned_token[i].priority > maxItem.expLogit
                     if !preferLearnedToken {
@@ -380,7 +384,7 @@ class ZenzContext {
                     )
                 }
             }
-            score += log(maxItem.expLogit) - log(exp_sum)
+            score += logf(maxItem.expLogit) - logf(exp_sum)
         }
         return .pass(score: score, alternativeConstraints: altTokens.unordered.sorted(by: >).map {.init(probabilityRatio: $0.probabilityRatioToMaxProb, prefixConstraint: $0.constraint)})
     }
