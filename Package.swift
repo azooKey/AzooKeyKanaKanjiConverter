@@ -72,6 +72,39 @@ var targets: [Target] = [
     )
 ]
 
+#if os(Linux) && !canImport(Android)
+func checkObjcAvailability() -> Bool {
+    do {
+        let linkCheck = Process()
+        linkCheck.executableURL = URL(fileURLWithPath: "/bin/sh")
+        linkCheck.arguments = ["-c", "echo 'int main() { return 0; }' | clang -x c - -lobjc -o /dev/null"]
+        
+        try linkCheck.run()
+        linkCheck.waitUntilExit()
+        
+        if linkCheck.terminationStatus != 0 {
+            print("Cannot link with -lobjc")
+            return false
+        }
+        return true
+    } catch {
+        print("Error checking Objective-C availability: \(error)")
+        return false
+    }
+}
+
+if checkObjcAvailability() {
+    print("Objective-C runtime is available")
+    targets = targets.map { target in
+        if target.name == "CliTool" || target.name == "KanaKanjiConverterModuleWithDefaultDictionaryTests" {
+        let modifiedTarget = target
+        modifiedTarget.linkerSettings = [.linkedLibrary("objc")]
+        return modifiedTarget
+        }
+        return target
+    }
+}
+#endif
 
 #if os(Windows)
 targets.append(contentsOf: [
