@@ -53,8 +53,7 @@ public extension ConvertRequestOptions {
 
 
 public extension TextReplacer {
-    init(withDefaultEmojiDictionary: Bool) {
-        assert(withDefaultEmojiDictionary, "withDefaultEmojiDictionary must be true!")
+    static func withDefaultEmojiDictionary() -> Self {
         self.init(emojiDataProvider: {
             #if os(iOS) || os(watchOS) || os(tvOS) || os(visionOS)
             let directory = Bundle.module.bundleURL.appendingPathComponent("EmojiDictionary", isDirectory: true)
@@ -75,7 +74,7 @@ public extension TextReplacer {
                 directory.appendingPathComponent("emoji_all_E15.0.txt", isDirectory: false)
             }
             #else
-            Bundle.module.resourceURL!.appendingPathComponent("EmojiDictionary/emoji_all_E15.1.txt.gen", isDirectory: true)
+            return Bundle.module.resourceURL!.appendingPathComponent("EmojiDictionary/emoji_all_E15.1.txt", isDirectory: false)
             #endif
             }
         )
