@@ -18,7 +18,7 @@ public extension ConvertRequestOptions {
         memoryDirectoryURL: URL,
         sharedContainerURL: URL,
         zenzaiMode: ZenzaiMode = .off,
-        textReplacer: TextReplacer = TextReplacer(),
+        textReplacer: TextReplacer = TextReplacer(withDefaultEmojiDictionary: true),
         metadata: ConvertRequestOptions.Metadata?
     ) -> Self {
         #if os(iOS) || os(watchOS) || os(tvOS) || os(visionOS)
@@ -47,6 +47,23 @@ public extension ConvertRequestOptions {
             textReplacer: textReplacer,
             zenzaiMode: zenzaiMode,
             metadata: metadata
+        )
+    }
+}
+
+
+public extension TextReplacer {
+    init(withDefaultEmojiDictionary: Bool) {
+        assert(withDefaultEmojiDictionary, "withDefaultEmojiDictionary must be true!")
+        self.init(emojiDataProvider: {
+            #if os(iOS) || os(watchOS) || os(tvOS) || os(visionOS)
+            Bundle.module.bundleURL.appendingPathComponent("Dictionary", isDirectory: true)
+            #elseif os(macOS)
+            Bundle.module.resourceURL!.appendingPathComponent("Dictionary", isDirectory: true)
+            #else
+            Bundle.module.resourceURL!.appendingPathComponent("Dictionary", isDirectory: true)
+            #endif
+            }
         )
     }
 }
