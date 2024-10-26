@@ -57,11 +57,25 @@ public extension TextReplacer {
         assert(withDefaultEmojiDictionary, "withDefaultEmojiDictionary must be true!")
         self.init(emojiDataProvider: {
             #if os(iOS) || os(watchOS) || os(tvOS) || os(visionOS)
-            Bundle.module.bundleURL.appendingPathComponent("Dictionary", isDirectory: true)
+            let directory = Bundle.module.bundleURL.appendingPathComponent("EmojiDictionary", isDirectory: true)
+            return if #available(iOS 17.4, *) {
+                directory.appendingPathComponent("emoji_all_E15.1.txt", isDirectory: false)
+            } else if #available(iOS 16.4, *) {
+                directory.appendingPathComponent("emoji_all_E15.0.txt", isDirectory: false)
+            } else if #available(iOS 15.4, *) {
+                directory.appendingPathComponent("emoji_all_E14.0.txt", isDirectory: false)
+            } else {
+                directory.appendingPathComponent("emoji_all_E13.1.txt", isDirectory: false)
+            }
             #elseif os(macOS)
-            Bundle.module.resourceURL!.appendingPathComponent("Dictionary", isDirectory: true)
+            let directory = Bundle.module.resourceURL!.appendingPathComponent("EmojiDictionary", isDirectory: true)
+            return if #available(macOS 14.4, *) {
+                directory.appendingPathComponent("emoji_all_E15.1.txt", isDirectory: false)
+            } else {
+                directory.appendingPathComponent("emoji_all_E15.0.txt", isDirectory: false)
+            }
             #else
-            Bundle.module.resourceURL!.appendingPathComponent("Dictionary", isDirectory: true)
+            Bundle.module.resourceURL!.appendingPathComponent("EmojiDictionary/emoji_all_E15.1.txt.gen", isDirectory: true)
             #endif
             }
         )

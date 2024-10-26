@@ -84,7 +84,7 @@ public struct TextReplacer: Sendable {
         }
     }
 
-    public struct SearchResultItem: Sendable {
+    public struct SearchResultItem: Sendable, Equatable, Hashable {
         public var query: String
         public var text: String
         public var inputable: Bool {
