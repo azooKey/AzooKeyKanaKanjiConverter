@@ -18,7 +18,7 @@ public extension ConvertRequestOptions {
         memoryDirectoryURL: URL,
         sharedContainerURL: URL,
         zenzaiMode: ZenzaiMode = .off,
-        textReplacer: TextReplacer = TextReplacer(withDefaultEmojiDictionary: true),
+        textReplacer: TextReplacer = .withDefaultEmojiDictionary(),
         metadata: ConvertRequestOptions.Metadata?
     ) -> Self {
         #if os(iOS) || os(watchOS) || os(tvOS) || os(visionOS)
