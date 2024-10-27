@@ -158,7 +158,8 @@ jobs:
           ANDROID_ARCH: ${{ matrix.arch }}
         run: |
           set -x
-          sudo apt install ninja-build libicu-dev
+          sudo apt install libicu-dev
+          sudo apt install ninja-build
           cd sdk-config
           ${TOOLCHAIN}/bin/swift --version
           BUILD_SWIFT_PM=1 ${TOOLCHAIN}/bin/swift get-packages-and-swift-source.swift
