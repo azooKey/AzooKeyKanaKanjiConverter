@@ -11,7 +11,7 @@ import XCTest
 
 final class TextReplacerTests: XCTestCase {
     func testEmojiTextReplacer() throws {
-        let textReplacer = TextReplacer(withDefaultEmojiDictionary: true)
+        let textReplacer = TextReplacer.withDefaultEmojiDictionary()
         let searchResult = textReplacer.getSearchResult(query: "カニ", target: [.emoji])
         
         XCTAssertEqual(searchResult.count, 1)
