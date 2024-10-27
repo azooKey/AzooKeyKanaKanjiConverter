@@ -19,6 +19,11 @@ public struct TextReplacer: Sendable {
     private var emojiGroups: [EmojiGroup] = []
     private var nonBaseEmojis: Set<String> = []
 
+    /// データを正しく持てているかを確認するためのプロパティ
+    var isEmpty: Bool {
+        emojiSearchDict.isEmpty && emojiGroups.isEmpty && nonBaseEmojis.isEmpty
+    }
+
     public init(emojiDataProvider: () -> URL) {
         var emojiSearchDict: [String: [String]] = [:]
         var emojiGroups: [EmojiGroup] = []
