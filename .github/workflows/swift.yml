@@ -4,9 +4,7 @@
 name: Swift Build and Test
 on:
   push:
-    branches: ["main", "develop"]
   pull_request:
-    branches: ["main", "develop"]
 
 jobs:
   macos-build:
@@ -89,121 +87,24 @@ jobs:
       matrix:
         arch: [x86_64, aarch64, armv7]
         os: [ubuntu-latest]
-
-    env:
-      ANDROID_API_LEVEL: 24
+        swift-version:
+          [{
+            version: "6.0.2",
+            android: "24",
+            checksum: "d75615eac3e614131133c7cc2076b0b8fb4327d89dce802c25cd53e75e1881f4"
+          }]
 
     steps:
-      - name: Check for latest Swift toolchain
-        id: check
+      - name: Setup Swift toolchain
         run: |
-          LATEST_TOOLCHAIN_VERSION=$(curl -sL https://github.com/apple/swift/releases | grep -m1 swift-6.0 | cut -d- -f2)
-          SWIFT_TAG="swift-${LATEST_TOOLCHAIN_VERSION}-RELEASE"
-          echo "release-tag=$SWIFT_TAG" >> $GITHUB_OUTPUT
-
-      - name: Get cached Swift toolchain
-        id: cache-toolchain-ubuntu
-        uses: actions/cache@v4
-        with:
-          path: ~/${{ steps.check.outputs.release-tag }}-ubuntu22.04.tar.gz
-          key: swift-ubuntu-22.04-${{ steps.check.outputs.release-tag }}-toolchain
-          lookup-only: true
-      - name: Download toolchain
-        id: download
-        if: ${{ steps.cache-toolchain-ubuntu.outputs.cache-hit != 'true' }}
-        run: |
-          SWIFT_TAG="${{ steps.check.outputs.release-tag }}"
-          SWIFT_BRANCH="swift-$(echo ${{ steps.check.outputs.release-tag }} | cut -d- -f2)-release"
-          cd
-          wget -q https://download.swift.org/$SWIFT_BRANCH/ubuntu2204/$SWIFT_TAG/$SWIFT_TAG-ubuntu22.04.tar.gz
-          echo "downloaded latest Ubuntu toolchain: ${SWIFT_TAG}"
-
-      - name: Get cached Android SDK
-        id: cache-sdk
-        uses: actions/cache/restore@v4
-        with:
-          path: ~/swift-release-android-${{ matrix.arch }}-*-sdk.tar.xz
-          key: ${{ steps.check.outputs.release-tag }}-${{ matrix.arch }}-ndk-27b-sdk
-
-      - name: Clone Android SDK config
-        uses: actions/checkout@v4
-        with:
-          repository: finagolfin/swift-android-sdk
-          path: sdk-config
-      - name: Get cached ${{ steps.check.outputs.release-tag }} toolchain
-        if: ${{ steps.cache-toolchain-ubuntu.outputs.cache-hit == 'true' }}
-        id: cache-toolchain
-        uses: actions/cache/restore@v4
-        with:
-          path: ~/${{ steps.check.outputs.release-tag }}-ubuntu22.04.tar.gz
-          key: swift-ubuntu-22.04-${{ steps.check.outputs.release-tag }}-toolchain
-          fail-on-cache-miss: true
-      - name: Setup Swift Toolchain
-        run: |
-          set -x
-          cd sdk-config
-          tar xf ~/${{ steps.check.outputs.release-tag }}-ubuntu22.04.tar.gz
-          TOOLCHAIN=${PWD}/${{ steps.check.outputs.release-tag }}-ubuntu22.04/usr
-          perl -pi -e 's%canImport\(Bionic%canImport\(Android%' $TOOLCHAIN/bin/swift-package
-          perl -pi -e 's%import Bionic%import Android%' $TOOLCHAIN/bin/swift-package
-          perl -pi -e 's%TSCBasic, would be%TSCBasic, would %' $TOOLCHAIN/bin/swift-package
+          curl -sL https://download.swift.org/swift-${{ matrix.swift-version.version }}-release/ubuntu2204/swift-${{ matrix.swift-version.version }}-RELEASE/swift-${{ matrix.swift-version.version }}-RELEASE-ubuntu22.04.tar.gz -o swift-toolchain.tar.gz
+          tar xf swift-toolchain.tar.gz
+          TOOLCHAIN=${PWD}/swift-${{ matrix.swift-version.version }}-RELEASE-ubuntu22.04/usr
           echo "TOOLCHAIN=${TOOLCHAIN}" >> $GITHUB_ENV
           ${TOOLCHAIN}/bin/swift --version
 
-      - name: Build Swift release Android SDK
-        # build-script currently only works on ubuntu
-        if: ${{ (steps.cache-sdk.outputs.cache-hit != 'true') }}
-        env:
-          SWIFT_TAG: ${{ steps.check.outputs.release-tag }}
-          ANDROID_ARCH: ${{ matrix.arch }}
-        run: |
-          set -x
-          sudo apt install libicu-dev
-          sudo apt install ninja-build
-          cd sdk-config
-          ${TOOLCHAIN}/bin/swift --version
-          BUILD_SWIFT_PM=1 ${TOOLCHAIN}/bin/swift get-packages-and-swift-source.swift
-          SDK_NAME=$(ls | grep swift-release-android-${{ matrix.arch }})
-          SDK=`pwd`/$SDK_NAME
-
-          git apply swift-android.patch swift-android-foundation.patch swift-android-ci.patch swift-crypto.patch swift-system.patch
-          git apply swift-android-ci-except-trunk.patch swift-android-foundation-except-trunk.patch
-          git apply -C1 swift-android-foundation-armv7-except-trunk.patch
-
-          perl -pi -e 's%r26%ndk/27%' swift/stdlib/cmake/modules/AddSwiftStdlib.cmake
-          perl -pi -e "s%/data/data/com.termux/files%$SDK%g" $SDK/usr/lib/pkgconfig/sqlite3.pc
-          perl -pi -e 's%String\(cString: getpass%\"fake\" //%' swiftpm/Sources/PackageRegistryCommand/PackageRegistryCommand+Auth.swift
-          ./swift/utils/build-script -RA --skip-build-cmark --build-llvm=0 --android --android-ndk $ANDROID_NDK_LATEST_HOME --android-arch ${{ matrix.arch }} --android-api-level $ANDROID_API_LEVEL --build-swift-tools=0 --native-swift-tools-path=${TOOLCHAIN}/bin --native-clang-tools-path=${TOOLCHAIN}/bin --cross-compile-hosts=android-${{ matrix.arch }} --cross-compile-deps-path=$SDK --skip-local-build --build-swift-static-stdlib --xctest --skip-early-swift-driver --install-swift --install-libdispatch --install-foundation --install-xctest --install-destdir=$SDK --swift-install-components='clang-resource-dir-symlink;license;stdlib;sdk-overlay' --cross-compile-append-host-target-to-destdir=False -b -p --install-llbuild --sourcekit-lsp --skip-early-swiftsyntax
-
-          cp $ANDROID_NDK_LATEST_HOME/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/lib/$(echo ${{ matrix.arch }} | sed "s/v7//")-linux-android*/libc++_shared.so $SDK/usr/lib
-          patchelf --set-rpath \$ORIGIN $SDK/usr/lib/swift/android/libdispatch.so
-          patchelf --set-rpath \$ORIGIN/../..:\$ORIGIN $SDK/usr/lib/swift/android/lib[FXs]*.so
-          tar cJf ~/$SDK_NAME.tar.xz $SDK_NAME
-          rm -rf build/ $SDK_NAME llvm-project/
-
-      - name: Cache new SDK
-        if: ${{ (steps.cache-sdk.outputs.cache-hit != 'true') }}
-        uses: actions/cache/save@v4
-        with:
-          path: ~/swift-release-android-${{ matrix.arch }}-*-sdk.tar.xz
-          key: ${{ steps.check.outputs.release-tag }}-${{ matrix.arch }}-ndk-27b-sdk
       - name: Setup Swift release Android SDK
-        id: sdk-setup
-        run: |
-          set -x
-          cd sdk-config
-          tar xf ~/swift-release-android-${{ matrix.arch }}*-sdk.tar.xz
-          pushd swift-*-sdk
-          SDK_PATH=${PWD}
-          popd
-
-          ARCH_JSON=${SDK_PATH}/usr/swiftpm-android-${{ matrix.arch }}.json
-          NDK_PREBUILT=${ANDROID_NDK_LATEST_HOME}/toolchains/llvm/prebuilt/linux-x86_64
-
-          cat ${ARCH_JSON}
-
-          echo "SDK_PATH=${SDK_PATH}" >> $GITHUB_ENV
-          echo "ARCH_JSON=${ARCH_JSON}" >> $GITHUB_ENV
+        run: ${TOOLCHAIN}/bin/swift sdk install https://github.com/finagolfin/swift-android-sdk/releases/download/${{ matrix.swift-version.version }}/swift-${{ matrix.swift-version.version }}-RELEASE-android-${{ matrix.swift-version.android }}-0.1.artifactbundle.tar.gz --checksum ${{ matrix.swift-version.checksum }}
       - uses: actions/checkout@v4
         with:
           path: AzooKeyKanaKanjiConverter
@@ -211,7 +112,11 @@ jobs:
       - name: Build
         run: |
           cd AzooKeyKanaKanjiConverter
-          LLAMA_MOCK=1 ${TOOLCHAIN}/bin/swift build --build-tests --destination ${ARCH_JSON} -Xlinker -rpath -Xlinker \$ORIGIN/lib/swift/android
+          ARCH_TARGET="${{ matrix.arch }}-unknown-linux-android${{ matrix.swift-version.android }}"
+          if ${{ matrix.arch == 'armv7' }}; then
+              ARCH_TARGET="armv7-unknown-linux-androideabi${{ matrix.swift-version.android }}"
+          fi
+          LLAMA_MOCK=1 ${TOOLCHAIN}/bin/swift build --build-tests --swift-sdk $ARCH_TARGET
       - name: Get cached Termux app
         if: ${{ matrix.arch == 'x86_64' }}
         id: cache-termux
@@ -233,20 +138,15 @@ jobs:
           EOF
 
           mkdir -p pack/lib/swift/android
-          TARGET="x86_64-unknown-linux-android$ANDROID_API_LEVEL"
+          TARGET="x86_64-unknown-linux-android${{ matrix.swift-version.android }}"
 
           cp AzooKeyKanaKanjiConverter/.build/$TARGET/debug/AzooKeyKanakanjiConverterPackageTests.xctest pack
           echo 'adb shell /data/local/tmp/pack/AzooKeyKanakanjiConverterPackageTests.xctest' >> ~/test-toolchain.sh
 
           cp -r AzooKeyKanaKanjiConverter/.build/$TARGET/debug/AzooKeyKanakanjiConverter_KanaKanjiConverterModuleTests.resources pack
           cp -r AzooKeyKanaKanjiConverter/.build/$TARGET/debug/AzooKeyKanakanjiConverter_KanaKanjiConverterModuleWithDefaultDictionary.resources pack
-
-          cp sdk-config/swift-*-android-x86_64-*${ANDROID_API_LEVEL}-sdk/usr/lib/lib*so pack/lib
-          cp sdk-config/swift-*-android-x86_64-*${ANDROID_API_LEVEL}-sdk/usr/lib/swift/android/lib*so pack/lib/swift/android
-          mv pack/lib/libc++_shared.so pack/lib/swift/android
-          # need to free up some space or else the emulator fails to launch:
-          # ERROR   | Not enough space to create userdata partition. Available: 6086.191406 MB at /home/runner/.android/avd/../avd/test.avd, need 7372.800000 MB.
-          rm -rf sdk-config/${{ steps.check.outputs.release-tag }}-ubuntu22.04 */.build
+          cp ~/.config/swiftpm/swift-sdks/swift-${{ matrix.swift-version.version }}-RELEASE-android-${{ matrix.swift-version.android }}-*.artifactbundle/swift*sdk/android*sysroot/usr/lib/$(echo ${{ matrix.arch }} | sed "s/v7//")-linux-android*/${{ matrix.swift-version.android }}/lib*so pack
+          rm pack/lib{c,dl,log,m}.so
 
           chmod +x ~/test-toolchain.sh
 
