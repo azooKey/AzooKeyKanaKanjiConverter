@@ -1,10 +1,3 @@
-//
-//  File.swift
-//  AzooKeyKanakanjiConverter
-//
-//  Created by MiwaKeita on 2024/10/26.
-//
-
 @testable import KanaKanjiConverterModule
 @testable import KanaKanjiConverterModuleWithDefaultDictionary
 import XCTest
