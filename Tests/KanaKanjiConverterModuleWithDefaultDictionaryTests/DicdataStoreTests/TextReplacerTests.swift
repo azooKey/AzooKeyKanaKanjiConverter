@@ -15,9 +15,8 @@ final class TextReplacerTests: XCTestCase {
         XCTAssertEqual(Bundle.module.resourceURL, nil)
         let resourcesURL = Bundle.module.resourceURL!
         let emojiDictionaryURL = resourcesURL.appendingPathComponent("EmojiDictionary", isDirectory: true)
-        XCTAssertEqual(try! FileManager.default.contentsOfDirectory(at: emojiDictionaryURL, includingPropertiesForKeys: nil), [])
-        XCTAssertNotEqual(try! FileManager.default.contentsOfDirectory(at: emojiDictionaryURL, includingPropertiesForKeys: nil), [])
-        XCTAssertEqual(try! FileManager.default.contentsOfDirectory(at: resourcesURL, includingPropertiesForKeys: nil), [])
+        let emojiFileURL = emojiDictionaryURL.appendingPathComponent("emoji_all_E15.1.txt", isDirectory: false)
+        XCTAssertEqual(try! String.init(contentsOf: emojiFileURL, encoding: .utf8).count, 0)
 
         let textReplacer = TextReplacer.withDefaultEmojiDictionary()
         XCTAssertFalse(textReplacer.isEmpty)
