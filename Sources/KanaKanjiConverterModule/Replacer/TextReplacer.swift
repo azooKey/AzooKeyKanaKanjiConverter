@@ -31,6 +31,9 @@ public struct TextReplacer: Sendable {
             let string = try String(contentsOf: emojiDataProvider(), encoding: .utf8)
             let lines = string.components(separatedBy: .newlines)
             for line in lines {
+                if line.isEmpty {
+                    continue
+                }
                 let splited = line.split(separator: "\t", omittingEmptySubsequences: false)
                 guard splited.count == 3 else {
                     print("error", line)
