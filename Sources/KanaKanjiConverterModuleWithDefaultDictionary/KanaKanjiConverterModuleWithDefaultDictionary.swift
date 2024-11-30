@@ -73,6 +73,8 @@ public extension TextReplacer {
             } else {
                 directory.appendingPathComponent("emoji_all_E15.0.txt", isDirectory: false)
             }
+            #elseif canImport(WinSDK)
+            return Bundle.module.resourceURL!.appendingPathComponent("Resources/EmojiDictionary/emoji_all_E15.1.txt", isDirectory: false)
             #else
             return Bundle.module.resourceURL!.appendingPathComponent("EmojiDictionary/emoji_all_E15.1.txt", isDirectory: false)
             #endif
