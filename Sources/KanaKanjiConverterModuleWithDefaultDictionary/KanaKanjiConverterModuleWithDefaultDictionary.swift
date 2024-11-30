@@ -75,9 +75,12 @@ public extension TextReplacer {
                 directory.appendingPathComponent("emoji_all_E15.0.txt", isDirectory: false)
             }
             #else
-            return Bundle.module.resourceURL!
+            let url = Bundle.module.resourceURL!
                 .appendingPathComponent(directoryName, isDirectory: true)
                 .appendingPathComponent("emoji_all_E15.1.txt", isDirectory: false)
+            let content = try! String(contentsOf: url, encoding: .utf8)
+            print(url, content.count, content.prefix(10))
+            return url
             #endif
             }
         )
