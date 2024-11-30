@@ -33,7 +33,7 @@ public struct TextReplacer: Sendable {
             for line in lines {
                 let splited = line.split(separator: "\t", omittingEmptySubsequences: false)
                 guard splited.count == 3 else {
-                    debug("error", line)
+                    print("error", line)
                     self.emojiSearchDict = emojiSearchDict
                     self.emojiGroups = emojiGroups
                     return
@@ -51,7 +51,7 @@ public struct TextReplacer: Sendable {
             self.emojiGroups = emojiGroups
             self.emojiSearchDict = emojiSearchDict
         } catch {
-            debug("Error: 絵文字データを読み込めませんでした。このエラーは深刻ではありません。 Description: \(error.localizedDescription)")
+            print("Error: 絵文字データを読み込めませんでした。このエラーは深刻ではありません。 Description: \(error.localizedDescription)")
             self.emojiSearchDict = emojiSearchDict
             self.emojiGroups = emojiGroups
             return
