@@ -14,7 +14,7 @@ final class TextReplacerTests: XCTestCase {
         // For debugging
         XCTAssertEqual(Bundle.module.resourceURL, nil)
         XCTAssertEqual(try! FileManager.default.contentsOfDirectory(at: Bundle.module.resourceURL!, includingPropertiesForKeys: nil), [])
-        XCTAssertEqual(try! FileManager.default.contentsOfDirectory(at: Bundle.module.resourceURL!, includingPropertiesForKeys: nil), [])
+        XCTAssertNotEqual(try! FileManager.default.contentsOfDirectory(at: Bundle.module.resourceURL!, includingPropertiesForKeys: nil), [])
 
         let textReplacer = TextReplacer.withDefaultEmojiDictionary()
         XCTAssertFalse(textReplacer.isEmpty)
