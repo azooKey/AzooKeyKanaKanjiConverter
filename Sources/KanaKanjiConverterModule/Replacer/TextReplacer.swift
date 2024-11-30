@@ -19,13 +19,21 @@ public struct TextReplacer: Sendable {
     private var emojiGroups: [EmojiGroup] = []
     private var nonBaseEmojis: Set<String> = []
 
+    /// データを正しく持てているかを確認するためのプロパティ
+    var isEmpty: Bool {
+        emojiSearchDict.isEmpty && emojiGroups.isEmpty && nonBaseEmojis.isEmpty
+    }
+
     public init(emojiDataProvider: () -> URL) {
         var emojiSearchDict: [String: [String]] = [:]
         var emojiGroups: [EmojiGroup] = []
         do {
             let string = try String(contentsOf: emojiDataProvider(), encoding: .utf8)
-            let lines = string.split(separator: "\n")
+            let lines = string.components(separatedBy: .newlines)
             for line in lines {
+                if line.isEmpty {
+                    continue
+                }
                 let splited = line.split(separator: "\t", omittingEmptySubsequences: false)
                 guard splited.count == 3 else {
                     debug("error", line)
@@ -84,7 +92,7 @@ public struct TextReplacer: Sendable {
         }
     }
 
-    public struct SearchResultItem: Sendable {
+    public struct SearchResultItem: Sendable, Equatable, Hashable {
         public var query: String
         public var text: String
         public var inputable: Bool {
