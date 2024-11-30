@@ -12,8 +12,9 @@ import XCTest
 final class TextReplacerTests: XCTestCase {
     func testEmojiTextReplacer() throws {
         // For debugging
-        XCTAssertFalse(try! FileManager.default.contentsOfDirectory(atPath: Bundle.module.resourceURL!.absoluteString).isEmpty)
-        XCTAssertTrue(try! FileManager.default.contentsOfDirectory(atPath: Bundle.module.resourceURL!.absoluteString).isEmpty)
+        XCTAssertEqual(Bundle.module.resourceURL!.path(), "")
+        XCTAssertFalse(try! FileManager.default.contentsOfDirectory(atPath: Bundle.module.resourceURL!.path()).isEmpty)
+        XCTAssertTrue(try! FileManager.default.contentsOfDirectory(atPath: Bundle.module.resourceURL!.path()).isEmpty)
 
         let textReplacer = TextReplacer.withDefaultEmojiDictionary()
         XCTAssertFalse(textReplacer.isEmpty)
