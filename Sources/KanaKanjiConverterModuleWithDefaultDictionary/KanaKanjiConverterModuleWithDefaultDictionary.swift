@@ -55,8 +55,9 @@ public extension ConvertRequestOptions {
 public extension TextReplacer {
     static func withDefaultEmojiDictionary() -> Self {
         self.init(emojiDataProvider: {
+            let directoryName = "EmojiDictionary"
             #if os(iOS) || os(watchOS) || os(tvOS) || os(visionOS)
-            let directory = Bundle.module.bundleURL.appendingPathComponent("EmojiDictionary", isDirectory: true)
+            let directory = Bundle.module.bundleURL.appendingPathComponent(directoryName, isDirectory: true)
             return if #available(iOS 17.4, *) {
                 directory.appendingPathComponent("emoji_all_E15.1.txt", isDirectory: false)
             } else if #available(iOS 16.4, *) {
@@ -67,16 +68,16 @@ public extension TextReplacer {
                 directory.appendingPathComponent("emoji_all_E13.1.txt", isDirectory: false)
             }
             #elseif os(macOS)
-            let directory = Bundle.module.resourceURL!.appendingPathComponent("EmojiDictionary", isDirectory: true)
+            let directory = Bundle.module.resourceURL!.appendingPathComponent(directoryName, isDirectory: true)
             return if #available(macOS 14.4, *) {
                 directory.appendingPathComponent("emoji_all_E15.1.txt", isDirectory: false)
             } else {
                 directory.appendingPathComponent("emoji_all_E15.0.txt", isDirectory: false)
             }
-            #elseif canImport(WinSDK)
-            return Bundle.module.resourceURL!.appendingPathComponent("EmojiDictionary/emoji_all_E15.1.txt", isDirectory: false)
             #else
-            return Bundle.module.resourceURL!.appendingPathComponent("EmojiDictionary/emoji_all_E15.1.txt", isDirectory: false)
+            return Bundle.module.resourceURL!
+                .appendingPathComponent(directoryName, isDirectory: true)
+                .appendingPathComponent("emoji_all_E15.1.txt", isDirectory: false)
             #endif
             }
         )
