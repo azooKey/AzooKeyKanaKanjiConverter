@@ -29,7 +29,7 @@ public struct TextReplacer: Sendable {
         var emojiGroups: [EmojiGroup] = []
         do {
             let string = try String(contentsOf: emojiDataProvider(), encoding: .utf8)
-            let lines = string.split(separator: "\n")
+            let lines = string.components(separatedBy: .newlines)
             for line in lines {
                 let splited = line.split(separator: "\t", omittingEmptySubsequences: false)
                 guard splited.count == 3 else {
