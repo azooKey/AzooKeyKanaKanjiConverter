@@ -61,6 +61,17 @@ public struct TextReplacer: Sendable {
         }
     }
 
+    /// 動作しない`TextReplacer`を構築するためのイニシャライザ
+    /// - parameters:
+    ///   - isEmpty: 入力
+    private init(isEmpty: Bool) {
+        assert(isEmpty)
+    }
+
+    public static var empty: Self {
+        Self(isEmpty: true)
+    }
+
     @available(*, deprecated, renamed: "init(emojiDataProvider:)", message: "it be removed in AzooKeyKanaKanjiConverter v1.0")
     public init() {
         self.init {

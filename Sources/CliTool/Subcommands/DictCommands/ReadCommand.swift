@@ -116,6 +116,7 @@ extension Subcommands.Dict {
                 dictionaryResourceURL: URL(fileURLWithPath: self.dictionaryDirectory),
                 memoryDirectoryURL: URL(fileURLWithPath: self.dictionaryDirectory),
                 sharedContainerURL: URL(fileURLWithPath: self.dictionaryDirectory),
+                textReplacer: .empty,
                 metadata: .init(versionString: "anco for debugging")
             )
         }

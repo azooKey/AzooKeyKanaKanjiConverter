@@ -29,7 +29,7 @@ public struct ConvertRequestOptions: Sendable {
     ///   - sharedContainerURL: ユーザ辞書など、キーボード外で書き込んだ設定データの保存されているディレクトリを指定します。
     ///   - textReplacer: 予測変換のための置換機を指定します。
     ///   - metadata: メタデータを指定します。詳しくは`ConvertRequestOptions.Metadata`を参照してください。
-    public init(N_best: Int = 10, requireJapanesePrediction: Bool, requireEnglishPrediction: Bool, keyboardLanguage: KeyboardLanguage, typographyLetterCandidate: Bool = false, unicodeCandidate: Bool = true, englishCandidateInRoman2KanaInput: Bool = false, fullWidthRomanCandidate: Bool = false, halfWidthKanaCandidate: Bool = false, learningType: LearningType, maxMemoryCount: Int = 65536, shouldResetMemory: Bool = false, dictionaryResourceURL: URL, memoryDirectoryURL: URL, sharedContainerURL: URL, textReplacer: TextReplacer = TextReplacer(), zenzaiMode: ZenzaiMode = .off, metadata: ConvertRequestOptions.Metadata?) {
+    public init(N_best: Int = 10, requireJapanesePrediction: Bool, requireEnglishPrediction: Bool, keyboardLanguage: KeyboardLanguage, typographyLetterCandidate: Bool = false, unicodeCandidate: Bool = true, englishCandidateInRoman2KanaInput: Bool = false, fullWidthRomanCandidate: Bool = false, halfWidthKanaCandidate: Bool = false, learningType: LearningType, maxMemoryCount: Int = 65536, shouldResetMemory: Bool = false, dictionaryResourceURL: URL, memoryDirectoryURL: URL, sharedContainerURL: URL, textReplacer: TextReplacer, zenzaiMode: ZenzaiMode = .off, metadata: ConvertRequestOptions.Metadata?) {
         self.N_best = N_best
         self.requireJapanesePrediction = requireJapanesePrediction
         self.requireEnglishPrediction = requireEnglishPrediction
@@ -50,25 +50,49 @@ public struct ConvertRequestOptions: Sendable {
         self.dictionaryResourceURL = dictionaryResourceURL
     }
 
-    package init(N_best: Int = 10, requireJapanesePrediction: Bool, requireEnglishPrediction: Bool, keyboardLanguage: KeyboardLanguage, typographyLetterCandidate: Bool = false, unicodeCandidate: Bool = true, englishCandidateInRoman2KanaInput: Bool = false, fullWidthRomanCandidate: Bool = false, halfWidthKanaCandidate: Bool = false, learningType: LearningType, maxMemoryCount: Int = 65536, shouldResetMemory: Bool = false, dictionaryResourceURL: URL, memoryDirectoryURL: URL, sharedContainerURL: URL, textReplacer: TextReplacer = TextReplacer(), zenzaiMode: ZenzaiMode = .off, metadata: ConvertRequestOptions.Metadata?, requestQuery: RequestQuery) {
-        self.N_best = N_best
-        self.requireJapanesePrediction = requireJapanesePrediction
-        self.requireEnglishPrediction = requireEnglishPrediction
-        self.keyboardLanguage = keyboardLanguage
-        self.typographyLetterCandidate = typographyLetterCandidate
-        self.unicodeCandidate = unicodeCandidate
-        self.englishCandidateInRoman2KanaInput = englishCandidateInRoman2KanaInput
-        self.fullWidthRomanCandidate = fullWidthRomanCandidate
-        self.halfWidthKanaCandidate = halfWidthKanaCandidate
-        self.learningType = learningType
-        self.maxMemoryCount = maxMemoryCount
-        self.shouldResetMemory = shouldResetMemory
-        self.memoryDirectoryURL = memoryDirectoryURL
-        self.sharedContainerURL = sharedContainerURL
-        self.metadata = metadata
-        self.textReplacer = textReplacer
-        self.zenzaiMode = zenzaiMode
-        self.dictionaryResourceURL = dictionaryResourceURL
+    /// 変換リクエストに必要な設定データ
+    ///
+    /// - parameters:
+    ///   - N_best: 変換候補の数。上位`N`件までの言語モデル上の妥当性を保証します。大きくすると計算量が増加します。
+    ///   - requireJapanesePrediction: 日本語の予測変換候補の必要性。`false`にすると、日本語の予測変換候補を出力しなくなります。
+    ///   - requireEnglishPrediction: 英語の予測変換候補の必要性。`false`にすると、英語の予測変換候補を出力しなくなります。ローマ字入力を用いた日本語入力では`false`にした方が良いでしょう。
+    ///   - keyboardLanguage: キーボードの言語を指定します。
+    ///   - typographyLetterCandidate: `true`の場合、「おしゃれなフォント」での英数字変換候補が出力に含まれるようになります。詳しくは`KanaKanjiConverter.typographicalCandidates(_:)`を参照してください。
+    ///   - unicodeCandidate: `true`の場合、`U+xxxx`のような入力に対してUnicodeの変換候補が出力に含まれるようになります。詳しくは`KanaKanjiConverter.unicodeCandidates(_:)`を参照してください。`
+    ///   - englishCandidateInRoman2KanaInput: `true`の場合、日本語ローマ字入力時に英語変換候補を出力します。`false`の場合、ローマ字入力時に英語変換候補を出力しません。
+    ///   - fullWidthRomanCandidate: `true`の場合、全角英数字の変換候補が出力に含まれるようになります。
+    ///   - halfWidthKanaCandidate: `true`の場合、半角カナの変換候補が出力に含まれるようになります。
+    ///   - learningType: 学習モードを指定します。詳しくは`LearningType`を参照してください。
+    ///   - maxMemoryCount: 学習が有効な場合に保持するデータの最大数を指定します。`0`の場合`learningType`を`nothing`に指定する方が適切です。
+    ///   - shouldResetMemory: `true`の場合、変換を開始する前に学習データをリセットします。
+    ///   - dictionaryResourceURL: 内蔵辞書データの読み出し先を指定します。
+    ///   - memoryDirectoryURL: 学習データの保存先を指定します。書き込み可能なディレクトリを指定してください。
+    ///   - sharedContainerURL: ユーザ辞書など、キーボード外で書き込んだ設定データの保存されているディレクトリを指定します。
+    ///   - textReplacer: 予測変換のための置換機を指定します。
+    ///   - metadata: メタデータを指定します。詳しくは`ConvertRequestOptions.Metadata`を参照してください。
+    @available(*, deprecated, message: "it be removed in AzooKeyKanaKanjiConverter v1.0")
+    public init(N_best: Int = 10, requireJapanesePrediction: Bool, requireEnglishPrediction: Bool, keyboardLanguage: KeyboardLanguage, typographyLetterCandidate: Bool = false, unicodeCandidate: Bool = true, englishCandidateInRoman2KanaInput: Bool = false, fullWidthRomanCandidate: Bool = false, halfWidthKanaCandidate: Bool = false, learningType: LearningType, maxMemoryCount: Int = 65536, shouldResetMemory: Bool = false, dictionaryResourceURL: URL, memoryDirectoryURL: URL, sharedContainerURL: URL, zenzaiMode: ZenzaiMode = .off, metadata: ConvertRequestOptions.Metadata?) {
+        self.init(
+            N_best: N_best,
+            requireJapanesePrediction: requireJapanesePrediction,
+            requireEnglishPrediction: requireEnglishPrediction,
+            keyboardLanguage: keyboardLanguage,
+            typographyLetterCandidate: typographyLetterCandidate,
+            unicodeCandidate: unicodeCandidate,
+            englishCandidateInRoman2KanaInput: englishCandidateInRoman2KanaInput,
+            fullWidthRomanCandidate: fullWidthRomanCandidate,
+            halfWidthKanaCandidate: halfWidthKanaCandidate,
+            learningType: learningType,
+            maxMemoryCount: maxMemoryCount,
+            shouldResetMemory: shouldResetMemory,
+            dictionaryResourceURL: dictionaryResourceURL,
+            memoryDirectoryURL: memoryDirectoryURL,
+            sharedContainerURL: sharedContainerURL,
+            // MARK: using deprecated initializer here
+            textReplacer: TextReplacer(),
+            zenzaiMode: zenzaiMode,
+            metadata: metadata
+        )
     }
 
     public var N_best: Int
@@ -117,6 +141,7 @@ public struct ConvertRequestOptions: Sendable {
             memoryDirectoryURL: (try? FileManager.default.url(for: .libraryDirectory, in: .userDomainMask, appropriateFor: nil, create: false)) ?? Bundle.main.bundleURL,
             // dummy data, won't work
             sharedContainerURL: Bundle.main.bundleURL,
+            textReplacer: .empty,
             metadata: nil
         )
     }
