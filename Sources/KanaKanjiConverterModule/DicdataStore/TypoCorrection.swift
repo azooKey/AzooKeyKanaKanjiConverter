@@ -130,7 +130,7 @@ extension ComposingText {
             }
             return nil
         }
-        while var (convertTargetElements, lastElement, count) = stack.popLast() {
+        while case .some((var convertTargetElements, let lastElement, let count)) = stack.popLast() {
             if rightIndexRange.contains(count + left - 1) {
                 if let convertTarget = ComposingText.getConvertTargetIfRightSideIsValid(lastElement: lastElement, of: self.input, to: count + left, convertTargetElements: convertTargetElements)?.map({$0.toKatakana()}) {
                     stringToInfo.append((convertTarget, (count + left - 1)))
