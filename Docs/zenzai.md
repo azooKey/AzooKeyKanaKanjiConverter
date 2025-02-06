@@ -8,7 +8,7 @@ let options = ConvertRequestOptions.withDefaultDictionary(
     zenzaiMode: .on(
         weight: url,
         inferenceLimit: 1,
-        versionDependentMode: .v2(.init(profile: "三輪/azooKeyの開発者", leftSideContext: "私の名前は"))
+        versionDependentMode: .v3(.init(profile: "三輪/azooKeyの開発者", leftSideContext: "私の名前は"))
     )
     // ...
 )

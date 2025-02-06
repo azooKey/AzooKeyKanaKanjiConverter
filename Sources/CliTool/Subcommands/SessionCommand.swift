@@ -25,12 +25,16 @@ extension Subcommands {
         var roman2kana = false
         @Option(name: [.customLong("config_zenzai_inference_limit")], help: "inference limit for zenzai.")
         var configZenzaiInferenceLimit: Int = .max
-        @Flag(name: [.customLong("config_zenzai_rich_n_best")], help: "enable profile prompting for zenz-v2.")
+        @Flag(name: [.customLong("config_zenzai_rich_n_best")], help: "enable rich n_best generation for zenzai.")
         var configRequestRichCandidates = false
-        @Option(name: [.customLong("config_profile")], help: "enable rich n_best generation for zenzai.")
-        var configZenzV2Profile: String?
+        @Option(name: [.customLong("config_profile")], help: "enable profile prompting for zenz-v2 and later.")
+        var configZenzaiProfile: String?
+        @Option(name: [.customLong("config_topic")], help: "enable topic prompting for zenz-v3 and later.")
+        var configZenzaiTopic: String?
         @Flag(name: [.customLong("zenz_v1")], help: "Use zenz_v1 model.")
         var zenzV1 = false
+        @Flag(name: [.customLong("zenz_v2")], help: "Use zenz_v2 model.")
+        var zenzV2 = false
 
         static let configuration = CommandConfiguration(commandName: "session", abstract: "Start session for incremental input.")
 
@@ -192,8 +196,10 @@ extension Subcommands {
         func requestOptions(memoryDirectory: URL, leftSideContext: String) -> ConvertRequestOptions {
             let zenzaiVersionDependentMode: ConvertRequestOptions.ZenzaiVersionDependentMode = if self.zenzV1 {
                 .v1
+            } else if self.zenzV2 {
+                .v2(.init(profile: self.configZenzaiProfile, leftSideContext: leftSideContext))
             } else {
-                .v2(.init(profile: self.configZenzV2Profile, leftSideContext: leftSideContext))
+                .v3(.init(profile: self.configZenzaiProfile, topic: self.configZenzaiTopic, leftSideContext: leftSideContext))
             }
             var option: ConvertRequestOptions = .withDefaultDictionary(
                 N_best: self.onlyWholeConversion ? max(self.configNBest, self.displayTopN) : self.configNBest,

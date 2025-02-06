@@ -62,7 +62,7 @@ import SwiftUtils
             return []
         }
         guard options.zenzaiMode.versionDependentMode.version == .v2 else {
-            print("next character prediction requires zenz-v2 models, not zenz-v1")
+            print("next character prediction requires zenz-v2 models, not zenz-v1 nor zenz-v3 and later")
             return []
         }
         let results = zenz.predictNextCharacter(leftSideContext: leftSideContext, count: count)

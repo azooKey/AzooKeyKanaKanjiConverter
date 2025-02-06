@@ -263,30 +263,75 @@ class ZenzContext {
             conditions.append("辞書:\(userDictionaryPrompt)")
         }
         // プロフィールがある場合はこれを条件に追加
-        if case .v2(let mode) = versionDependentConfig, let profile = mode.profile, !profile.isEmpty {
-            let pf = profile.suffix(25)
-            conditions.append("プロフィール:\(profile)")
+        switch versionDependentConfig {
+        case .v1: break
+        case .v2(let mode):
+            if let profile = mode.profile, !profile.isEmpty {
+                let pf = profile.suffix(25)
+                conditions.append("プロフィール:\(pf)")
+            }
+        case .v3(let mode):
+            if let profile = mode.profile, !profile.isEmpty {
+                let pf = profile.suffix(25)
+                conditions.append("\u{EE03}\(pf)")
+            }
+            if let topic = mode.topic, !topic.isEmpty {
+                let tp = topic.suffix(25)
+                conditions.append("\u{EE04}\(tp)")
+            }
+            if let style = mode.style, !style.isEmpty {
+                let st = style.suffix(25)
+                conditions.append("\u{EE05}\(st)")
+            }
+            if let preference = mode.preference, !preference.isEmpty {
+                let pr = preference.suffix(25)
+                conditions.append("\u{EE06}\(pr)")
+            }
         }
         // 左文脈を取得
         // プロフィールがある場合はこれを条件に追加
-        let leftSideContext = if case .v2(let mode) = versionDependentConfig, let leftSideContext = mode.leftSideContext {
-            String(leftSideContext.suffix(40))
-        } else {
-            ""
+        let leftSideContext: String = switch versionDependentConfig {
+        case .v1: ""
+        case .v2(let mode):
+            if let leftSideContext = mode.leftSideContext {
+                String(leftSideContext.suffix(40))
+            } else {
+                ""
+            }
+        case .v3(let mode):
+            if let leftSideContext = mode.leftSideContext {
+                String(leftSideContext.suffix(40))
+            } else {
+                ""
+            }
         }
         let inputTag = "\u{EE00}"
         let outputTag = "\u{EE01}"
         let contextTag = "\u{EE02}"
         // プロンプトを作成
-        let prompt: String = if !conditions.isEmpty {
-            // 条件がemptyでない場合は「・」でつなぎ、「発言:」を末尾に追加
-            inputTag + input + contextTag + conditions.joined(separator: "・") + "・発言:\(leftSideContext)" + outputTag
-        } else if !leftSideContext.isEmpty {
-            // 条件がemptyの場合、単にleftSideContextを追加
-            inputTag + input + contextTag + leftSideContext + outputTag
-        } else {
-            // そのまま
+        let prompt: String = switch versionDependentConfig {
+        case .v1:
             inputTag + input + outputTag
+        case .v2:
+            if !conditions.isEmpty {
+                // 条件がemptyでない場合は「・」でつなぎ、「発言:」を末尾に追加
+                inputTag + input + contextTag + conditions.joined(separator: "・") + "・発言:\(leftSideContext)" + outputTag
+            } else if !leftSideContext.isEmpty {
+                // 条件がemptyの場合、単にleftSideContextを追加
+                inputTag + input + contextTag + leftSideContext + outputTag
+            } else {
+                // そのまま
+                inputTag + input + outputTag
+            }
+        case .v3:
+            if !leftSideContext.isEmpty {
+                // leftSideContextがEmptyでなければ下記の通り処理
+                // contextがinputに前置されるように変更された(KV-cachingの効率化のため)
+                conditions.joined(separator: "") + contextTag + leftSideContext + inputTag + input + outputTag
+            } else {
+                // そのまま
+                conditions.joined(separator: "") + inputTag + input + outputTag
+            }
         }
         // Therefore, tokens = prompt_tokens + candidate_tokens is an appropriate operation.
         let prompt_tokens = self.tokenize(text: prompt, add_bos: true, add_eos: false)
