@@ -67,7 +67,7 @@ enum ZenzError: LocalizedError {
     }
 }
 
-class ZenzContext {
+final class ZenzContext {
     private var model: OpaquePointer
     private var context: OpaquePointer
     private var prevInput: [llama_token] = []
@@ -197,6 +197,42 @@ class ZenzContext {
         }
     }
 
+    /// ピュアな貪欲法による生成を行って返す
+    func pure_greedy_decoding(leftSideContext: String, maxCount: Int = .max) -> String {
+        var prompt_tokens = self.tokenize(text: leftSideContext, add_bos: false)
+        let initial_count = prompt_tokens.count
+        let eos_token = llama_token_eos(model)
+        while prompt_tokens.count - initial_count < maxCount {
+            let startOffset = prompt_tokens.count - 1
+            guard let logits = self.get_logits(tokens: prompt_tokens, logits_start_index: startOffset) else {
+                print("logits unavailable")
+                return ""
+            }
+            let n_vocab = llama_n_vocab(model)
+            let startIndex = (prompt_tokens.count - 1 - startOffset) * Int(n_vocab)
+            let endIndex = (prompt_tokens.count - startOffset) * Int(n_vocab)
+            // Min-Heapを使用してn-bestを計算
+            var max_token: llama_token = -1
+            var max_value: Float = Float.infinity * -1
+            for index in startIndex..<endIndex {
+                let token = llama_token(index - startIndex)
+                if max_value < logits[index] {
+                    max_token = token
+                    max_value = logits[index]
+                }
+            }
+            if max_token == eos_token {
+                break
+            } else {
+                prompt_tokens.append(max_token)
+            }
+        }
+
+        // Heapからソートして結果を取り出す
+        let cchars: [CChar] = prompt_tokens.dropFirst(initial_count).flatMap(self.token_to_piece) + [0]
+        return String(cString: cchars)
+    }
+
     func predict_next_character(leftSideContext: String, count: Int) -> [(character: Character, value: Float)] {
         struct NextCharacterCandidate: Comparable {
             static func < (lhs: NextCharacterCandidate, rhs: NextCharacterCandidate) -> Bool {
@@ -250,7 +286,6 @@ class ZenzContext {
     }
 
     func evaluate_candidate(input: String, candidate: Candidate, requestRichCandidates: Bool, versionDependentConfig: ConvertRequestOptions.ZenzaiVersionDependentMode) -> CandidateEvaluationResult {
-        print("Evaluate", candidate)
         // For zenz-v1 model, \u{EE00} is a token used for 'start query', and \u{EE01} is a token used for 'start answer'
         // We assume \u{EE01}\(candidate) is always splitted into \u{EE01}_\(candidate) by zenz-v1 tokenizer
         var userDictionaryPrompt: String = ""

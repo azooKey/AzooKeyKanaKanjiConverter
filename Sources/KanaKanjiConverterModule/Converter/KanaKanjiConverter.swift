@@ -40,7 +40,7 @@ import SwiftUtils
         self.lastData = nil
     }
 
-    private func getModel(modelURL: URL) -> Zenz? {
+    package func getModel(modelURL: URL) -> Zenz? {
         if let model = self.zenz, model.resourceURL == modelURL {
             self.zenzStatus = "load \(modelURL.absoluteString)"
             return model

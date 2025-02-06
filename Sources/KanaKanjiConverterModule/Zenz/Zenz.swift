@@ -1,35 +1,33 @@
 import Foundation
 import SwiftUtils
 
-@MainActor final class Zenz {
+@MainActor package final class Zenz {
     package var resourceURL: URL
     private var zenzContext: ZenzContext?
     init(resourceURL: URL) throws {
         self.resourceURL = resourceURL
         do {
-            #if canImport(Darwin)
+#if canImport(Darwin)
             if #available(iOS 16, macOS 13, *) {
                 self.zenzContext = try ZenzContext.createContext(path: resourceURL.path(percentEncoded: false))
             } else {
                 // this is not percent-encoded
                 self.zenzContext = try ZenzContext.createContext(path: resourceURL.path)
             }
-            #elseif canImport(WinSDK)
+#elseif canImport(WinSDK)
             // remove first "/" from path (for windows)
             self.zenzContext = try ZenzContext.createContext(path: String(resourceURL.path.dropFirst()))
-            #else
+#else
             // this is not percent-encoded
             self.zenzContext = try ZenzContext.createContext(path: resourceURL.path)
-            #endif
+#endif
             debug("Loaded model \(resourceURL.lastPathComponent)")
         } catch {
             throw error
         }
     }
 
-    func startSession() {}
-
-    func endSession() {
+    package func endSession() {
         try? self.zenzContext?.reset_context()
     }
 
@@ -50,5 +48,9 @@ import SwiftUtils
         }
         let result = zenzContext.predict_next_character(leftSideContext: leftSideContext, count: count)
         return result
+    }
+
+    package func pureGreedyDecoding(pureInput: String, maxCount: Int = .max) -> String {
+        return self.zenzContext?.pure_greedy_decoding(leftSideContext: pureInput, maxCount: maxCount) ?? ""
     }
 }

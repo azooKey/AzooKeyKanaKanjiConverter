@@ -17,22 +17,24 @@ extension Subcommands {
         var zenzWeightPath: String = ""
         @Option(name: [.customLong("config_zenzai_inference_limit")], help: "inference limit for zenzai.")
         var configZenzaiInferenceLimit: Int = .max
+        @Flag(name: [.customLong("config_zenzai_ignore_left_context")], help: "ignore left_context")
+        var configZenzaiIgnoreLeftContext: Bool = false
 
         static let configuration = CommandConfiguration(commandName: "evaluate", abstract: "Evaluate quality of Conversion for input data.")
 
-        private func parseInputFile() throws -> [InputItem] {
+        private func parseInputFile() throws -> [EvaluationInputItem] {
             let url = URL(fileURLWithPath: self.inputFile)
             let data = try Data(contentsOf: url)
-            return try JSONDecoder().decode([InputItem].self, from: data)
+            return try JSONDecoder().decode([EvaluationInputItem].self, from: data)
         }
 
         mutating func run() async throws {
             let inputItems = try parseInputFile()
-            let requestOptions = requestOptions()
             let converter = await KanaKanjiConverter()
-            let start = Date()
+            var executionTime: Double = 0
             var resultItems: [EvaluateItem] = []
             for item in inputItems {
+                let start = Date()
                 // セットアップ
                 await converter.sendToDicdataStore(.importDynamicUserDict(
                     (item.user_dictionary ?? []).map {
@@ -42,7 +44,7 @@ extension Subcommands {
                 // 変換
                 var composingText = ComposingText()
                 composingText.insertAtCursorPosition(item.query, inputStyle: .direct)
-
+                let requestOptions = self.requestOptions(leftSideContext: item.left_context)
                 let result = await converter.requestCandidates(composingText, options: requestOptions)
                 let mainResults = result.mainResults.filter {
                     $0.data.reduce(into: "", {$0.append(contentsOf: $1.ruby)}) == item.query.toKatakana()
@@ -51,16 +53,17 @@ extension Subcommands {
                     EvaluateItem(
                         query: item.query,
                         answers: item.answer,
+                        left_context: item.left_context,
                         outputs: mainResults.prefix(self.configNBest).map {
                             EvaluateItemOutput(text: $0.text, score: Double($0.value))
                         }
                     )
                 )
+                executionTime += Date().timeIntervalSince(start)
                 // Explictly reset state
                 await converter.stopComposition()
             }
-            let end = Date()
-            var result = EvaluateResult(n_best: self.configNBest, execution_time: end.timeIntervalSince(start), items: resultItems)
+            var result = EvaluateResult(n_best: self.configNBest, execution_time: executionTime, items: resultItems)
             if stable {
                 result.execution_time = 0
                 result.timestamp = 0
@@ -83,7 +86,7 @@ extension Subcommands {
             }
         }
 
-        func requestOptions() -> ConvertRequestOptions {
+        func requestOptions(leftSideContext: String?) -> ConvertRequestOptions {
             var option: ConvertRequestOptions = .withDefaultDictionary(
                 N_best: self.configNBest,
                 requireJapanesePrediction: false,
@@ -99,7 +102,7 @@ extension Subcommands {
                 shouldResetMemory: false,
                 memoryDirectoryURL: URL(fileURLWithPath: ""),
                 sharedContainerURL: URL(fileURLWithPath: ""),
-                zenzaiMode: self.zenzWeightPath.isEmpty ? .off : .on(weight: URL(string: self.zenzWeightPath)!, inferenceLimit: self.configZenzaiInferenceLimit),
+                zenzaiMode: self.zenzWeightPath.isEmpty ? .off : .on(weight: URL(string: self.zenzWeightPath)!, inferenceLimit: self.configZenzaiInferenceLimit, versionDependentMode: .v2(.init(leftSideContext: self.configZenzaiIgnoreLeftContext ? nil : leftSideContext))),
                 metadata: .init(versionString: "anco for debugging")
             )
             option.requestQuery = .完全一致
@@ -107,7 +110,7 @@ extension Subcommands {
         }
     }
 
-    private struct InputItem: Codable {
+    struct EvaluationInputItem: Codable {
         /// 入力クエリ
         var query: String
 
@@ -117,17 +120,20 @@ extension Subcommands {
         /// タグ
         var tag: [String] = []
 
+        /// 左文脈
+        var left_context: String? = nil
+
         /// ユーザ辞書
         var user_dictionary: [InputUserDictionaryItem]? = nil
-    }
 
-    private struct InputUserDictionaryItem: Codable {
-        /// 漢字
-        var word: String
-        /// 読み
-        var reading: String
-        /// ヒント
-        var hint: String? = nil
+        struct InputUserDictionaryItem: Codable {
+            /// 漢字
+            var word: String
+            /// 読み
+            var reading: String
+            /// ヒント
+            var hint: String? = nil
+        }
     }
 
     struct EvaluateResult: Codable {
@@ -166,9 +172,10 @@ extension Subcommands {
     }
 
     struct EvaluateItem: Codable {
-        init(query: String, answers: [String], outputs: [Subcommands.EvaluateItemOutput]) {
+        init(query: String, answers: [String], left_context: String?, outputs: [Subcommands.EvaluateItemOutput]) {
             self.query = query
             self.answers = answers
+            self.left_context = left_context ?? ""
             self.outputs = outputs
             do {
                 // entropyを示す
@@ -194,6 +201,9 @@ extension Subcommands {
 
         /// 出力
         var outputs: [EvaluateItemOutput]
+
+        /// 文脈
+        var left_context: String
 
         /// エントロピー
         var entropy: Double
