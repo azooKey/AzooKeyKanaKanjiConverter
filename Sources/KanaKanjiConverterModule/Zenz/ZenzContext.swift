@@ -263,6 +263,7 @@ class ZenzContext {
             conditions.append("辞書:\(userDictionaryPrompt)")
         }
         // プロフィールがある場合はこれを条件に追加
+<<<<<<< HEAD
         switch versionDependentConfig {
         case .v1: break
         case .v2(let mode):
@@ -287,6 +288,11 @@ class ZenzContext {
                 let pr = preference.suffix(25)
                 conditions.append("\u{EE06}\(pr)")
             }
+=======
+        if case .v2(let mode) = versionDependentConfig, let profile = mode.profile, !profile.isEmpty {
+            let pf = String(profile.suffix(25))
+            conditions.append("プロフィール:\(pf)")
+>>>>>>> 77d6f39 (fix: use shortend profile for complexity control)
         }
         // 左文脈を取得
         // プロフィールがある場合はこれを条件に追加
