@@ -433,7 +433,7 @@ final class ZenzContext {
             }
             let logsumexp = logf(sumexp)
 
-            if let (mode, baseLM, personalLM) = personalizationMode {
+            if let (mode, baseLM, personalLM) = personalizationMode, mode.alpha > 0 {
                 let prefix = tokens[..<i].dropFirst(prompt_tokens.count).map(Int.init)
                 let baseProb: [Float]
                 let personalProb: [Float]
