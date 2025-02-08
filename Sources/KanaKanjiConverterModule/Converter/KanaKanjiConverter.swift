@@ -8,6 +8,7 @@
 
 import Foundation
 import SwiftUtils
+import SwiftNGram
 
 /// かな漢字変換の管理を受け持つクラス
 @MainActor public final class KanaKanjiConverter {
@@ -25,19 +26,35 @@ import SwiftUtils
     private var nodes: [[LatticeNode]] = []
     private var completedData: Candidate?
     private var lastData: DicdataElement?
-    /// Zenzaiのためのzenz-v1モデル
+    /// Zenzaiのためのzenzモデル
     private var zenz: Zenz? = nil
     private var zenzaiCache: Kana2Kanji.ZenzaiCache? = nil
+    private var zenzaiPersonalization: (mode: ConvertRequestOptions.ZenzaiMode.PersonalizationMode, base: LM, personal: LM)?
     public private(set) var zenzStatus: String = ""
 
     /// リセットする関数
     public func stopComposition() {
         self.zenz?.endSession()
+        self.zenzaiPersonalization = nil
         self.zenzaiCache = nil
         self.previousInputData = nil
         self.nodes = []
         self.completedData = nil
         self.lastData = nil
+    }
+
+    private func getZenzaiPersonalization(mode: ConvertRequestOptions.ZenzaiMode.PersonalizationMode?) -> (mode: ConvertRequestOptions.ZenzaiMode.PersonalizationMode, base: LM, personal: LM)? {
+        guard let mode else {
+            return nil
+        }
+        if let zenzaiPersonalization, zenzaiPersonalization.mode == mode {
+            return zenzaiPersonalization
+        }
+        let tokenizer = ZenzTokenizer()
+        let baseModel = LM(baseFilename: mode.baseNgramLanguageModel, n: mode.n, d: mode.d, tokenizer: tokenizer)
+        let personalModel = LM(baseFilename: mode.personalNgramLanguageModel, n: mode.n, d: mode.d, tokenizer: tokenizer)
+        self.zenzaiPersonalization = (mode, baseModel, personalModel)
+        return (mode, baseModel, personalModel)
     }
 
     package func getModel(modelURL: URL) -> Zenz? {
@@ -594,6 +611,7 @@ import SwiftUtils
             return nil
         }
 
+        print("ConvertToLattice ", zenzaiMode)
         // FIXME: enable cache based zenzai
         if zenzaiMode.enabled, let model = self.getModel(modelURL: zenzaiMode.weightURL) {
             let (result, nodes, cache) = self.converter.all_zenzai(
@@ -602,6 +620,7 @@ import SwiftUtils
                 zenzaiCache: self.zenzaiCache,
                 inferenceLimit: zenzaiMode.inferenceLimit,
                 requestRichCandidates: zenzaiMode.requestRichCandidates,
+                personalizationMode: self.getZenzaiPersonalization(mode: zenzaiMode.personalizationMode),
                 versionDependentConfig: zenzaiMode.versionDependentMode
             )
             self.zenzaiCache = cache

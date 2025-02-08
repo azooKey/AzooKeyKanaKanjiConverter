@@ -224,6 +224,21 @@ public struct ConvertRequestOptions: Sendable {
     }
 
     public struct ZenzaiMode: Sendable, Equatable {
+        public struct PersonalizationMode: Sendable, Equatable {
+            public init(baseNgramLanguageModel: String, personalNgramLanguageModel: String, n: Int = 5, d: Double = 0.75, alpha: Float = 0.5) {
+                self.baseNgramLanguageModel = baseNgramLanguageModel
+                self.personalNgramLanguageModel = personalNgramLanguageModel
+                self.n = n
+                self.d = d
+                self.alpha = alpha
+            }
+
+            var n: Int = 5
+            var d: Double = 0.75
+            var alpha: Float = 0.5
+            var baseNgramLanguageModel: String
+            var personalNgramLanguageModel: String
+        }
         public static let off = ZenzaiMode(
             enabled: false,
             weightURL: URL(fileURLWithPath: ""),
@@ -237,13 +252,15 @@ public struct ConvertRequestOptions: Sendable {
         ///    - weight: path for model weight (gguf)
         ///    - inferenceLimit: applying inference count limitation. Smaller limit makes conversion faster but quality will be worse. (Default: 10)
         ///    - requestRichCandidates: when this flag is true, the converter spends more time but generate richer N-Best candidates for candidate list view. Usually this option is not recommended for live conversion.
+        ///    - personalizationMode: values for personalization.
         ///    - versionDependentMode: specify zenz model version and its configuration.
-        public static func on(weight: URL, inferenceLimit: Int = 10, requestRichCandidates: Bool = false, versionDependentMode: ZenzaiVersionDependentMode = .v3(.init())) -> Self {
+        public static func on(weight: URL, inferenceLimit: Int = 10, requestRichCandidates: Bool = false, personalizationMode: PersonalizationMode?, versionDependentMode: ZenzaiVersionDependentMode = .v3(.init())) -> Self {
             ZenzaiMode(
                 enabled: true,
                 weightURL: weight,
                 inferenceLimit: inferenceLimit,
                 requestRichCandidates: requestRichCandidates,
+                personalizationMode: personalizationMode,
                 versionDependentMode: versionDependentMode
             )
         }
@@ -251,6 +268,7 @@ public struct ConvertRequestOptions: Sendable {
         var weightURL: URL
         var inferenceLimit: Int
         var requestRichCandidates: Bool
+        var personalizationMode: PersonalizationMode?
         var versionDependentMode: ZenzaiVersionDependentMode
     }
 }

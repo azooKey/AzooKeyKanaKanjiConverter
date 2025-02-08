@@ -35,6 +35,12 @@ extension Subcommands {
         var zenzV1 = false
         @Flag(name: [.customLong("zenz_v2")], help: "Use zenz_v2 model.")
         var zenzV2 = false
+        @Option(name: [.customLong("config_zenzai_base_lm")], help: "Marisa files for Base LM.")
+        var configZenzaiBaseLM: String?
+        @Option(name: [.customLong("config_zenzai_personal_lm")], help: "Marisa files for Personal LM.")
+        var configZenzaiPersonalLM: String?
+        @Option(name: [.customLong("config_zenzai_personalization_alpha")], help: "Strength of personalization (0.5 by default)")
+        var configZenzaiPersonalizationAlpha: Float = 0.5
 
         static let configuration = CommandConfiguration(commandName: "session", abstract: "Start session for incremental input.")
 
@@ -201,6 +207,20 @@ extension Subcommands {
             } else {
                 .v3(.init(profile: self.configZenzaiProfile, topic: self.configZenzaiTopic, leftSideContext: leftSideContext))
             }
+            let personalizationMode: ConvertRequestOptions.ZenzaiMode.PersonalizationMode?
+            if let base = self.configZenzaiBaseLM, let personal = self.configZenzaiPersonalLM {
+                personalizationMode = .init(
+                    baseNgramLanguageModel: base,
+                    personalNgramLanguageModel: personal,
+                    n: 5,
+                    d: 0.75,
+                    alpha: self.configZenzaiPersonalizationAlpha
+                )
+            } else if self.configZenzaiBaseLM != nil || self.configZenzaiPersonalLM != nil {
+                fatalError("Both --config_zenzai_base_lm and --config_zenzai_personal_lm must be set")
+            } else {
+                personalizationMode = nil
+            }
             var option: ConvertRequestOptions = .withDefaultDictionary(
                 N_best: self.onlyWholeConversion ? max(self.configNBest, self.displayTopN) : self.configNBest,
                 requireJapanesePrediction: !self.onlyWholeConversion && !self.disablePrediction,
@@ -220,6 +240,7 @@ extension Subcommands {
                     weight: URL(string: self.zenzWeightPath)!,
                     inferenceLimit: self.configZenzaiInferenceLimit,
                     requestRichCandidates: self.configRequestRichCandidates,
+                    personalizationMode: personalizationMode,
                     versionDependentMode: zenzaiVersionDependentMode
                 ),
                 metadata: .init(versionString: "anco for debugging")

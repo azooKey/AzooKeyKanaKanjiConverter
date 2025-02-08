@@ -19,6 +19,12 @@ extension Subcommands {
         var configZenzaiInferenceLimit: Int = .max
         @Flag(name: [.customLong("config_zenzai_ignore_left_context")], help: "ignore left_context")
         var configZenzaiIgnoreLeftContext: Bool = false
+        @Option(name: [.customLong("config_zenzai_base_lm")], help: "Marisa files for Base LM.")
+        var configZenzaiBaseLM: String?
+        @Option(name: [.customLong("config_zenzai_personal_lm")], help: "Marisa files for Personal LM.")
+        var configZenzaiPersonalLM: String?
+        @Option(name: [.customLong("config_zenzai_personalization_alpha")], help: "Strength of personalization (0.5 by default)")
+        var configZenzaiPersonalizationAlpha: Float = 0.5
 
         static let configuration = CommandConfiguration(commandName: "evaluate", abstract: "Evaluate quality of Conversion for input data.")
 
@@ -87,6 +93,20 @@ extension Subcommands {
         }
 
         func requestOptions(leftSideContext: String?) -> ConvertRequestOptions {
+            let personalizationMode: ConvertRequestOptions.ZenzaiMode.PersonalizationMode?
+            if let base = self.configZenzaiBaseLM, let personal = self.configZenzaiPersonalLM {
+                personalizationMode = .init(
+                    baseNgramLanguageModel: base,
+                    personalNgramLanguageModel: personal,
+                    n: 5,
+                    d: 0.75,
+                    alpha: self.configZenzaiPersonalizationAlpha
+                )
+            } else if self.configZenzaiBaseLM != nil || self.configZenzaiPersonalLM != nil {
+                fatalError("Both --config_zenzai_base_lm and --config_zenzai_personal_lm must be set")
+            } else {
+                personalizationMode = nil
+            }
             var option: ConvertRequestOptions = .withDefaultDictionary(
                 N_best: self.configNBest,
                 requireJapanesePrediction: false,
@@ -102,7 +122,7 @@ extension Subcommands {
                 shouldResetMemory: false,
                 memoryDirectoryURL: URL(fileURLWithPath: ""),
                 sharedContainerURL: URL(fileURLWithPath: ""),
-                zenzaiMode: self.zenzWeightPath.isEmpty ? .off : .on(weight: URL(string: self.zenzWeightPath)!, inferenceLimit: self.configZenzaiInferenceLimit, versionDependentMode: .v2(.init(leftSideContext: self.configZenzaiIgnoreLeftContext ? nil : leftSideContext))),
+                zenzaiMode: self.zenzWeightPath.isEmpty ? .off : .on(weight: URL(string: self.zenzWeightPath)!, inferenceLimit: self.configZenzaiInferenceLimit, personalizationMode: personalizationMode, versionDependentMode: .v2(.init(leftSideContext: self.configZenzaiIgnoreLeftContext ? nil : leftSideContext))),
                 metadata: .init(versionString: "anco for debugging")
             )
             option.requestQuery = .完全一致

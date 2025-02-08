@@ -1,5 +1,6 @@
 import Foundation
 import SwiftUtils
+import SwiftNGram
 
 extension Kana2Kanji {
     struct ZenzaiCache: Sendable {
@@ -57,6 +58,7 @@ extension Kana2Kanji {
         zenzaiCache: ZenzaiCache?,
         inferenceLimit: Int,
         requestRichCandidates: Bool,
+        personalizationMode: (mode: ConvertRequestOptions.ZenzaiMode.PersonalizationMode, base: LM, personal: LM)?,
         versionDependentConfig: ConvertRequestOptions.ZenzaiVersionDependentMode
     ) -> (result: LatticeNode, nodes: Nodes, cache: ZenzaiCache) {
         var constraint = zenzaiCache?.getNewConstraint(for: inputData) ?? PrefixConstraint([])
@@ -110,7 +112,13 @@ extension Kana2Kanji {
                     // When inference occurs more than maximum times, then just return result at this point
                     return (eosNode, nodes, ZenzaiCache(inputData, constraint: constraint, satisfyingCandidate: candidate))
                 }
-                let reviewResult = zenz.candidateEvaluate(convertTarget: inputData.convertTarget, candidates: [candidate], requestRichCandidates: requestRichCandidates, versionDependentConfig: versionDependentConfig)
+                let reviewResult = zenz.candidateEvaluate(
+                    convertTarget: inputData.convertTarget,
+                    candidates: [candidate],
+                    requestRichCandidates: requestRichCandidates,
+                    personalizationMode: personalizationMode,
+                    versionDependentConfig: versionDependentConfig
+                )
                 inferenceLimit -= 1
                 let nextAction = self.review(
                     candidateIndex: index,
