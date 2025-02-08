@@ -504,7 +504,7 @@ final class ZenzContext {
                     )
                 }
             }
-            score += logf(maxItem.logprob)
+            score += maxItem.logprob
         }
         return .pass(score: score, alternativeConstraints: altTokens.unordered.sorted(by: >).map {.init(probabilityRatio: $0.probabilityRatioToMaxProb, prefixConstraint: $0.constraint)})
     }
