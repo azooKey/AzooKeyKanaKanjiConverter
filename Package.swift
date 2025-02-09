@@ -26,6 +26,14 @@ var dependencies: [Package.Dependency] = [
     .package(url: "https://github.com/ensan-hcl/swift-tokenizers", branch: "feat/minimum")
 ]
 
+var efficientNGramDependencies: [Target.Dependency] = [.product(name: "Transformers", package: "swift-tokenizers")]
+#if !os(Android)
+// Android環境ではSwiftyMarisaが利用できないため、除外する。
+// したがって、Android環境でのEfficientNGramの動作はサポートしない。
+efficientNGramDependencies.append("SwiftyMarisa")
+#endif
+
+
 var targets: [Target] = [
     // Targets are the basic building blocks of a package. A target can define a module or a test suite.
     // Targets can depend on other targets in this package, and on products in packages this package depends on.
@@ -39,10 +47,7 @@ var targets: [Target] = [
     ),
     .target(
         name: "EfficientNGram",
-        dependencies: [
-            "SwiftyMarisa",
-            .product(name: "Transformers", package: "swift-tokenizers")
-        ],
+        dependencies: efficientNGramDependencies,
         resources: [.copy("tokenizer")],
         swiftSettings: swiftSettings
     ),

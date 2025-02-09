@@ -1,4 +1,5 @@
 import Foundation
+#if canImport(SwiftyMarisa)
 import SwiftyMarisa
 
 /// Base64 でエンコードされた Key-Value をデコードする関数
@@ -153,7 +154,7 @@ public struct EfficientNGram {
 }
 
 /// テキスト生成
-public func generateText(
+package func generateText(
     inputText: String,
     mixAlpha: Double,
     lmBase: EfficientNGram,
@@ -205,3 +206,11 @@ public func generateText(
     }
     return tokenizer.decode(tokens: tokens)
 }
+#else
+public struct EfficientNGram {
+    public func bulkPredict(_ ngram: some BidirectionalCollection<Int>) -> [Double] {
+        // FIXME: avoid hard-coding
+        return [Float].init(repeating: 1/6000, count: 6000)
+    }
+}
+#endif

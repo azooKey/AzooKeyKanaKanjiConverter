@@ -1,4 +1,5 @@
 import Foundation
+#if canImport(SwiftyMarisa)
 import SwiftyMarisa
 
 final class SwiftTrainer {
@@ -218,3 +219,4 @@ public func trainNGramFromFile(filePath: String, n: Int, baseFilename: String) {
     }
     trainNGram(lines: lines, n: n, baseFilename: baseFilename)
 }
+#endif
