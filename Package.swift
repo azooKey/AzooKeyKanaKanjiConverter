@@ -29,8 +29,8 @@ var efficientNGramDependencies: [Target.Dependency] = [.product(name: "Transform
 #if !os(Linux) || !canImport(Android)
 // Android環境ではSwiftyMarisaが利用できないため、除外する。
 // したがって、Android環境でのEfficientNGramの動作はサポートしない。
-dependencies.append(.package(url: "https://github.com/ensan-hcl/SwiftyMarisa", branch: "6e145aef5583aac96dd7ff8f9fbb9944d893128e"))
-efficientNGramDependencies.append("SwiftyMarisa")
+//dependencies.append(.package(url: "https://github.com/ensan-hcl/SwiftyMarisa", branch: "6e145aef5583aac96dd7ff8f9fbb9944d893128e"))
+//efficientNGramDependencies.append("SwiftyMarisa")
 #endif
 
 
