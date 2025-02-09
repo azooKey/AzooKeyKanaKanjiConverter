@@ -4,7 +4,7 @@
 import PackageDescription
 import Foundation
 
-let swiftSettings: [SwiftSetting] = [
+var swiftSettings: [SwiftSetting] = [
     .enableUpcomingFeature("BareSlashRegexLiterals"),
     .enableUpcomingFeature("ConciseMagicFile"),
     .enableUpcomingFeature("ExistentialAny"),
@@ -13,7 +13,6 @@ let swiftSettings: [SwiftSetting] = [
     .enableUpcomingFeature("StrictConcurrency"),
     .enableUpcomingFeature("DisableOutwardActorInference"),
     .enableUpcomingFeature("ImportObjcForwardDeclarations"),
-    .interoperabilityMode(.Cxx),
 ]
 
 var dependencies: [Package.Dependency] = [
@@ -34,6 +33,7 @@ if let envValue = ProcessInfo.processInfo.environment["LLAMA_MOCK"], envValue ==
 } else {
     dependencies.append(.package(url: "https://github.com/ensan-hcl/SwiftyMarisa", branch: "6e145aef5583aac96dd7ff8f9fbb9944d893128e"))
     efficientNGramDependencies.append("SwiftyMarisa")
+    swiftSettings.append(.interoperabilityMode(.Cxx))
 }
 #endif
 
