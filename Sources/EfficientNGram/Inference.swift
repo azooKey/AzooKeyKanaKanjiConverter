@@ -216,4 +216,15 @@ public struct EfficientNGram {
         return [Double].init(repeating: 1/6000, count: 6000)
     }
 }
+
+package func generateText(
+    inputText: String,
+    mixAlpha: Double,
+    lmBase: EfficientNGram,
+    lmPerson: EfficientNGram,
+    tokenizer: ZenzTokenizer,
+    maxCount: Int = 100
+) -> String {
+    return "[Error] Unsupported"
+}
 #endif
