@@ -26,6 +26,24 @@ public struct EfficientNGram {
     let r_xbx: Marisa
 
     private var tokenizer: ZenzTokenizer
+
+    public init(baseFilename: String, n: Int, d: Double, tokenizer: ZenzTokenizer) {
+        self.tokenizer = tokenizer
+        // ストアドプロパティを一度に全て初期化（“仮”の値で OK）
+        self.n = n
+        self.d = d
+
+        self.c_abc = Marisa()
+        self.u_abx = Marisa()
+        self.u_xbc = Marisa()
+        self.r_xbx = Marisa()
+
+        c_abc.load("\(baseFilename)_c_abc.marisa")
+        u_abx.load("\(baseFilename)_u_abx.marisa")
+        u_xbc.load("\(baseFilename)_u_xbc.marisa")
+        r_xbx.load("\(baseFilename)_r_xbx.marisa")
+    }
+
     /// Trie から Key に対応する Value を取得する関数
     private func getValue(from trie: Marisa, key: [Int]) -> UInt32? {
         let int8s = SwiftTrainer.encodeKey(key: key) + [SwiftTrainer.keyValueDelimiter] // delimiter ( as it is negative, it must not appear in key part)
@@ -60,23 +78,6 @@ public struct EfficientNGram {
             }
         }
         return (dict, sum)
-    }
-
-    public init(baseFilename: String, n: Int, d: Double, tokenizer: ZenzTokenizer) {
-        self.tokenizer = tokenizer
-        // ストアドプロパティを一度に全て初期化（“仮”の値で OK）
-        self.n = n
-        self.d = d
-
-        self.c_abc = Marisa()
-        self.u_abx = Marisa()
-        self.u_xbc = Marisa()
-        self.r_xbx = Marisa()
-
-        c_abc.load("\(baseFilename)_c_abc.marisa")
-        u_abx.load("\(baseFilename)_u_abx.marisa")
-        u_xbc.load("\(baseFilename)_u_xbc.marisa")
-        r_xbx.load("\(baseFilename)_r_xbx.marisa")
     }
 
     /// Kneser-Ney Smoothingを入れたNgram LMの実装
@@ -207,7 +208,9 @@ package func generateText(
     return tokenizer.decode(tokens: tokens)
 }
 #else
+/// Mock Implementation
 public struct EfficientNGram {
+    public init(baseFilename: String, n: Int, d: Double, tokenizer: ZenzTokenizer) {}
     public func bulkPredict(_ ngram: some BidirectionalCollection<Int>) -> [Double] {
         // FIXME: avoid hard-coding
         return [Double].init(repeating: 1/6000, count: 6000)
