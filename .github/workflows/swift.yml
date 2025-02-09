@@ -51,8 +51,8 @@ jobs:
         os: [windows-latest]
         swift-version:
           [{
-            branch: "swift-6.0.3-release",
-            tag: "6.0.3-RELEASE"
+            branch: "swift-6.0.2-release",
+            tag: "6.0.2-RELEASE"
           }]
     steps:
       - uses: compnerd/gha-setup-swift@main
