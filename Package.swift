@@ -27,10 +27,14 @@ var dependencies: [Package.Dependency] = [
 
 var efficientNGramDependencies: [Target.Dependency] = [.product(name: "Transformers", package: "swift-tokenizers")]
 #if (!os(Linux) || !canImport(Android)) && !os(Windows)
-// Android環境ではSwiftyMarisaが利用できないため、除外する。
-// したがって、Android環境でのEfficientNGramの動作はサポートしない。
-//dependencies.append(.package(url: "https://github.com/ensan-hcl/SwiftyMarisa", branch: "6e145aef5583aac96dd7ff8f9fbb9944d893128e"))
-//efficientNGramDependencies.append("SwiftyMarisa")
+// Android環境・Windows環境ではSwiftyMarisaが利用できないため、除外する。
+// したがって、EfficientNGramの動作はサポートしない。
+if let envValue = ProcessInfo.processInfo.environment["LLAMA_MOCK"], envValue == "1" {
+    // LLAMA_MOCK=1の場合もサポートしない
+} else {
+    dependencies.append(.package(url: "https://github.com/ensan-hcl/SwiftyMarisa", branch: "6e145aef5583aac96dd7ff8f9fbb9944d893128e"))
+    efficientNGramDependencies.append("SwiftyMarisa")
+}
 #endif
 
 
