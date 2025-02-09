@@ -210,7 +210,7 @@ package func generateText(
 public struct EfficientNGram {
     public func bulkPredict(_ ngram: some BidirectionalCollection<Int>) -> [Double] {
         // FIXME: avoid hard-coding
-        return [Float].init(repeating: 1/6000, count: 6000)
+        return [Double].init(repeating: 1/6000, count: 6000)
     }
 }
 #endif
