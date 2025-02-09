@@ -213,10 +213,10 @@ public func trainNGram(
 }
 
 /// 実行例: ファイルを読み込み、n-gram を学習して保存
-public func trainNGramFromFile(filePath: String, n: Int, baseFilename: String) {
+public func trainNGramFromFile(filePath: String, n: Int, baseFilename: String, outputDir: String? = nil) {
     guard let lines = readLinesFromFile(filePath: filePath) else {
         return
     }
-    trainNGram(lines: lines, n: n, baseFilename: baseFilename)
+    trainNGram(lines: lines, n: n, baseFilename: baseFilename, outputDir: outputDir)
 }
 #endif
