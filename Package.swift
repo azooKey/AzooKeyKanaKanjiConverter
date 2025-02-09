@@ -22,7 +22,8 @@ var dependencies: [Package.Dependency] = [
     .package(url: "https://github.com/apple/swift-algorithms", from: "1.0.0"),
     .package(url: "https://github.com/apple/swift-collections", from: "1.0.0"),
     .package(url: "https://github.com/apple/swift-argument-parser", .upToNextMajor(from: "1.0.0")),
-    .package(url: "https://github.com/nyanko3141592/SwiftNGramWiithMarisaTrie", branch: "0171169c1eb8f7bacceb8236ce7d324050d893c2")
+    .package(url: "https://github.com/ensan-hcl/SwiftyMarisa", branch: "feat/swift_cpp_interop"),
+    .package(url: "https://github.com/ensan-hcl/swift-tokenizers", branch: "feat/minimum")
 ]
 
 var targets: [Target] = [
@@ -34,6 +35,15 @@ var targets: [Target] = [
             .product(name: "Algorithms", package: "swift-algorithms")
         ],
         resources: [],
+        swiftSettings: swiftSettings
+    ),
+    .target(
+        name: "EfficientNGram",
+        dependencies: [
+            "SwiftyMarisa",
+            .product(name: "Transformers", package: "swift-tokenizers")
+        ],
+        resources: [.copy("tokenizer")],
         swiftSettings: swiftSettings
     ),
     .target(
@@ -66,6 +76,12 @@ var targets: [Target] = [
     .testTarget(
         name: "SwiftUtilsTests",
         dependencies: ["SwiftUtils"],
+        resources: [],
+        swiftSettings: swiftSettings
+    ),
+    .testTarget(
+        name: "EfficientNGramTests",
+        dependencies: ["EfficientNGram"],
         resources: [],
         swiftSettings: swiftSettings
     ),
@@ -131,8 +147,8 @@ targets.append(contentsOf: [
         dependencies: [
             "SwiftUtils",
             "llama.cpp",
+            "EfficientNGram",
             .product(name: "Collections", package: "swift-collections"),
-            .product(name: "SwiftNGram", package: "SwiftNGramWiithMarisaTrie")
         ],
         swiftSettings: swiftSettings
     )
@@ -146,8 +162,8 @@ if let envValue = ProcessInfo.processInfo.environment["LLAMA_MOCK"], envValue ==
             dependencies: [
                 "SwiftUtils",
                 "llama-mock",
+                "EfficientNGram",
                 .product(name: "Collections", package: "swift-collections"),
-                .product(name: "SwiftNGram", package: "SwiftNGramWiithMarisaTrie")
             ],
             swiftSettings: swiftSettings
         )
@@ -162,9 +178,9 @@ if let envValue = ProcessInfo.processInfo.environment["LLAMA_MOCK"], envValue ==
             name: "KanaKanjiConverterModule",
             dependencies: [
                 "SwiftUtils",
+                "EfficientNGram",
                 .product(name: "llama", package: "llama.cpp"),
                 .product(name: "Collections", package: "swift-collections"),
-                .product(name: "SwiftNGram", package: "SwiftNGramWiithMarisaTrie")
             ],
             swiftSettings: swiftSettings
         )

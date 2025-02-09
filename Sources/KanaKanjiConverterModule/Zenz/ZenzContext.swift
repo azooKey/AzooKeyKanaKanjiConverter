@@ -7,7 +7,7 @@ import SwiftUtils
 import HeapModule
 import Algorithms
 import Foundation
-import SwiftNGram
+import EfficientNGram
 
 struct FixedSizeHeap<Element: Comparable> {
     private var size: Int
@@ -290,7 +290,7 @@ final class ZenzContext {
         input: String,
         candidate: Candidate,
         requestRichCandidates: Bool,
-        personalizationMode: (mode: ConvertRequestOptions.ZenzaiMode.PersonalizationMode, base: LM, personal: LM)?,
+        personalizationMode: (mode: ConvertRequestOptions.ZenzaiMode.PersonalizationMode, base: EfficientNGram, personal: EfficientNGram)?,
         versionDependentConfig: ConvertRequestOptions.ZenzaiVersionDependentMode
     ) -> CandidateEvaluationResult {
         print("Evaluate", candidate)

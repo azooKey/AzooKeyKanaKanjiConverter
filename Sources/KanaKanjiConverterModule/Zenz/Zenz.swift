@@ -1,6 +1,6 @@
 import Foundation
 import SwiftUtils
-import SwiftNGram
+import EfficientNGram
 
 @MainActor package final class Zenz {
     package var resourceURL: URL
@@ -36,7 +36,7 @@ import SwiftNGram
         convertTarget: String,
         candidates: [Candidate],
         requestRichCandidates: Bool,
-        personalizationMode: (mode: ConvertRequestOptions.ZenzaiMode.PersonalizationMode, base: LM, personal: LM)?,
+        personalizationMode: (mode: ConvertRequestOptions.ZenzaiMode.PersonalizationMode, base: EfficientNGram, personal: EfficientNGram)?,
         versionDependentConfig: ConvertRequestOptions.ZenzaiVersionDependentMode
     ) -> ZenzContext.CandidateEvaluationResult {
         guard let zenzContext else {

@@ -8,7 +8,7 @@
 
 import Foundation
 import SwiftUtils
-import SwiftNGram
+import EfficientNGram
 
 /// かな漢字変換の管理を受け持つクラス
 @MainActor public final class KanaKanjiConverter {
@@ -29,7 +29,7 @@ import SwiftNGram
     /// Zenzaiのためのzenzモデル
     private var zenz: Zenz? = nil
     private var zenzaiCache: Kana2Kanji.ZenzaiCache? = nil
-    private var zenzaiPersonalization: (mode: ConvertRequestOptions.ZenzaiMode.PersonalizationMode, base: LM, personal: LM)?
+    private var zenzaiPersonalization: (mode: ConvertRequestOptions.ZenzaiMode.PersonalizationMode, base: EfficientNGram, personal: EfficientNGram)?
     public private(set) var zenzStatus: String = ""
 
     /// リセットする関数
@@ -43,7 +43,7 @@ import SwiftNGram
         self.lastData = nil
     }
 
-    private func getZenzaiPersonalization(mode: ConvertRequestOptions.ZenzaiMode.PersonalizationMode?) -> (mode: ConvertRequestOptions.ZenzaiMode.PersonalizationMode, base: LM, personal: LM)? {
+    private func getZenzaiPersonalization(mode: ConvertRequestOptions.ZenzaiMode.PersonalizationMode?) -> (mode: ConvertRequestOptions.ZenzaiMode.PersonalizationMode, base: EfficientNGram, personal: EfficientNGram)? {
         guard let mode else {
             return nil
         }
@@ -51,8 +51,8 @@ import SwiftNGram
             return zenzaiPersonalization
         }
         let tokenizer = ZenzTokenizer()
-        let baseModel = LM(baseFilename: mode.baseNgramLanguageModel, n: mode.n, d: mode.d, tokenizer: tokenizer)
-        let personalModel = LM(baseFilename: mode.personalNgramLanguageModel, n: mode.n, d: mode.d, tokenizer: tokenizer)
+        let baseModel = EfficientNGram(baseFilename: mode.baseNgramLanguageModel, n: mode.n, d: mode.d, tokenizer: tokenizer)
+        let personalModel = EfficientNGram(baseFilename: mode.personalNgramLanguageModel, n: mode.n, d: mode.d, tokenizer: tokenizer)
         self.zenzaiPersonalization = (mode, baseModel, personalModel)
         return (mode, baseModel, personalModel)
     }
