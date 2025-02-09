@@ -22,7 +22,6 @@ var dependencies: [Package.Dependency] = [
     .package(url: "https://github.com/apple/swift-algorithms", from: "1.0.0"),
     .package(url: "https://github.com/apple/swift-collections", from: "1.0.0"),
     .package(url: "https://github.com/apple/swift-argument-parser", .upToNextMajor(from: "1.0.0")),
-    .package(url: "https://github.com/ensan-hcl/SwiftyMarisa", branch: "feat/swift_cpp_interop"),
     .package(url: "https://github.com/ensan-hcl/swift-tokenizers", branch: "feat/minimum")
 ]
 
@@ -30,6 +29,7 @@ var efficientNGramDependencies: [Target.Dependency] = [.product(name: "Transform
 #if !os(Android)
 // Android環境ではSwiftyMarisaが利用できないため、除外する。
 // したがって、Android環境でのEfficientNGramの動作はサポートしない。
+dependencies.append(.package(url: "https://github.com/ensan-hcl/SwiftyMarisa", branch: "feat/swift_cpp_interop"))
 efficientNGramDependencies.append("SwiftyMarisa")
 #endif
 
