@@ -26,7 +26,7 @@ var dependencies: [Package.Dependency] = [
 ]
 
 var efficientNGramDependencies: [Target.Dependency] = [.product(name: "Transformers", package: "swift-tokenizers")]
-#if !os(Android)
+#if !canImport(Android)
 // Android環境ではSwiftyMarisaが利用できないため、除外する。
 // したがって、Android環境でのEfficientNGramの動作はサポートしない。
 dependencies.append(.package(url: "https://github.com/ensan-hcl/SwiftyMarisa", branch: "feat/swift_cpp_interop"))
