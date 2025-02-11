@@ -295,7 +295,7 @@ public func trainNGramFromFile(
     trainNGram(lines: lines, n: n, baseFilePattern: baseFilePattern, outputDir: outputDir, resumeFilePattern: resumeFilePattern)
 }
 #else
-public func trainNGramFromFile(filePath: String, n: Int, baseFilePattern: String, outputDir: String? = nil) {
+public func trainNGramFromFile(filePath: String, n: Int, baseFilePattern: String, outputDir: String? = nil, resumeFilePattern: String? = nil) {
     fatalError("[Error] trainNGramFromFile is unsupported.")
 }
 #endif
