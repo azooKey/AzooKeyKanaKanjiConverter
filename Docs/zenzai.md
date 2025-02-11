@@ -14,7 +14,7 @@ let options = ConvertRequestOptions.withDefaultDictionary(
 )
 ```
 
-* `weight`には`gguf`形式の重みファイルを指定します。重みファイルは[Hugging Face](https://huggingface.co/Miwa-Keita/zenz-v2-gguf)からダウンロードできます。
+* `weight`には`gguf`形式の重みファイルを指定します。重みファイルは[Hugging Face](https://huggingface.co/Miwa-Keita/zenz-v3-small-gguf)からダウンロードできます。
 * `inferenceLimit`には推論回数の上限を指定します。通常`1`で十分ですが、低速でも高精度な変換を得たい場合は`10`程度の値にすることもできます。
 
 ## 動作環境
@@ -32,3 +32,4 @@ let options = ConvertRequestOptions.withDefaultDictionary(
 * Zenzai: ニューラルかな漢字変換システム
 * zenz-v1: Zenzaiで用いることのできるかな漢字変換モデル「zenz」の第1世代。`\uEE00<input_katakana>\uEE01<output></s>`というフォーマットでかな漢字変換タスクを行う機能に特化。
 * zenz-v2: Zenzaiで用いることのできるかな漢字変換モデル「zenz」の第2世代。第1世代の機能に加えて`\uEE00<input_katakana>\uEE02<context>\uEE01<output></s>`というフォーマットで、左文脈を読み込む機能を追加。
+* zenz-v3: Zenzaiで用いることのできるかな漢字変換モデル「zenz」の第3世代。第2世代と異なり、`\uEE02<context>\uEE00<input_katakana>\uEE01<output></s>`のようにコンテキストを前置する方式を推奨。また、`\uEE03`に続けて入力されたプロフィール情報を考慮する動作をネイティブに学習済み。このほか、実験的に`\uEE04`+トピック、`\uEE05`+スタイル、`\uEE06`+設定も考慮できるようになっています。
