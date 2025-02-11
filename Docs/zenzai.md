@@ -15,7 +15,7 @@ let options = ConvertRequestOptions.withDefaultDictionary(
 ```
 
 * `weight`には`gguf`形式の重みファイルを指定します。重みファイルは[Hugging Face](https://huggingface.co/Miwa-Keita/zenz-v3-small-gguf)からダウンロードできます。
-* `inferenceLimit`には推論回数の上限を指定します。通常`1`で十分ですが、低速でも高精度な変換を得たい場合は`10`程度の値にすることもできます。
+* `inferenceLimit`には推論回数の上限を指定します。通常`1`で十分ですが、低速でも高精度な変換を得たい場合は`5`程度の値にすることもできます。
 
 ## 動作環境
 * M1以上のスペックのあるmacOS環境が望ましいです。GPUを利用します。
@@ -24,9 +24,6 @@ let options = ConvertRequestOptions.withDefaultDictionary(
 
 ## 仕組み
 [Zennのブログ](https://zenn.dev/azookey/articles/ea15bacf81521e)をお読みいただくのが最もわかりやすい解説です。
-
-## 制約
-現状、Zenzaiを用いた場合ユーザ辞書が使えません。また、予測変換にはニューラル言語モデルは用いられていません。
 
 ## 用語
 * Zenzai: ニューラルかな漢字変換システム
