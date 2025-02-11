@@ -13,6 +13,9 @@ extension Subcommands.NGram {
         @Option(name: [.customShort("n")], help: "n-gram's n")
         var n: Int = 5
 
+        @Option(name: [.customLong("resume")], help: "Resume from these lm data")
+        var resumeFilePattern: String?
+
         static let configuration = CommandConfiguration(
             commandName: "train",
             abstract: "Train ngram and write the data"
@@ -21,7 +24,13 @@ extension Subcommands.NGram {
         mutating func run() throws {
             let pattern = URL(fileURLWithPath: self.outputDirectory).path() + "lm_"
             print("Saving for \(pattern)")
-            trainNGramFromFile(filePath: self.target, n: self.n, baseFilename: "lm", outputDir: self.outputDirectory)
+            trainNGramFromFile(
+                filePath: self.target,
+                n: self.n,
+                baseFilePattern: "lm",
+                outputDir: self.outputDirectory,
+                resumeFilePattern: self.resumeFilePattern
+            )
         }
     }
 }
