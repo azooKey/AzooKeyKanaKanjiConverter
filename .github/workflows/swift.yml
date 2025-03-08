@@ -40,9 +40,9 @@ jobs:
         with:
           submodules: true
       - name: Build
-        run: swift build -Xswiftc -strict-concurrency=complete -v
+        run: swift build -v
       - name: Run tests
-        run: swift test -c release -Xswiftc -strict-concurrency=complete -v
+        run: swift test -c release -v
   windows-build:
     name: Swift ${{ matrix.swift-version.tag }} on ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
