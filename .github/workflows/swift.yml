@@ -40,9 +40,9 @@ jobs:
         with:
           submodules: true
       - name: Build
-        run: swift build -v
+        run: swift build -Xswiftc -strict-concurrency=complete -v
       - name: Run tests
-        run: swift test -c release -v
+        run: swift test -c release -Xswiftc -strict-concurrency=complete -v
   windows-build:
     name: Swift ${{ matrix.swift-version.tag }} on ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
@@ -75,9 +75,9 @@ jobs:
           cp ./build/Release/llama.lib ../
         working-directory: ./llama.cpp
       - name: Build
-        run: swift build -Xswiftc -strict-concurrency=complete -v
+        run: swift build -v
       - name: Run tests
-        run: swift test -c release -Xswiftc -strict-concurrency=complete -v
+        run: swift test -c release -v
   android-build:
     # from: finagolfin/swift-android-sdk
     name: Swift on android
