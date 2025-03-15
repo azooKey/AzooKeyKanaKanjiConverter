@@ -18,6 +18,13 @@ var swiftSettings: [SwiftSetting] = [
     .enableUpcomingFeature("ImportObjcForwardDeclarations"),
 ]
 
+if USE_LLAMA_MOCK {
+    print("Use mocked llama.cpp for this environment")
+    swiftSettings.append(.define("LLAMA_MOCK"))
+} else {
+    print("Use normal llama.cpp for this environment")
+}
+
 var dependencies: [Package.Dependency] = [
     // Dependencies declare other packages that this package depends on.
     // .package(url: /* package url */, from: "1.0.0"),
