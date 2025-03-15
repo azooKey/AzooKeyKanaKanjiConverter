@@ -5,7 +5,7 @@ import PackageDescription
 import Foundation
 
 // MARK: `LLAMA_MOCK=0`はllama.cppを利用。`LLAMA_MOCK=1`の場合、llama.cppは用いず、モック実装を用いる。
-let USE_LLAMA_MOCK = Context.environment["LLAMA_MOCK", default: "0"] == "1"
+let USE_LLAMA_MOCK = Context.environment["LLAMA_MOCK", default: "0"] != "0"
 
 var swiftSettings: [SwiftSetting] = [
     .enableUpcomingFeature("BareSlashRegexLiterals"),
