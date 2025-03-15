@@ -5,7 +5,13 @@ import PackageDescription
 import Foundation
 
 // MARK: `LLAMA_MOCK=0`はllama.cppを利用。`LLAMA_MOCK=1`の場合、llama.cppは用いず、モック実装を用いる。
+#if os(iOS) || os(watchOS) || os(Android)
+// MARK: モバイルOSであるiOS、watchOS、およびAndroidでは、デフォルトはLLAMA_MOCK=1
+let USE_LLAMA_MOCK = Context.environment["LLAMA_MOCK", default: "1"] != "0"
+#else
+// MARK: それ以外のOSでは、デフォルトはLLAMA_MOCK=0
 let USE_LLAMA_MOCK = Context.environment["LLAMA_MOCK", default: "0"] != "0"
+#endif
 
 var swiftSettings: [SwiftSetting] = [
     .enableUpcomingFeature("BareSlashRegexLiterals"),
