@@ -4,6 +4,9 @@
 import PackageDescription
 import Foundation
 
+// MARK: `LLAMA_MOCK=0`はllama.cppを利用。`LLAMA_MOCK=1`の場合、llama.cppは用いず、モック実装を用いる。
+let USE_LLAMA_MOCK = Context.environment["LLAMA_MOCK", default: "0"] == "1"
+
 var swiftSettings: [SwiftSetting] = [
     .enableUpcomingFeature("BareSlashRegexLiterals"),
     .enableUpcomingFeature("ConciseMagicFile"),
@@ -28,9 +31,7 @@ var efficientNGramDependencies: [Target.Dependency] = [.product(name: "Transform
 #if (!os(Linux) || !canImport(Android)) && !os(Windows)
 // Android環境・Windows環境ではSwiftyMarisaが利用できないため、除外する。
 // したがって、EfficientNGramの動作はサポートしない。
-if let envValue = ProcessInfo.processInfo.environment["LLAMA_MOCK"], envValue == "1" {
-    // LLAMA_MOCK=1の場合もサポートしない
-} else {
+if !USE_LLAMA_MOCK {
     dependencies.append(.package(url: "https://github.com/ensan-hcl/SwiftyMarisa", branch: "6e145aef5583aac96dd7ff8f9fbb9944d893128e"))
     efficientNGramDependencies.append("SwiftyMarisa")
     swiftSettings.append(.interoperabilityMode(.Cxx))
@@ -163,7 +164,7 @@ targets.append(contentsOf: [
     )
 ])
 #else
-if let envValue = ProcessInfo.processInfo.environment["LLAMA_MOCK"], envValue == "1" {
+if USE_LLAMA_MOCK {
     targets.append(contentsOf: [
         .target(name: "llama-mock"),
         .target(
