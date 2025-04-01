@@ -1,11 +1,12 @@
-// swift-tools-version: 6.0
+// swift-tools-version: 6.1
 // The swift-tools-version declares the minimum version of Swift required to build this package.
 
 import PackageDescription
 import Foundation
 
-var swiftSettings: [SwiftSetting] = [
+let swiftSettings: [SwiftSetting] = [
     .enableUpcomingFeature("ExistentialAny"),
+    .interoperabilityMode(.Cxx, .when(traits: ["Zenzai"]))
 ]
 
 var dependencies: [Package.Dependency] = [
@@ -17,17 +18,14 @@ var dependencies: [Package.Dependency] = [
     .package(url: "https://github.com/ensan-hcl/swift-tokenizers", branch: "feat/minimum")
 ]
 
-var efficientNGramDependencies: [Target.Dependency] = [.product(name: "Transformers", package: "swift-tokenizers")]
+var efficientNGramDependencies: [Target.Dependency] = [
+    .product(name: "Transformers", package: "swift-tokenizers")
+]
+
 #if (!os(Linux) || !canImport(Android)) && !os(Windows)
-// Android環境・Windows環境ではSwiftyMarisaが利用できないため、除外する。
-// したがって、EfficientNGramの動作はサポートしない。
-if let envValue = ProcessInfo.processInfo.environment["LLAMA_MOCK"], envValue == "1" {
-    // LLAMA_MOCK=1の場合もサポートしない
-} else {
-    dependencies.append(.package(url: "https://github.com/ensan-hcl/SwiftyMarisa", branch: "6e145aef5583aac96dd7ff8f9fbb9944d893128e"))
-    efficientNGramDependencies.append("SwiftyMarisa")
-    swiftSettings.append(.interoperabilityMode(.Cxx))
-}
+// Android環境・Windows環境ではSwiftyMarisaが利用できないため、EfficientNGramは除外する。
+dependencies.append(.package(url: "https://github.com/ensan-hcl/SwiftyMarisa", branch: "6e145aef5583aac96dd7ff8f9fbb9944d893128e"))
+efficientNGramDependencies.append(.product(name: "SwiftyMarisa", package: "SwiftyMarisa", condition: .when(traits: ["Zenzai"])))
 #endif
 
 
@@ -139,58 +137,29 @@ if checkObjcAvailability() {
 }
 #endif
 
-if let envValue = ProcessInfo.processInfo.environment["LLAMA_MOCK"], envValue == "1" {
-    targets.append(contentsOf: [
-        .target(name: "llama-mock"),
-        .target(
-            name: "KanaKanjiConverterModule",
-            dependencies: [
-                "SwiftUtils",
-                "llama-mock",
-                "EfficientNGram",
-                .product(name: "Collections", package: "swift-collections"),
-            ],
-            swiftSettings: swiftSettings
-        )
-    ])
-} else {
-    #if os(Windows) || os(Linux)
-    targets.append(contentsOf: [
-        .systemLibrary(
-            name: "llama.cpp"
-        ),
-        .target(
-            name: "KanaKanjiConverterModule",
-            dependencies: [
-                "SwiftUtils",
-                "llama.cpp",
-                "EfficientNGram",
-                .product(name: "Collections", package: "swift-collections"),
-            ],
-            swiftSettings: swiftSettings
-        )
-    ])
-    #else
-    targets.append(contentsOf: [
-        .binaryTarget(
-            name: "llama.cpp",
-            url: "https://github.com/fkunn1326/llama.cpp/releases/download/b4844/llama-b4844-xcframework.zip",
-            // this can be computed `swift package compute-checksum llama-b4844-xcframework.zip`
-            checksum: "40bd1e58e727511649e13a6de9eb577ea8be78fe4183c2e1b382b12054849f05"
-        ),
-        .target(
-            name: "KanaKanjiConverterModule",
-            dependencies: [
-                "SwiftUtils",
-                "EfficientNGram",
-                "llama.cpp",
-                .product(name: "Collections", package: "swift-collections"),
-            ],
-            swiftSettings: swiftSettings
-        )
-    ])
-    #endif
-}
+#if os(Windows) || os(Linux)
+let llamaCppTarget: Target = .systemLibrary(name: "llama.cpp")
+#else
+let llamaCppTarget: Target = .binaryTarget(
+    name: "llama.cpp",
+    url: "https://github.com/fkunn1326/llama.cpp/releases/download/b4844/llama-b4844-xcframework.zip",
+    // this can be computed `swift package compute-checksum llama-b4844-xcframework.zip`
+    checksum: "40bd1e58e727511649e13a6de9eb577ea8be78fe4183c2e1b382b12054849f05"
+)
+#endif
+targets.append(llamaCppTarget)
+targets.append(
+    .target(
+        name: "KanaKanjiConverterModule",
+        dependencies: [
+            "SwiftUtils",
+            .target(name: "EfficientNGram", condition: .when(traits: ["Zenzai"])),
+            .target(name: "llama.cpp", condition: .when(traits: ["Zenzai"])),
+            .product(name: "Collections", package: "swift-collections"),
+        ],
+        swiftSettings: swiftSettings
+    )
+)
 
 let package = Package(
     name: "AzooKeyKanakanjiConverter",
@@ -211,6 +180,10 @@ let package = Package(
             name: "KanaKanjiConverterModule",
             targets: ["KanaKanjiConverterModule"]
         ),
+    ],
+    traits: [
+        .trait(name: "Zenzai"),
+        .default(enabledTraits: [])
     ],
     dependencies: dependencies,
     targets: targets

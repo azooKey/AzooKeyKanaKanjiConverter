@@ -1,5 +1,5 @@
 import Foundation
-#if canImport(SwiftyMarisa)
+#if canImport(SwiftyMarisa) && Zenzai
 import SwiftyMarisa
 
 /// Base64 でエンコードされた Key-Value をデコードする関数

@@ -1,5 +1,5 @@
 import Foundation
-#if canImport(SwiftyMarisa)
+#if canImport(SwiftyMarisa) && Zenzai
 import SwiftyMarisa
 
 final class SwiftTrainer {

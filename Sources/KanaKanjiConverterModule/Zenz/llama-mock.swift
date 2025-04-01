@@ -1,3 +1,5 @@
+#if !Zenzai
+// Zenzaiが有効でない場合、このMock実装を有効化する
 private func unimplemented<T>() -> T {
     fatalError("unimplemented")
 }
@@ -60,3 +62,4 @@ package func llama_token_to_piece(_ vocab: llama_vocab, _ token: llama_token, _ 
 
 package func llama_decode(_ ctx: llama_context, _ batch: llama_batch) -> Int { unimplemented() }
 package func llama_get_logits(_ ctx: llama_context) -> UnsafeMutablePointer<Float>? { unimplemented() }
+#endif

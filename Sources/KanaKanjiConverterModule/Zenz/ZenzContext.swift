@@ -1,8 +1,8 @@
-#if canImport(llama)
+#if Zenzai
+// Zenzaiが有効でない場合、llama-mock.swiftの実装が利用可能になる
 import llama
-#else
-import llama_mock
 #endif
+
 import SwiftUtils
 import HeapModule
 import Algorithms
