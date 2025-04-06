@@ -144,7 +144,7 @@ let llamaCppTarget: Target = .binaryTarget(
     name: "llama.cpp",
     url: "https://github.com/azooKey/llama.cpp/releases/download/b4846/signed-llama.xcframework.zip",
     // this can be computed `swift package compute-checksum llama-b4844-xcframework.zip`
-    checksum: "e5eb627b52e2b661964a709be67fb6a93154aa30119623374cd6fd432f097125"
+    checksum: "5b273c042afc74705b7afb8866d9ebd71b8f32170e3d59e11f9d338ffb78068a"
 )
 #endif
 targets.append(llamaCppTarget)
