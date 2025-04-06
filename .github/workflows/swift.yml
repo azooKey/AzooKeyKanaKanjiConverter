@@ -130,7 +130,7 @@ jobs:
           if ${{ matrix.arch == 'armv7' }}; then
               ARCH_TARGET="armv7-unknown-linux-androideabi${{ matrix.swift-version.android }}"
           fi
-          ${TOOLCHAIN}/bin/swift sdk configure --show-configuration swift--${{ matrix.swift-version.version }}-RELEASE-android-${{ matrix.swift-version.android }}-0.1 $ARCH_TARGET
+          ${TOOLCHAIN}/bin/swift sdk configure --show-configuration swift-${{ matrix.swift-version.version }}-RELEASE-android-${{ matrix.swift-version.android }}-0.1 $ARCH_TARGET
           ${TOOLCHAIN}/bin/swift build --build-tests --swift-sdk $ARCH_TARGET
       - name: Get cached Termux app
         if: ${{ matrix.arch == 'x86_64' }}
