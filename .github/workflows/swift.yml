@@ -97,12 +97,12 @@ jobs:
       matrix:
         arch: [x86_64, aarch64, armv7]
         os: [ubuntu-latest]
-        # You may find the checksum at: https://www.swift.org/install/linux/ubuntu/24_04/#latest
+        # You may find the checksum at: https://github.com/finagolfin/swift-android-sdk/blob/main/README.md#swift-cross-compilation-sdk-bundle-for-android
         swift-version:
           [{
-            version: "6.1.0",
+            version: "6.1",
             android: "24",
-            checksum: "111c6f7d280a651208b8c74c0521dd99365d785c1976a6e23162f55f65379ac6"
+            checksum: "971f3b1fd03c059803d625f0a412d7e8c4c6f34440f5216ceaf13e886e8e706f"
           }]
 
     steps:
