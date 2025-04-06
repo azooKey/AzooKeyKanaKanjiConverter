@@ -115,7 +115,9 @@ jobs:
           ${TOOLCHAIN}/bin/swift --version
 
       - name: Setup Swift release Android SDK
-        run: ${TOOLCHAIN}/bin/swift sdk install https://github.com/finagolfin/swift-android-sdk/releases/download/${{ matrix.swift-version.version }}/swift-${{ matrix.swift-version.version }}-RELEASE-android-${{ matrix.swift-version.android }}-0.1.artifactbundle.tar.gz --checksum ${{ matrix.swift-version.checksum }}
+        run: |
+          ${TOOLCHAIN}/bin/swift sdk install https://github.com/finagolfin/swift-android-sdk/releases/download/${{ matrix.swift-version.version }}/swift-${{ matrix.swift-version.version }}-RELEASE-android-${{ matrix.swift-version.android }}-0.1.artifactbundle.tar.gz --checksum ${{ matrix.swift-version.checksum }}
+          ${TOOLCHAIN}/bin/swift sdk list
       - uses: actions/checkout@v4
         with:
           path: AzooKeyKanaKanjiConverter
