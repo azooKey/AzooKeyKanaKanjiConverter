@@ -5,7 +5,7 @@ AzooKeyKanaKanjiConverterは[azooKey](https://github.com/ensan-hcl/azooKey)の�
 また、AzooKeyKanaKanjiConverterはニューラルかな漢字変換システム「Zenzai」を利用した高精度な変換もサポートしています。
 
 ## 動作環境
-iOS 14以降, macOS 11以降, visionOS 1以降, Ubuntu 22.04以降で動作を確認しています。
+iOS 16以降, macOS 13以降, visionOS 1以降, Ubuntu 22.04以降で動作を確認しています。Swift 6.1以上が必要です。
 
 AzooKeyKanaKanjiConverterの開発については[開発ガイド](Docs/development_guide.md)をご覧ください。
 
@@ -18,7 +18,7 @@ AzooKeyKanaKanjiConverterの開発については[開発ガイド](Docs/developm
 * Swift Packageの場合、Package.swiftの`Package`の引数に`dependencies`以下の記述を追加してください。
   ```swift
   dependencies: [
-      .package(url: "https://github.com/ensan-hcl/AzooKeyKanaKanjiConverter", .upToNextMinor(from: "0.8.0"))
+      .package(url: "https://github.com/azooKey/AzooKeyKanaKanjiConverter", .upToNextMinor(from: "0.8.0"))
   ],
   ```
   また、ターゲットの`dependencies`にも同様に追加してください。
@@ -80,7 +80,16 @@ let options = ConvertRequestOptions.withDefaultDictionary(
 `ComposingText`は入力管理を行いつつ変換をリクエストするためのAPIです。ローマ字入力などを適切にハンドルするために利用できます。詳しくは[ドキュメント](./Docs/composing_text.md)を参照してください。
 
 ### Zenzaiを使う
-ニューラルかな漢字変換システム「Zenzai」を利用するには、`ConvertRequestOptions`の`zenzaiMode`を指定します。詳しくは[ドキュメント](./Docs/zenzai.md)を参照してください。
+ニューラルかな漢字変換システム「Zenzai」を利用するには、追加で[Swift Package Traits](https://github.com/swiftlang/swift-evolution/blob/main/proposals/0450-swiftpm-package-traits.md)の設定を行う必要があります。AzooKeyKanaKanjiConverterは「Zenzai」というTraitをサポートしているので、これを追加してください。
+
+```swift
+dependencies: [
+    .package(url: "https://github.com/azooKey/AzooKeyKanaKanjiConverter", .upToNextMinor(from: "0.8.0"), traits: ["Zenzai"])
+],
+```
+
+`ConvertRequestOptions`の`zenzaiMode`を指定します。詳しい引数の情報については[ドキュメント](./Docs/zenzai.md)を参照してください。
+
 ```swift
 let options = ConvertRequestOptions.withDefaultDictionary(
     // ...
@@ -90,6 +99,7 @@ let options = ConvertRequestOptions.withDefaultDictionary(
 ```
 
 ### 辞書データ
+
 AzooKeyKanaKanjiConverterのデフォルト辞書として[azooKey_dictionary_storage](https://github.com/ensan-hcl/azooKey_dictionary_storage)がサブモジュールとして指定されています。過去のバージョンの辞書データは[Google Drive](https://drive.google.com/drive/folders/1Kh7fgMFIzkpg7YwP3GhWTxFkXI-yzT9E?usp=sharing)からもダウンロードすることができます。
 
 また、以下のフォーマットであれば自前で用意した辞書データを利用することもできます。カスタム辞書データのサポートは限定的なので、ソースコードを確認の上ご利用ください。
