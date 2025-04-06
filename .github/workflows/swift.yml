@@ -13,9 +13,9 @@ jobs:
     strategy:
       matrix:
         os: [macos-latest]
-        swift-version: ["6.0"]
+        swift-version: ["6.1"]
     steps:
-      - uses: swift-actions/setup-swift@v2
+      - uses: ensan-hcl/setup-swift@swift-6.1.0
         with:
           swift-version: ${{ matrix.swift-version }}
       - uses: actions/checkout@v4
@@ -31,9 +31,9 @@ jobs:
     strategy:
       matrix:
         os: [ubuntu-latest]
-        swift-version: ["6.0"]
+        swift-version: ["6.1"]
     steps:
-      - uses: swift-actions/setup-swift@v2
+      - uses: ensan-hcl/setup-swift@swift-6.1.0
         with:
           swift-version: ${{ matrix.swift-version }}
       - uses: actions/checkout@v4
@@ -97,11 +97,12 @@ jobs:
       matrix:
         arch: [x86_64, aarch64, armv7]
         os: [ubuntu-latest]
+        # You may find the checksum at: https://www.swift.org/install/linux/ubuntu/24_04/#latest
         swift-version:
           [{
-            version: "6.0.2",
+            version: "6.1.0",
             android: "24",
-            checksum: "d75615eac3e614131133c7cc2076b0b8fb4327d89dce802c25cd53e75e1881f4"
+            checksum: "111c6f7d280a651208b8c74c0521dd99365d785c1976a6e23162f55f65379ac6"
           }]
 
     steps:
