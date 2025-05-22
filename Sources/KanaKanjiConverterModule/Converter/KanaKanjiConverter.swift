@@ -9,16 +9,17 @@
 import Foundation
 import SwiftUtils
 import EfficientNGram
+import Dispatch
 
 /// かな漢字変換の管理を受け持つクラス
-@MainActor public final class KanaKanjiConverter {
+public final class KanaKanjiConverter: @unchecked Sendable {
     public init() {}
     public init(dicdataStore: DicdataStore) {
         self.converter = .init(dicdataStore: dicdataStore)
     }
 
     private var converter = Kana2Kanji()
-    @MainActor private var checker = SpellChecker()
+    private let checker = SpellChecker()
     private var checkerInitialized: [KeyboardLanguage: Bool] = [.none: true, .ja_JP: true]
 
     // 前回の変換や確定の情報を取っておく部分。
@@ -34,7 +35,9 @@ import EfficientNGram
 
     /// リセットする関数
     public func stopComposition() {
-        self.zenz?.endSession()
+        if let zenz = self.zenz {
+            Task.detached { await zenz.endSession() }
+        }
         self.zenzaiPersonalization = nil
         self.zenzaiCache = nil
         self.previousInputData = nil
@@ -57,8 +60,8 @@ import EfficientNGram
         return (mode, baseModel, personalModel)
     }
 
-    package func getModel(modelURL: URL) -> Zenz? {
-        if let model = self.zenz, model.resourceURL == modelURL {
+    package func getModel(modelURL: URL) async -> Zenz? {
+        if let model = self.zenz, await model.resourceURL == modelURL {
             self.zenzStatus = "load \(modelURL.absoluteString)"
             return model
         } else {
@@ -73,8 +76,9 @@ import EfficientNGram
         }
     }
     
-    public func predictNextCharacter(leftSideContext: String, count: Int, options: ConvertRequestOptions) -> [(character: Character, value: Float)] {
-        guard let zenz = self.getModel(modelURL: options.zenzaiMode.weightURL) else {
+    /// 非同期で次の文字候補を取得する
+    public func predictNextCharacterAsync(leftSideContext: String, count: Int, options: ConvertRequestOptions) async -> [(character: Character, value: Float)] {
+        guard let zenz = await self.getModel(modelURL: options.zenzaiMode.weightURL) else {
             print("zenz-v2 model unavailable")
             return []
         }
@@ -82,9 +86,21 @@ import EfficientNGram
             print("next character prediction requires zenz-v2 models, not zenz-v1 nor zenz-v3 and later")
             return []
         }
-        let results = zenz.predictNextCharacter(leftSideContext: leftSideContext, count: count)
-        
+        let results = await zenz.predictNextCharacter(leftSideContext: leftSideContext, count: count)
+
         return results
+    }
+
+    /// 同期で次の文字候補を取得する既存API
+    public func predictNextCharacter(leftSideContext: String, count: Int, options: ConvertRequestOptions) -> [(character: Character, value: Float)] {
+        let semaphore = DispatchSemaphore(value: 0)
+        var result: [(character: Character, value: Float)] = []
+        Task.detached {
+            result = await self.predictNextCharacterAsync(leftSideContext: leftSideContext, count: count, options: options)
+            semaphore.signal()
+        }
+        semaphore.wait()
+        return result
     }
 
     /// 入力する言語が分かったらこの関数をなるべく早い段階で呼ぶことで、SpellCheckerの初期化が行われ、変換がスムーズになる
@@ -92,13 +108,13 @@ import EfficientNGram
         if !checkerInitialized[language, default: false] {
             switch language {
             case .en_US:
-                Task { @MainActor in
-                    _ = self.checker.completions(forPartialWordRange: NSRange(location: 0, length: 1), in: "a", language: "en-US")
+                Task.detached {
+                    _ = await self.checker.completions(forPartialWordRange: NSRange(location: 0, length: 1), in: "a", language: "en-US")
                     self.checkerInitialized[language] = true
                 }
             case .el_GR:
-                Task { @MainActor in
-                    _ = self.checker.completions(forPartialWordRange: NSRange(location: 0, length: 1), in: "a", language: "el-GR")
+                Task.detached {
+                    _ = await self.checker.completions(forPartialWordRange: NSRange(location: 0, length: 1), in: "a", language: "el-GR")
                     self.checkerInitialized[language] = true
                 }
             case .none, .ja_JP:
@@ -206,7 +222,7 @@ import EfficientNGram
     ///   - language: 言語コード。現在は`en-US`と`el(ギリシャ語)`のみ対応している。
     /// - Returns:
     ///   予測変換候補
-    private func getForeignPredictionCandidate(inputData: ComposingText, language: String, penalty: PValue = -5) -> [Candidate] {
+    private func getForeignPredictionCandidate(inputData: ComposingText, language: String, penalty: PValue = -5) async -> [Candidate] {
         switch language {
         case "en-US":
             var result: [Candidate] = []
@@ -215,7 +231,7 @@ import EfficientNGram
             if !ruby.onlyRomanAlphabet {
                 return result
             }
-            if let completions = checker.completions(forPartialWordRange: range, in: ruby, language: language) {
+            if let completions = await checker.completions(forPartialWordRange: range, in: ruby, language: language) {
                 if !completions.isEmpty {
                     let data = [DicdataElement(ruby: ruby, cid: CIDData.固有名詞.cid, mid: MIDData.一般.mid, value: penalty)]
                     let candidate: Candidate = Candidate(
@@ -247,7 +263,7 @@ import EfficientNGram
             var result: [Candidate] = []
             let ruby = String(inputData.input.map {$0.character})
             let range = NSRange(location: 0, length: ruby.utf16.count)
-            if let completions = checker.completions(forPartialWordRange: range, in: ruby, language: language) {
+            if let completions = await checker.completions(forPartialWordRange: range, in: ruby, language: language) {
                 if !completions.isEmpty {
                     let data = [DicdataElement(ruby: ruby, cid: CIDData.固有名詞.cid, mid: MIDData.一般.mid, value: penalty)]
                     let candidate: Candidate = Candidate(
@@ -336,11 +352,11 @@ import EfficientNGram
     ///   - inputData: 変換対象のInputData。
     /// - Returns:
     ///   付加的な変換候補
-    private func getTopLevelAdditionalCandidate(_ inputData: ComposingText, options: ConvertRequestOptions) -> [Candidate] {
+    private func getTopLevelAdditionalCandidate(_ inputData: ComposingText, options: ConvertRequestOptions) async -> [Candidate] {
         var candidates: [Candidate] = []
         if inputData.input.allSatisfy({$0.inputStyle == .roman2kana}) {
             if options.englishCandidateInRoman2KanaInput {
-                candidates.append(contentsOf: self.getForeignPredictionCandidate(inputData: inputData, language: "en-US", penalty: -10))
+                candidates.append(contentsOf: await self.getForeignPredictionCandidate(inputData: inputData, language: "en-US", penalty: -10))
             }
         }
         return candidates
@@ -450,7 +466,7 @@ import EfficientNGram
     ///   重複のない変換候補。
     /// - Note:
     ///   現在の実装は非常に複雑な方法で候補の順序を決定している。
-    private func processResult(inputData: ComposingText, result: (result: LatticeNode, nodes: [[LatticeNode]]), options: ConvertRequestOptions) -> ConversionResult {
+    private func processResult(inputData: ComposingText, result: (result: LatticeNode, nodes: [[LatticeNode]]), options: ConvertRequestOptions) async -> ConversionResult {
         self.previousInputData = inputData
         self.nodes = result.nodes
         let clauseResult = result.result.getCandidateData()
@@ -511,16 +527,16 @@ import EfficientNGram
         var foreign_candidates: [Candidate] = []
 
         if options.requireEnglishPrediction {
-            foreign_candidates.append(contentsOf: self.getForeignPredictionCandidate(inputData: inputData, language: "en-US"))
+            foreign_candidates.append(contentsOf: await self.getForeignPredictionCandidate(inputData: inputData, language: "en-US"))
         }
         if options.keyboardLanguage == .el_GR {
-            foreign_candidates.append(contentsOf: self.getForeignPredictionCandidate(inputData: inputData, language: "el"))
+            foreign_candidates.append(contentsOf: await self.getForeignPredictionCandidate(inputData: inputData, language: "el"))
         }
 
         // 文全体変換5件と予測変換3件を混ぜてベスト8を出す
         let best8 = getUniqueCandidate(sentence_candidates.prefix(5).chained(prediction_candidates)).sorted {$0.value > $1.value}
         // その他のトップレベル変換（先頭に表示されうる変換候補）
-        let toplevel_additional_candidate = self.getTopLevelAdditionalCandidate(inputData, options: options)
+        let toplevel_additional_candidate = await self.getTopLevelAdditionalCandidate(inputData, options: options)
         // best8、foreign_candidates、zeroHintPrediction_candidates、toplevel_additional_candidateを混ぜて上位5件を取得する
         let full_candidate = getUniqueCandidate(
             best8
@@ -607,14 +623,14 @@ import EfficientNGram
     ///   - N_best: 計算途中で保存する候補数。実際に得られる候補数とは異なる。
     /// - Returns:
     ///   結果のラティスノードと、計算済みノードの全体
-    private func convertToLattice(_ inputData: ComposingText, N_best: Int, zenzaiMode: ConvertRequestOptions.ZenzaiMode) -> (result: LatticeNode, nodes: [[LatticeNode]])? {
+    private func convertToLattice(_ inputData: ComposingText, N_best: Int, zenzaiMode: ConvertRequestOptions.ZenzaiMode) async -> (result: LatticeNode, nodes: [[LatticeNode]])? {
         if inputData.convertTarget.isEmpty {
             return nil
         }
 
         // FIXME: enable cache based zenzai
-        if zenzaiMode.enabled, let model = self.getModel(modelURL: zenzaiMode.weightURL) {
-            let (result, nodes, cache) = self.converter.all_zenzai(
+        if zenzaiMode.enabled, let model = await self.getModel(modelURL: zenzaiMode.weightURL) {
+            let (result, nodes, cache) = await self.converter.all_zenzai(
                 inputData,
                 zenz: model,
                 zenzaiCache: self.zenzaiCache,
@@ -717,7 +733,8 @@ import EfficientNGram
     ///   - inputData: 変換対象のInputData。
     ///   - options: リクエストにかかるパラメータ。
     /// - Returns: `ConversionResult`
-    public func requestCandidates(_ inputData: ComposingText, options: ConvertRequestOptions) -> ConversionResult {
+    /// 非同期で変換候補を要求する新API
+    public func requestCandidatesAsync(_ inputData: ComposingText, options: ConvertRequestOptions) async -> ConversionResult {
         debug("requestCandidates 入力は", inputData)
         // 変換対象が無の場合
         if inputData.convertTarget.isEmpty {
@@ -727,11 +744,23 @@ import EfficientNGram
         // DicdataStoreにRequestOptionを通知する
         self.sendToDicdataStore(.setRequestOptions(options))
 
-        guard let result = self.convertToLattice(inputData, N_best: options.N_best, zenzaiMode: options.zenzaiMode) else {
+        guard let result = await self.convertToLattice(inputData, N_best: options.N_best, zenzaiMode: options.zenzaiMode) else {
             return ConversionResult(mainResults: [], firstClauseResults: [])
         }
 
-        return self.processResult(inputData: inputData, result: result, options: options)
+        return await self.processResult(inputData: inputData, result: result, options: options)
+    }
+
+    /// 既存の同期API
+    public func requestCandidates(_ inputData: ComposingText, options: ConvertRequestOptions) -> ConversionResult {
+        let semaphore = DispatchSemaphore(value: 0)
+        var result: ConversionResult = ConversionResult(mainResults: [], firstClauseResults: [])
+        Task.detached {
+            result = await self.requestCandidatesAsync(inputData, options: options)
+            semaphore.signal()
+        }
+        semaphore.wait()
+        return result
     }
 
     /// 変換確定後の予測変換候補を要求する関数

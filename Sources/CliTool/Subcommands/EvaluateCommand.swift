@@ -51,7 +51,7 @@ extension Subcommands {
                 var composingText = ComposingText()
                 composingText.insertAtCursorPosition(item.query, inputStyle: .direct)
                 let requestOptions = self.requestOptions(leftSideContext: item.left_context)
-                let result = await converter.requestCandidates(composingText, options: requestOptions)
+                let result = await converter.requestCandidatesAsync(composingText, options: requestOptions)
                 let mainResults = result.mainResults.filter {
                     $0.data.reduce(into: "", {$0.append(contentsOf: $1.ruby)}) == item.query.toKatakana()
                 }

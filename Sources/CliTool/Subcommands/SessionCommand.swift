@@ -63,7 +63,7 @@ extension Subcommands {
             }
         }
 
-        @MainActor mutating func run() async {
+        mutating func run() async {
             if self.zenzV1 || self.zenzV2 {
                 print("\(bold: "We strongly recommend to use zenz-v3 models")")
             }
@@ -146,7 +146,7 @@ extension Subcommands {
                     continue
                 case ":p", ":pred":
                     // 次の文字の予測を取得する
-                    let results = converter.predictNextCharacter(
+                    let results = await converter.predictNextCharacterAsync(
                         leftSideContext: leftSideContext,
                         count: 10,
                         options: requestOptions(memoryDirectory: memoryDirectory, leftSideContext: leftSideContext)
@@ -212,7 +212,7 @@ extension Subcommands {
                 }
                 print(composingText.convertTarget)
                 let start = Date()
-                let result = converter.requestCandidates(composingText, options: requestOptions(memoryDirectory: memoryDirectory, leftSideContext: leftSideContext))
+                let result = await converter.requestCandidatesAsync(composingText, options: requestOptions(memoryDirectory: memoryDirectory, leftSideContext: leftSideContext))
                 let mainResults = result.mainResults.filter {
                     !self.onlyWholeConversion || $0.data.reduce(into: "", {$0.append(contentsOf: $1.ruby)}) == input.toKatakana()
                 }

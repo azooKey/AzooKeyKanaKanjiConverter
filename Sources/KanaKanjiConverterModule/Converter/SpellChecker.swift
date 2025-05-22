@@ -12,7 +12,8 @@ import UIKit
 import AppKit
 #endif
 
-@MainActor final class SpellChecker {
+/// Spell checker utility isolated in its own actor.
+actor SpellChecker {
     #if os(iOS) || os(tvOS) || os(visionOS)
     private let checker = UITextChecker()
     #elseif os(macOS)

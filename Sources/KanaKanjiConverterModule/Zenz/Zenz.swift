@@ -2,7 +2,8 @@ import Foundation
 import SwiftUtils
 import EfficientNGram
 
-@MainActor package final class Zenz {
+/// Wrapper for ZenzContext protected by an actor for thread safety.
+package actor Zenz {
     package var resourceURL: URL
     private var zenzContext: ZenzContext?
     init(resourceURL: URL) throws {

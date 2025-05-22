@@ -52,7 +52,7 @@ extension Kana2Kanji {
     }
 
     /// zenzaiシステムによる完全変換。
-    @MainActor func all_zenzai(
+    func all_zenzai(
         _ inputData: ComposingText,
         zenz: Zenz,
         zenzaiCache: ZenzaiCache?,
@@ -60,7 +60,7 @@ extension Kana2Kanji {
         requestRichCandidates: Bool,
         personalizationMode: (mode: ConvertRequestOptions.ZenzaiMode.PersonalizationMode, base: EfficientNGram, personal: EfficientNGram)?,
         versionDependentConfig: ConvertRequestOptions.ZenzaiVersionDependentMode
-    ) -> (result: LatticeNode, nodes: Nodes, cache: ZenzaiCache) {
+    ) async -> (result: LatticeNode, nodes: Nodes, cache: ZenzaiCache) {
         var constraint = zenzaiCache?.getNewConstraint(for: inputData) ?? PrefixConstraint([])
         debug("initial constraint", constraint)
         let eosNode = LatticeNode.EOSNode
@@ -112,7 +112,7 @@ extension Kana2Kanji {
                     // When inference occurs more than maximum times, then just return result at this point
                     return (eosNode, nodes, ZenzaiCache(inputData, constraint: constraint, satisfyingCandidate: candidate))
                 }
-                let reviewResult = zenz.candidateEvaluate(
+                let reviewResult = await zenz.candidateEvaluate(
                     convertTarget: inputData.convertTarget,
                     candidates: [candidate],
                     requestRichCandidates: requestRichCandidates,

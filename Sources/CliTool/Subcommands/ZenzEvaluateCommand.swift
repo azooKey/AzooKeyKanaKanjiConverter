@@ -34,7 +34,7 @@ extension Subcommands {
 
         mutating func run() async throws {
             let inputItems = try parseInputFile()
-            let converter = await KanaKanjiConverter()
+            let converter = KanaKanjiConverter()
             var executionTime: Double = 0
             var resultItems: [EvaluateItem] = []
 

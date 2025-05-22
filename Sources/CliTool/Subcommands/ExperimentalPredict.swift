@@ -14,9 +14,9 @@ extension Subcommands {
 
         static let configuration = CommandConfiguration(commandName: "experimental_predict", abstract: "Show help for this utility.")
 
-        @MainActor mutating func run() async {
+        mutating func run() async {
             let converter = KanaKanjiConverter()
-            let result = converter.predictNextCharacter(leftSideContext: self.input, count: 10, options: requestOptions())
+            let result = await converter.predictNextCharacterAsync(leftSideContext: self.input, count: 10, options: requestOptions())
             for (i, res) in result.indexed() {
                 print("\(i). \(res.character): \(res.value)")
             }

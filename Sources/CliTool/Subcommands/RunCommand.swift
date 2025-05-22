@@ -33,11 +33,11 @@ extension Subcommands {
 
         static let configuration = CommandConfiguration(commandName: "run", abstract: "Show help for this utility.")
 
-        @MainActor mutating func run() async {
+        mutating func run() async {
             let converter = KanaKanjiConverter()
             var composingText = ComposingText()
             composingText.insertAtCursorPosition(input, inputStyle: .direct)
-            let result = converter.requestCandidates(composingText, options: requestOptions())
+            let result = await converter.requestCandidatesAsync(composingText, options: requestOptions())
             let mainResults = result.mainResults.filter {
                 !self.onlyWholeConversion || $0.data.reduce(into: "", {$0.append(contentsOf: $1.ruby)}) == input.toKatakana()
             }

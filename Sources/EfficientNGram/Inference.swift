@@ -15,7 +15,7 @@ private func decodeKeyValue(_ suffix: some Collection<Int8>) -> UInt32? {
 }
 
 /// Kneser-Ney 言語モデル
-public struct EfficientNGram {
+public struct EfficientNGram: @unchecked Sendable {
     public let n: Int
     public let d: Double
 
@@ -209,7 +209,7 @@ package func generateText(
 }
 #else
 /// Mock Implementation
-public struct EfficientNGram {
+public struct EfficientNGram: @unchecked Sendable {
     public init(baseFilename: String, n: Int, d: Double, tokenizer: ZenzTokenizer) {}
     public func bulkPredict(_ ngram: some BidirectionalCollection<Int>) -> [Double] {
         // FIXME: avoid hard-coding
