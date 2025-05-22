@@ -18,6 +18,11 @@ public final class KanaKanjiConverter: @unchecked Sendable {
         self.converter = .init(dicdataStore: dicdataStore)
     }
 
+    /// Create a new converter session wrapping this instance.
+    public func startSession() -> KanaKanjiConverterSession {
+        KanaKanjiConverterSession(converter: self)
+    }
+
     private var converter = Kana2Kanji()
     private let checker = SpellChecker()
     private var checkerInitialized: [KeyboardLanguage: Bool] = [.none: true, .ja_JP: true]
