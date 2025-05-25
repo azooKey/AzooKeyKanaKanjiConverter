@@ -15,7 +15,11 @@ public typealias PValue = Float32
 #endif
 
 struct Kana2Kanji {
-    var dicdataStore = DicdataStore()
+    var dicdataStore = LockedDicdataStore()
+
+    init(dicdataStore: LockedDicdataStore = LockedDicdataStore()) {
+        self.dicdataStore = dicdataStore
+    }
 
     /// CandidateDataの状態からCandidateに変更する関数
     /// - parameters:

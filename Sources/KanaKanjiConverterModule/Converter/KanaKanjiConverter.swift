@@ -13,9 +13,12 @@ import Dispatch
 
 /// かな漢字変換の管理を受け持つクラス
 public final class KanaKanjiConverter: @unchecked Sendable {
-    public init() {}
-    public init(dicdataStore: DicdataStore) {
-        self.converter = .init(dicdataStore: dicdataStore)
+    private var converter: Kana2Kanji
+    public init() {
+        self.converter = Kana2Kanji()
+    }
+    init(dicdataStore: LockedDicdataStore) {
+        self.converter = Kana2Kanji(dicdataStore: dicdataStore)
     }
 
     /// Create a new converter session wrapping this instance.
@@ -23,7 +26,6 @@ public final class KanaKanjiConverter: @unchecked Sendable {
         KanaKanjiConverterSession(converter: self)
     }
 
-    private var converter = Kana2Kanji()
     var kana2Kanji: Kana2Kanji { self.converter }
     private let checker = SpellChecker()
     private var checkerInitialized: [KeyboardLanguage: Bool] = [.none: true, .ja_JP: true]
@@ -87,7 +89,7 @@ public final class KanaKanjiConverter: @unchecked Sendable {
     /// - Parameters:
     ///   - data: 行うべき操作。
     public func sendToDicdataStore(_ data: DicdataStore.Notification) {
-        self.converter.dicdataStore.sendToDicdataStore(data)
+        self.converter.dicdataStore.send(data)
     }
     /// 確定操作後、内部状態のキャッシュを変更する関数。
     /// - Parameters:
