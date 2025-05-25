@@ -27,9 +27,7 @@ public final class KanaKanjiConverter: @unchecked Sendable {
     private let checker = SpellChecker()
     private var checkerInitialized: [KeyboardLanguage: Bool] = [.none: true, .ja_JP: true]
 
-    // 前回の変換や確定の情報を取っておく部分。
-    private var previousInputData: ComposingText?
-    private var nodes: [[LatticeNode]] = []
+    // 前回の確定候補を保存する部分。
     private var completedData: Candidate?
     private var lastData: DicdataElement?
     /// Zenzaiのためのzenzモデル
@@ -45,8 +43,6 @@ public final class KanaKanjiConverter: @unchecked Sendable {
         }
         self.zenzaiPersonalization = nil
         self.zenzaiCache = nil
-        self.previousInputData = nil
-        self.nodes = []
         self.completedData = nil
         self.lastData = nil
     }
@@ -471,9 +467,7 @@ public final class KanaKanjiConverter: @unchecked Sendable {
     ///   重複のない変換候補。
     /// - Note:
     ///   現在の実装は非常に複雑な方法で候補の順序を決定している。
-    private func processResult(inputData: ComposingText, result: (result: LatticeNode, nodes: [[LatticeNode]]), options: ConvertRequestOptions) async -> ConversionResult {
-        self.previousInputData = inputData
-        self.nodes = result.nodes
+    package func processResult(inputData: ComposingText, result: (result: LatticeNode, nodes: [[LatticeNode]]), options: ConvertRequestOptions) async -> ConversionResult {
         let clauseResult = result.result.getCandidateData()
         if clauseResult.isEmpty {
             let candidates = self.getUniqueCandidate(self.getAdditionalCandidate(inputData, options: options))
@@ -628,7 +622,13 @@ public final class KanaKanjiConverter: @unchecked Sendable {
     ///   - N_best: 計算途中で保存する候補数。実際に得られる候補数とは異なる。
     /// - Returns:
     ///   結果のラティスノードと、計算済みノードの全体
-    private func convertToLattice(_ inputData: ComposingText, N_best: Int, zenzaiMode: ConvertRequestOptions.ZenzaiMode) async -> (result: LatticeNode, nodes: [[LatticeNode]])? {
+    package func convertToLattice(
+        _ inputData: ComposingText,
+        N_best: Int,
+        zenzaiMode: ConvertRequestOptions.ZenzaiMode,
+        previousInputData: ComposingText?,
+        nodes: [[LatticeNode]]
+    ) async -> (result: LatticeNode, nodes: [[LatticeNode]])? {
         if inputData.convertTarget.isEmpty {
             return nil
         }
@@ -645,7 +645,6 @@ public final class KanaKanjiConverter: @unchecked Sendable {
                 versionDependentConfig: zenzaiMode.versionDependentMode
             )
             self.zenzaiCache = cache
-            self.previousInputData = inputData
             return (result, nodes)
         }
         #if os(iOS)
@@ -657,7 +656,6 @@ public final class KanaKanjiConverter: @unchecked Sendable {
         guard let previousInputData else {
             debug("convertToLattice: 新規計算用の関数を呼びますA")
             let result = converter.kana2lattice_all(inputData, N_best: N_best, needTypoCorrection: needTypoCorrection)
-            self.previousInputData = inputData
             return result
         }
 
@@ -666,7 +664,6 @@ public final class KanaKanjiConverter: @unchecked Sendable {
         // 完全一致の場合
         if previousInputData == inputData {
             let result = converter.kana2lattice_no_change(N_best: N_best, previousResult: (inputData: previousInputData, nodes: nodes))
-            self.previousInputData = inputData
             return result
         }
 
@@ -674,7 +671,6 @@ public final class KanaKanjiConverter: @unchecked Sendable {
         if let completedData, previousInputData.inputHasSuffix(inputOf: inputData) {
             debug("convertToLattice: 文節確定用の関数を呼びます、確定された文節は\(completedData)")
             let result = converter.kana2lattice_afterComplete(inputData, completedData: completedData, N_best: N_best, previousResult: (inputData: previousInputData, nodes: nodes), needTypoCorrection: needTypoCorrection)
-            self.previousInputData = inputData
             self.completedData = nil
             return result
         }
@@ -688,7 +684,6 @@ public final class KanaKanjiConverter: @unchecked Sendable {
         if diff.deleted > 0 && diff.addedCount == 0 {
             debug("convertToLattice: 最後尾削除用の関数を呼びます, 消した文字数は\(diff.deleted)")
             let result = converter.kana2lattice_deletedLast(deletedCount: diff.deleted, N_best: N_best, previousResult: (inputData: previousInputData, nodes: nodes))
-            self.previousInputData = inputData
             return result
         }
 
@@ -696,7 +691,6 @@ public final class KanaKanjiConverter: @unchecked Sendable {
         if diff.deleted > 0 {
             debug("convertToLattice: 最後尾文字置換用の関数を呼びます、差分は\(diff)")
             let result = converter.kana2lattice_changed(inputData, N_best: N_best, counts: (diff.deleted, diff.addedCount), previousResult: (inputData: previousInputData, nodes: nodes), needTypoCorrection: needTypoCorrection)
-            self.previousInputData = inputData
             return result
         }
 
@@ -704,7 +698,6 @@ public final class KanaKanjiConverter: @unchecked Sendable {
         if diff.deleted == 0 && diff.addedCount != 0 {
             debug("convertToLattice: 最後尾追加用の関数を呼びます、追加文字数は\(diff.addedCount)")
             let result = converter.kana2lattice_added(inputData, N_best: N_best, addedCount: diff.addedCount, previousResult: (inputData: previousInputData, nodes: nodes), needTypoCorrection: needTypoCorrection)
-            self.previousInputData = inputData
             return result
         }
 
@@ -712,7 +705,6 @@ public final class KanaKanjiConverter: @unchecked Sendable {
         if true {
             debug("convertToLattice: 新規計算用の関数を呼びますB")
             let result = converter.kana2lattice_all(inputData, N_best: N_best, needTypoCorrection: needTypoCorrection)
-            self.previousInputData = inputData
             return result
         }
     }
@@ -749,7 +741,13 @@ public final class KanaKanjiConverter: @unchecked Sendable {
         // DicdataStoreにRequestOptionを通知する
         self.sendToDicdataStore(.setRequestOptions(options))
 
-        guard let result = await self.convertToLattice(inputData, N_best: options.N_best, zenzaiMode: options.zenzaiMode) else {
+        guard let result = await self.convertToLattice(
+            inputData,
+            N_best: options.N_best,
+            zenzaiMode: options.zenzaiMode,
+            previousInputData: nil,
+            nodes: []
+        ) else {
             return ConversionResult(mainResults: [], firstClauseResults: [])
         }
 
