@@ -36,3 +36,21 @@ prefixとして確定された候補を与えてください。
 
 確定された候補を与えると、学習を更新します。
 
+## `startSession` と `requestCandidatesAsync`
+
+継続的な変換を行う場合は `startSession()` で `KanaKanjiConverterSession` を生成します。セッションでは非同期API `requestCandidatesAsync` を用いて候補取得を行います。
+
+```Swift
+let converter = KanaKanjiConverter()
+let session = converter.startSession()
+let options = ConvertRequestOptions(...)
+let input = ComposingText(
+    convertTargetCursorPosition: 3,
+    input: ["U", "+", "3042"].map { .init(character: Character($0), inputStyle: .direct) },
+    convertTarget: "U+3042"
+)
+let result = await session.requestCandidatesAsync(input, options: options)
+```
+
+セッションはスレッドセーフに設計されており、複数セッションを同時に利用しても互いの状態を汚染しません。
+
