@@ -53,4 +53,5 @@ let result = await session.requestCandidatesAsync(input, options: options)
 ```
 
 セッションはスレッドセーフに設計されており、複数セッションを同時に利用しても互いの状態を汚染しません。
+内部では`DicdataStore`へのアクセスを標準ライブラリの`Mutex`で直列化しているため、全てのセッションは同一の変換エンジンを共有します。
 

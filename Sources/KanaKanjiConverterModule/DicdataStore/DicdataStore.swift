@@ -9,7 +9,7 @@
 import Foundation
 import SwiftUtils
 
-public final class DicdataStore {
+public final class DicdataStore: @unchecked Sendable {
     public init(convertRequestOptions: ConvertRequestOptions) {
         self.requestOptions = convertRequestOptions
         self.setup()
