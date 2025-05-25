@@ -84,6 +84,7 @@ extension Subcommands {
             }
 
             let converter = KanaKanjiConverter()
+            let session = converter.startSession()
             var composingText = ComposingText()
             let inputStyle: InputStyle = self.roman2kana ? .roman2kana : .direct
             var lastCandidates: [Candidate] = []
@@ -123,7 +124,7 @@ extension Subcommands {
                 case ":c", ":clear":
                     // クリア
                     composingText.stopComposition()
-                    converter.stopComposition()
+                    await session.stopComposition()
                     leftSideContext = ""
                     print("composition is stopped")
                     continue
@@ -140,13 +141,13 @@ extension Subcommands {
                     continue
                 case ":s", ":save":
                     composingText.stopComposition()
-                    converter.stopComposition()
-                    converter.sendToDicdataStore(.closeKeyboard)
+                    await session.stopComposition()
+                    await session.sendToDicdataStore(.closeKeyboard)
                     print("saved")
                     continue
                 case ":p", ":pred":
                     // 次の文字の予測を取得する
-                    let results = await converter.predictNextCharacterAsync(
+                    let results = await session.predictNextCharacterAsync(
                         leftSideContext: leftSideContext,
                         count: 10,
                         options: requestOptions(memoryDirectory: memoryDirectory, leftSideContext: leftSideContext)
@@ -191,12 +192,12 @@ extension Subcommands {
                         }
                         let candidate = lastCandidates[index]
                         print("Submit \(candidate.text)")
-                        converter.setCompletedData(candidate)
-                        converter.updateLearningData(candidate)
+                        await session.setCompletedData(candidate)
+                        await session.updateLearningData(candidate)
                         composingText.prefixComplete(correspondingCount: candidate.correspondingCount)
                         if composingText.isEmpty {
                             composingText.stopComposition()
-                            converter.stopComposition()
+                            await session.stopComposition()
                         }
                         leftSideContext += candidate.text
                     } else {
@@ -212,7 +213,7 @@ extension Subcommands {
                 }
                 print(composingText.convertTarget)
                 let start = Date()
-                let result = await converter.requestCandidatesAsync(composingText, options: requestOptions(memoryDirectory: memoryDirectory, leftSideContext: leftSideContext))
+                let result = await session.requestCandidatesAsync(composingText, options: requestOptions(memoryDirectory: memoryDirectory, leftSideContext: leftSideContext))
                 let mainResults = result.mainResults.filter {
                     !self.onlyWholeConversion || $0.data.reduce(into: "", {$0.append(contentsOf: $1.ruby)}) == input.toKatakana()
                 }
