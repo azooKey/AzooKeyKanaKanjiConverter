@@ -108,4 +108,31 @@ final class KanaKanjiConverterSessionTests: XCTestCase {
             }
         }
     }
+
+    /// Verify that synchronous requestCandidates works and matches async version.
+    func testRequestCandidatesSync() async throws {
+        let converter = KanaKanjiConverter()
+        let session = converter.startSession()
+        let options = requestOptions()
+        let input = makeDirectInput(direct: "U+3042")
+
+        let asyncResult = await session.requestCandidatesAsync(input, options: options)
+        let syncResult = session.requestCandidates(input, options: options)
+
+        XCTAssertEqual(asyncResult.mainResults.map(\.text), syncResult.mainResults.map(\.text))
+        XCTAssertEqual(asyncResult.firstClauseResults.map(\.text), syncResult.firstClauseResults.map(\.text))
+    }
+
+    /// Ensure predictNextCharacter synchronous API returns same result as async API.
+    func testPredictNextCharacterSync() async throws {
+        let converter = KanaKanjiConverter()
+        let session = converter.startSession()
+        let options = requestOptions()
+
+        let asyncResult = await session.predictNextCharacterAsync(leftSideContext: "", count: 3, options: options)
+        let syncResult = session.predictNextCharacter(leftSideContext: "", count: 3, options: options)
+
+        XCTAssertEqual(asyncResult.map(\.character), syncResult.map(\.character))
+        XCTAssertEqual(asyncResult.map(\.value), syncResult.map(\.value))
+    }
 }
