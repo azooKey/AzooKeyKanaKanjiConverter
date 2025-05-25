@@ -63,6 +63,9 @@ public actor KanaKanjiConverterSession {
     }
 
     public func predictNextCharacterAsync(leftSideContext: String, count: Int, options: ConvertRequestOptions) async -> [(character: Character, value: Float)] {
+        guard options.zenzaiMode.enabled else {
+            return []
+        }
         guard let zenz = await self.getModel(modelURL: options.zenzaiMode.weightURL) else {
             print("zenz-v2 model unavailable")
             return []
@@ -75,10 +78,10 @@ public actor KanaKanjiConverterSession {
         return results
     }
 
-    public func predictNextCharacter(leftSideContext: String, count: Int, options: ConvertRequestOptions) -> [(character: Character, value: Float)] {
+    public nonisolated func predictNextCharacter(leftSideContext: String, count: Int, options: ConvertRequestOptions) -> [(character: Character, value: Float)] {
         let semaphore = DispatchSemaphore(value: 0)
         var result: [(character: Character, value: Float)] = []
-        Task.detached {
+        Task.detached { [self] in
             result = await self.predictNextCharacterAsync(leftSideContext: leftSideContext, count: count, options: options)
             semaphore.signal()
         }
@@ -215,10 +218,10 @@ public actor KanaKanjiConverterSession {
         return await self.converter.processResult(inputData: inputData, result: lattice, options: options)
     }
 
-    public func requestCandidates(_ inputData: ComposingText, options: ConvertRequestOptions) -> ConversionResult {
+    public nonisolated func requestCandidates(_ inputData: ComposingText, options: ConvertRequestOptions) -> ConversionResult {
         let semaphore = DispatchSemaphore(value: 0)
         var result: ConversionResult = ConversionResult(mainResults: [], firstClauseResults: [])
-        Task.detached {
+        Task.detached { [self] in
             result = await self.requestCandidatesAsync(inputData, options: options)
             semaphore.signal()
         }
