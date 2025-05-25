@@ -10,14 +10,14 @@ import Foundation
 
 /// `struct`の`RegisteredNode`を再帰的に所持できるようにするため、Existential Typeで抽象化する。
 /// - Note: `indirect enum`との比較はまだやっていない。
-protocol RegisteredNodeProtocol {
+protocol RegisteredNodeProtocol: Sendable {
     var data: DicdataElement {get}
     var prev: (any RegisteredNodeProtocol)? {get}
     var totalValue: PValue {get}
     var inputRange: Range<Int> {get}
 }
 
-struct RegisteredNode: RegisteredNodeProtocol {
+struct RegisteredNode: RegisteredNodeProtocol, @unchecked Sendable {
     /// このノードが保持する辞書データ
     let data: DicdataElement
     /// 1つ前のノードのデータ

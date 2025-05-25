@@ -39,14 +39,16 @@ final class ConverterTests: XCTestCase {
 
     func testFullConversion() async throws {
         do {
-            let converter = KanaKanjiConverter()
-            var c = ComposingText()
+        let converter = KanaKanjiConverter()
+        let session = converter.startSession()
+        var c = ComposingText()
             c.insertAtCursorPosition("あずーきーはしんじだいのきーぼーどあぷりです", inputStyle: .direct)
             let results = await converter.requestCandidatesAsync(c, options: requestOptions())
             XCTAssertEqual(results.mainResults.first?.text, "azooKeyは新時代のキーボードアプリです")
         }
         do {
             let converter = KanaKanjiConverter()
+            let session = converter.startSession()
             var c = ComposingText()
             c.insertAtCursorPosition("ようしょうきからてにすすいえいやきゅうしょうりんじけんぽうなどさまざまなすぽーつをけいけんしながらそだちしょうがっこうじだいはろさんぜるすきんこうにたいざいしておりごるふやてにすをならっていた", inputStyle: .direct)
             let results = await converter.requestCandidatesAsync(c, options: requestOptions())
@@ -58,11 +60,12 @@ final class ConverterTests: XCTestCase {
     // memo: 内部実装としては別のモジュールが呼ばれるのだが、それをテストする方法があまりないかもしれない
     func testGradualConversion() async throws {
         let converter = KanaKanjiConverter()
+        let session = converter.startSession()
         var c = ComposingText()
         let text = "ようしょうきからてにすすいえいやきゅうしょうりんじけんぽうなどさまざまなすぽーつをけいけんしながらそだちしょうがっこうじだいはろさんぜるすきんこうにたいざいしておりごるふやてにすをならっていた"
         for char in text {
             c.insertAtCursorPosition(String(char), inputStyle: .direct)
-            let results = await converter.requestCandidatesAsync(c, options: requestOptions())
+            let results = await session.requestCandidatesAsync(c, options: requestOptions())
             if c.input.count == text.count {
                 XCTAssertEqual(results.mainResults.first?.text, "幼少期からテニス水泳野球少林寺拳法など様々なスポーツを経験しながら育ち小学校時代はロサンゼルス近郊に滞在しておりゴルフやテニスを習っていた")
             }
@@ -73,6 +76,7 @@ final class ConverterTests: XCTestCase {
     // memo: 内部実装としては別のモジュールが呼ばれるのだが、それをテストする方法があまりないかもしれない
     func testRoman2KanaGradualConversion() async throws {
             let converter = KanaKanjiConverter()
+            let session = converter.startSession()
             var c = ComposingText()
             let text = "youshoukikaratenisusuieiyakyuushourinjikenpounadosamazamanasupoーtuwokeikennsinagarasodatishougakkouzidaiharosanzerusukinkounitaizaisiteorigoruhuyatenisuwonaratteita"
             // 許容される変換結果
@@ -82,7 +86,7 @@ final class ConverterTests: XCTestCase {
             ]
             for char in text {
                 c.insertAtCursorPosition(String(char), inputStyle: .roman2kana)
-                let results = await converter.requestCandidatesAsync(c, options: requestOptions())
+                let results = await session.requestCandidatesAsync(c, options: requestOptions())
                 if c.input.count == text.count {
                     XCTAssertTrue(possibles.contains(results.mainResults.first!.text))
                 }

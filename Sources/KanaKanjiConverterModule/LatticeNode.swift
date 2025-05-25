@@ -9,7 +9,7 @@
 import Foundation
 
 /// ラティスのノード。これを用いて計算する。
-public final class LatticeNode {
+public final class LatticeNode: @unchecked Sendable {
     /// このノードが保持する辞書データ
     public let data: DicdataElement
     /// このノードの前に来ているノード。`N_best`の分だけ保存する
