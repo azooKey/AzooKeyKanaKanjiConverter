@@ -93,4 +93,19 @@ final class KanaKanjiConverterSessionTests: XCTestCase {
         XCTAssertEqual(result3.mainResults.first?.text, direct3.mainResults.first?.text)
         XCTAssertEqual(result4.mainResults.first?.text, direct4.mainResults.first?.text)
     }
+
+    func testParallelSessionsRaceFree() async throws {
+        let converter = KanaKanjiConverter()
+        let options = requestOptions()
+        await withTaskGroup(of: Void.self) { group in
+            for _ in 0..<10 {
+                let input = makeDirectInput(direct: "U+3042")
+                group.addTask { @Sendable [converter, input] in
+                    let session = converter.startSession()
+                    var localInput = input
+                    _ = await session.requestCandidatesAsync(localInput, options: options)
+                }
+            }
+        }
+    }
 }
