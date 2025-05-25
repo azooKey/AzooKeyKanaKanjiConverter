@@ -8,7 +8,7 @@
 import Foundation
 
 /// 確定後予測変換候補を表す型
-public struct PostCompositionPredictionCandidate {
+public struct PostCompositionPredictionCandidate: Sendable {
     public init(text: String, value: PValue, type: PostCompositionPredictionCandidate.PredictionType) {
         self.text = text
         self.value = value

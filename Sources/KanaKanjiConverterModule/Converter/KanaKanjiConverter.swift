@@ -24,72 +24,31 @@ public final class KanaKanjiConverter: @unchecked Sendable {
     }
 
     private var converter = Kana2Kanji()
+    var kana2Kanji: Kana2Kanji { self.converter }
     private let checker = SpellChecker()
     private var checkerInitialized: [KeyboardLanguage: Bool] = [.none: true, .ja_JP: true]
+    private lazy var defaultSession = KanaKanjiConverterSession(converter: self)
 
-    // 前回の確定候補を保存する部分。
-    private var completedData: Candidate?
-    private var lastData: DicdataElement?
-    /// Zenzaiのためのzenzモデル
-    private var zenz: Zenz? = nil
-    private var zenzaiCache: Kana2Kanji.ZenzaiCache? = nil
-    private var zenzaiPersonalization: (mode: ConvertRequestOptions.ZenzaiMode.PersonalizationMode, base: EfficientNGram, personal: EfficientNGram)?
-    public private(set) var zenzStatus: String = ""
+    // maintained by default session
+
+    package func getModel(modelURL: URL) async -> Zenz? {
+        await self.defaultSession.getModel(modelURL: modelURL)
+    }
 
     /// リセットする関数
     public func stopComposition() {
-        if let zenz = self.zenz {
-            Task.detached { await zenz.endSession() }
+        let semaphore = DispatchSemaphore(value: 0)
+        Task.detached {
+            await self.defaultSession.stopComposition()
+            semaphore.signal()
         }
-        self.zenzaiPersonalization = nil
-        self.zenzaiCache = nil
-        self.completedData = nil
-        self.lastData = nil
+        semaphore.wait()
     }
 
-    private func getZenzaiPersonalization(mode: ConvertRequestOptions.ZenzaiMode.PersonalizationMode?) -> (mode: ConvertRequestOptions.ZenzaiMode.PersonalizationMode, base: EfficientNGram, personal: EfficientNGram)? {
-        guard let mode else {
-            return nil
-        }
-        if let zenzaiPersonalization, zenzaiPersonalization.mode == mode {
-            return zenzaiPersonalization
-        }
-        let tokenizer = ZenzTokenizer()
-        let baseModel = EfficientNGram(baseFilename: mode.baseNgramLanguageModel, n: mode.n, d: mode.d, tokenizer: tokenizer)
-        let personalModel = EfficientNGram(baseFilename: mode.personalNgramLanguageModel, n: mode.n, d: mode.d, tokenizer: tokenizer)
-        self.zenzaiPersonalization = (mode, baseModel, personalModel)
-        return (mode, baseModel, personalModel)
-    }
-
-    package func getModel(modelURL: URL) async -> Zenz? {
-        if let model = self.zenz, await model.resourceURL == modelURL {
-            self.zenzStatus = "load \(modelURL.absoluteString)"
-            return model
-        } else {
-            do {
-                self.zenz = try Zenz(resourceURL: modelURL)
-                self.zenzStatus = "load \(modelURL.absoluteString)"
-                return self.zenz
-            } catch {
-                self.zenzStatus = "load \(modelURL.absoluteString)    " + error.localizedDescription
-                return nil
-            }
-        }
-    }
     
     /// 非同期で次の文字候補を取得する
     public func predictNextCharacterAsync(leftSideContext: String, count: Int, options: ConvertRequestOptions) async -> [(character: Character, value: Float)] {
-        guard let zenz = await self.getModel(modelURL: options.zenzaiMode.weightURL) else {
-            print("zenz-v2 model unavailable")
-            return []
-        }
-        guard options.zenzaiMode.versionDependentMode.version == .v2 else {
-            print("next character prediction requires zenz-v2 models, not zenz-v1 nor zenz-v3 and later")
-            return []
-        }
-        let results = await zenz.predictNextCharacter(leftSideContext: leftSideContext, count: count)
-
-        return results
+        await self.defaultSession.predictNextCharacterAsync(leftSideContext: leftSideContext, count: count, options: options)
     }
 
     /// 同期で次の文字候補を取得する既存API
@@ -97,7 +56,7 @@ public final class KanaKanjiConverter: @unchecked Sendable {
         let semaphore = DispatchSemaphore(value: 0)
         var result: [(character: Character, value: Float)] = []
         Task.detached {
-            result = await self.predictNextCharacterAsync(leftSideContext: leftSideContext, count: count, options: options)
+            result = await self.defaultSession.predictNextCharacterAsync(leftSideContext: leftSideContext, count: count, options: options)
             semaphore.signal()
         }
         semaphore.wait()
@@ -134,23 +93,36 @@ public final class KanaKanjiConverter: @unchecked Sendable {
     /// - Parameters:
     ///   - candidate: 確定された候補。
     public func setCompletedData(_ candidate: Candidate) {
-        self.completedData = candidate
+        let semaphore = DispatchSemaphore(value: 0)
+        Task.detached {
+            await self.defaultSession.setCompletedData(candidate)
+            semaphore.signal()
+        }
+        semaphore.wait()
     }
 
     /// 確定操作後、学習メモリをアップデートする関数。
     /// - Parameters:
     ///   - candidate: 確定された候補。
     public func updateLearningData(_ candidate: Candidate) {
-        self.converter.dicdataStore.updateLearningData(candidate, with: self.lastData)
-        self.lastData = candidate.data.last
+        let semaphore = DispatchSemaphore(value: 0)
+        Task.detached {
+            await self.defaultSession.updateLearningData(candidate)
+            semaphore.signal()
+        }
+        semaphore.wait()
     }
 
     /// 確定操作後、学習メモリをアップデートする関数。
     /// - Parameters:
     ///   - candidate: 確定された候補。
     public func updateLearningData(_ candidate: Candidate, with predictionCandidate: PostCompositionPredictionCandidate) {
-        self.converter.dicdataStore.updateLearningData(candidate, with: predictionCandidate)
-        self.lastData = predictionCandidate.lastData
+        let semaphore = DispatchSemaphore(value: 0)
+        Task.detached {
+            await self.defaultSession.updateLearningData(candidate, with: predictionCandidate)
+            semaphore.signal()
+        }
+        semaphore.wait()
     }
 
     /// 賢い変換候補を生成する関数。
@@ -622,92 +594,6 @@ public final class KanaKanjiConverter: @unchecked Sendable {
     ///   - N_best: 計算途中で保存する候補数。実際に得られる候補数とは異なる。
     /// - Returns:
     ///   結果のラティスノードと、計算済みノードの全体
-    package func convertToLattice(
-        _ inputData: ComposingText,
-        N_best: Int,
-        zenzaiMode: ConvertRequestOptions.ZenzaiMode,
-        previousInputData: ComposingText?,
-        nodes: [[LatticeNode]]
-    ) async -> (result: LatticeNode, nodes: [[LatticeNode]])? {
-        if inputData.convertTarget.isEmpty {
-            return nil
-        }
-
-        // FIXME: enable cache based zenzai
-        if zenzaiMode.enabled, let model = await self.getModel(modelURL: zenzaiMode.weightURL) {
-            let (result, nodes, cache) = await self.converter.all_zenzai(
-                inputData,
-                zenz: model,
-                zenzaiCache: self.zenzaiCache,
-                inferenceLimit: zenzaiMode.inferenceLimit,
-                requestRichCandidates: zenzaiMode.requestRichCandidates,
-                personalizationMode: self.getZenzaiPersonalization(mode: zenzaiMode.personalizationMode),
-                versionDependentConfig: zenzaiMode.versionDependentMode
-            )
-            self.zenzaiCache = cache
-            return (result, nodes)
-        }
-        #if os(iOS)
-        let needTypoCorrection = true
-        #else
-        let needTypoCorrection = false
-        #endif
-
-        guard let previousInputData else {
-            debug("convertToLattice: 新規計算用の関数を呼びますA")
-            let result = converter.kana2lattice_all(inputData, N_best: N_best, needTypoCorrection: needTypoCorrection)
-            return result
-        }
-
-        debug("convertToLattice: before \(previousInputData) after \(inputData)")
-
-        // 完全一致の場合
-        if previousInputData == inputData {
-            let result = converter.kana2lattice_no_change(N_best: N_best, previousResult: (inputData: previousInputData, nodes: nodes))
-            return result
-        }
-
-        // 文節確定の後の場合
-        if let completedData, previousInputData.inputHasSuffix(inputOf: inputData) {
-            debug("convertToLattice: 文節確定用の関数を呼びます、確定された文節は\(completedData)")
-            let result = converter.kana2lattice_afterComplete(inputData, completedData: completedData, N_best: N_best, previousResult: (inputData: previousInputData, nodes: nodes), needTypoCorrection: needTypoCorrection)
-            self.completedData = nil
-            return result
-        }
-
-        // TODO: 元々はsuffixになっていないが、文節確定の後であるケースで、確定された文節を考慮できるようにする
-        // へんかん|する → 変換 する|　のようなパターンで、previousInputData: へんかん, inputData: する, となることがある
-
-        let diff = inputData.differenceSuffix(to: previousInputData)
-
-        // 一文字消した場合
-        if diff.deleted > 0 && diff.addedCount == 0 {
-            debug("convertToLattice: 最後尾削除用の関数を呼びます, 消した文字数は\(diff.deleted)")
-            let result = converter.kana2lattice_deletedLast(deletedCount: diff.deleted, N_best: N_best, previousResult: (inputData: previousInputData, nodes: nodes))
-            return result
-        }
-
-        // 一文字変わった場合
-        if diff.deleted > 0 {
-            debug("convertToLattice: 最後尾文字置換用の関数を呼びます、差分は\(diff)")
-            let result = converter.kana2lattice_changed(inputData, N_best: N_best, counts: (diff.deleted, diff.addedCount), previousResult: (inputData: previousInputData, nodes: nodes), needTypoCorrection: needTypoCorrection)
-            return result
-        }
-
-        // 1文字増やした場合
-        if diff.deleted == 0 && diff.addedCount != 0 {
-            debug("convertToLattice: 最後尾追加用の関数を呼びます、追加文字数は\(diff.addedCount)")
-            let result = converter.kana2lattice_added(inputData, N_best: N_best, addedCount: diff.addedCount, previousResult: (inputData: previousInputData, nodes: nodes), needTypoCorrection: needTypoCorrection)
-            return result
-        }
-
-        // 一文字増やしていない場合
-        if true {
-            debug("convertToLattice: 新規計算用の関数を呼びますB")
-            let result = converter.kana2lattice_all(inputData, N_best: N_best, needTypoCorrection: needTypoCorrection)
-            return result
-        }
-    }
 
     public func getAppropriateActions(_ candidate: Candidate) -> [CompleteAction] {
         if ["[]", "()", "｛｝", "〈〉", "〔〕", "（）", "「」", "『』", "【】", "{}", "<>", "《》", "\"\"", "\'\'", "””"].contains(candidate.text) {
@@ -732,26 +618,7 @@ public final class KanaKanjiConverter: @unchecked Sendable {
     /// - Returns: `ConversionResult`
     /// 非同期で変換候補を要求する新API
     public func requestCandidatesAsync(_ inputData: ComposingText, options: ConvertRequestOptions) async -> ConversionResult {
-        debug("requestCandidates 入力は", inputData)
-        // 変換対象が無の場合
-        if inputData.convertTarget.isEmpty {
-            return ConversionResult(mainResults: [], firstClauseResults: [])
-        }
-
-        // DicdataStoreにRequestOptionを通知する
-        self.sendToDicdataStore(.setRequestOptions(options))
-
-        guard let result = await self.convertToLattice(
-            inputData,
-            N_best: options.N_best,
-            zenzaiMode: options.zenzaiMode,
-            previousInputData: nil,
-            nodes: []
-        ) else {
-            return ConversionResult(mainResults: [], firstClauseResults: [])
-        }
-
-        return await self.processResult(inputData: inputData, result: result, options: options)
+        return await self.defaultSession.requestCandidatesAsync(inputData, options: options)
     }
 
     /// 既存の同期API
@@ -759,7 +626,7 @@ public final class KanaKanjiConverter: @unchecked Sendable {
         let semaphore = DispatchSemaphore(value: 0)
         var result: ConversionResult = ConversionResult(mainResults: [], firstClauseResults: [])
         Task.detached {
-            result = await self.requestCandidatesAsync(inputData, options: options)
+            result = await self.defaultSession.requestCandidatesAsync(inputData, options: options)
             semaphore.signal()
         }
         semaphore.wait()
@@ -768,55 +635,13 @@ public final class KanaKanjiConverter: @unchecked Sendable {
 
     /// 変換確定後の予測変換候補を要求する関数
     public func requestPostCompositionPredictionCandidates(leftSideCandidate: Candidate, options: ConvertRequestOptions) -> [PostCompositionPredictionCandidate] {
-        // ゼロヒント予測変換に基づく候補を列挙
-        var zeroHintResults = self.getUniquePostCompositionPredictionCandidate(self.converter.getZeroHintPredictionCandidates(preparts: [leftSideCandidate], N_best: 15))
-        do {
-            // 助詞は最大3つに制限する
-            var joshiCount = 0
-            zeroHintResults = zeroHintResults.reduce(into: []) { results, candidate in
-                switch candidate.type {
-                case .additional(data: let data):
-                    if CIDData.isJoshi(cid: data.last?.rcid ?? CIDData.EOS.cid) {
-                        if joshiCount < 3 {
-                            results.append(candidate)
-                            joshiCount += 1
-                        }
-                    } else {
-                        results.append(candidate)
-                    }
-                case .replacement:
-                    results.append(candidate)
-                }
-            }
+        let semaphore = DispatchSemaphore(value: 0)
+        var result: [PostCompositionPredictionCandidate] = []
+        Task.detached {
+            result = await self.defaultSession.requestPostCompositionPredictionCandidates(leftSideCandidate: leftSideCandidate, options: options)
+            semaphore.signal()
         }
-
-        // 予測変換に基づく候補を列挙
-        let predictionResults = self.converter.getPredictionCandidates(prepart: leftSideCandidate, N_best: 15)
-        // 絵文字を追加
-        let replacer = options.textReplacer
-        var emojiCandidates: [PostCompositionPredictionCandidate] = []
-        for data in leftSideCandidate.data where DicdataStore.includeMMValueCalculation(data) {
-            let result = replacer.getSearchResult(query: data.word, target: [.emoji], ignoreNonBaseEmoji: true)
-            for emoji in result {
-                emojiCandidates.append(PostCompositionPredictionCandidate(text: emoji.text, value: -3, type: .additional(data: [.init(word: emoji.text, ruby: "エモジ", cid: CIDData.記号.cid, mid: MIDData.一般.mid, value: -3)])))
-            }
-        }
-        emojiCandidates = self.getUniquePostCompositionPredictionCandidate(emojiCandidates)
-
-        var results: [PostCompositionPredictionCandidate] = []
-        var seenCandidates: Set<String> = []
-
-        results.append(contentsOf: emojiCandidates.suffix(3))
-        seenCandidates.formUnion(emojiCandidates.suffix(3).map {$0.text})
-
-        // 残りの半分。ただしzeroHintResultsが足りない場合は全部で10個になるようにする。
-        let predictionsCount = max((10 - results.count) / 2, 10 - results.count - zeroHintResults.count)
-        let predictions =  self.getUniquePostCompositionPredictionCandidate(predictionResults, seenCandidates: seenCandidates).min(count: predictionsCount, sortedBy: {$0.value > $1.value})
-        results.append(contentsOf: predictions)
-        seenCandidates.formUnion(predictions.map {$0.text})
-
-        let zeroHints = self.getUniquePostCompositionPredictionCandidate(zeroHintResults, seenCandidates: seenCandidates)
-        results.append(contentsOf: zeroHints.min(count: 10 - results.count, sortedBy: {$0.value > $1.value}))
-        return results
+        semaphore.wait()
+        return result
     }
 }
