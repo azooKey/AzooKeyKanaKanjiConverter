@@ -3,6 +3,8 @@ import Foundation
 /// Actor representing a kana-kanji converter session.
 public actor KanaKanjiConverterSession {
     private let converter: KanaKanjiConverter
+    private var previousInputData: ComposingText?
+    private var nodes: [[LatticeNode]] = []
 
     public init(converter: KanaKanjiConverter) {
         self.converter = converter
@@ -12,6 +14,8 @@ public actor KanaKanjiConverterSession {
 
     public func stopComposition() {
         self.converter.stopComposition()
+        self.previousInputData = nil
+        self.nodes = []
     }
 
     public func predictNextCharacterAsync(leftSideContext: String, count: Int, options: ConvertRequestOptions) async -> [(character: Character, value: Float)] {
@@ -51,11 +55,37 @@ public actor KanaKanjiConverterSession {
     }
 
     public func requestCandidatesAsync(_ inputData: ComposingText, options: ConvertRequestOptions) async -> ConversionResult {
-        await self.converter.requestCandidatesAsync(inputData, options: options)
+        if inputData.convertTarget.isEmpty {
+            return ConversionResult(mainResults: [], firstClauseResults: [])
+        }
+
+        self.converter.sendToDicdataStore(.setRequestOptions(options))
+
+        guard let lattice = await self.converter.convertToLattice(
+            inputData,
+            N_best: options.N_best,
+            zenzaiMode: options.zenzaiMode,
+            previousInputData: self.previousInputData,
+            nodes: self.nodes
+        ) else {
+            return ConversionResult(mainResults: [], firstClauseResults: [])
+        }
+
+        self.previousInputData = inputData
+        self.nodes = lattice.nodes
+
+        return await self.converter.processResult(inputData: inputData, result: lattice, options: options)
     }
 
     public func requestCandidates(_ inputData: ComposingText, options: ConvertRequestOptions) -> ConversionResult {
-        self.converter.requestCandidates(inputData, options: options)
+        let semaphore = DispatchSemaphore(value: 0)
+        var result: ConversionResult = ConversionResult(mainResults: [], firstClauseResults: [])
+        Task.detached {
+            result = await self.requestCandidatesAsync(inputData, options: options)
+            semaphore.signal()
+        }
+        semaphore.wait()
+        return result
     }
 
     public func requestPostCompositionPredictionCandidates(leftSideCandidate: Candidate, options: ConvertRequestOptions) -> [PostCompositionPredictionCandidate] {
