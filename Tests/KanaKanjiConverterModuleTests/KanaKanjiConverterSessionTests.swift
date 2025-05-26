@@ -109,30 +109,71 @@ final class KanaKanjiConverterSessionTests: XCTestCase {
         }
     }
 
-    /// Verify that synchronous requestCandidates works and matches async version.
-    func testRequestCandidatesSync() async throws {
+    /// Verify that stopComposition asynchronously resets session state.
+    func testStopCompositionAsync() async throws {
+        let converter = KanaKanjiConverter()
+        let session = converter.startSession()
+        let options = requestOptions()
+
+        var input = makeDirectInput(direct: "U+3042")
+        _ = await session.requestCandidatesAsync(input, options: options)
+
+        await session.stopComposition()
+
+        input = makeDirectInput(direct: "U+3044")
+        let directResult = await converter.requestCandidatesAsync(input, options: options)
+        let sessionResult = await session.requestCandidatesAsync(input, options: options)
+
+        XCTAssertEqual(directResult.mainResults.first?.text, sessionResult.mainResults.first?.text)
+    }
+
+    /// Launch multiple async requests concurrently on the same session to verify actor isolation.
+    func testConcurrentRequestsOnSameSession() async throws {
+        let converter = KanaKanjiConverter()
+        let session = converter.startSession()
+        let options = requestOptions()
+        await withTaskGroup(of: Void.self) { group in
+            for _ in 0..<10 {
+                let input = makeDirectInput(direct: "U+3042")
+                group.addTask { @Sendable [session, input, options] in
+                    var localInput = input
+                    _ = await session.requestCandidatesAsync(localInput, options: options)
+                }
+            }
+            // Explicitly wait for all tasks to finish before verifying results
+            await group.waitForAll()
+        }
+        // Compare one conversion result after concurrent operations to ensure session still works
+        let input = makeDirectInput(direct: "U+3044")
+        let directResult = await converter.requestCandidatesAsync(input, options: options)
+        let sessionResult = await session.requestCandidatesAsync(input, options: options)
+        XCTAssertEqual(directResult.mainResults.first?.text, sessionResult.mainResults.first?.text)
+    }
+
+    /// Verify that async requestCandidates returns expected results.
+    func testRequestCandidatesAsyncVariant() async throws {
         let converter = KanaKanjiConverter()
         let session = converter.startSession()
         let options = requestOptions()
         let input = makeDirectInput(direct: "U+3042")
 
-        let asyncResult = await session.requestCandidatesAsync(input, options: options)
-        let syncResult = session.requestCandidates(input, options: options)
+        let directResult = await converter.requestCandidatesAsync(input, options: options)
+        let sessionResult = await session.requestCandidatesAsync(input, options: options)
 
-        XCTAssertEqual(asyncResult.mainResults.map(\.text), syncResult.mainResults.map(\.text))
-        XCTAssertEqual(asyncResult.firstClauseResults.map(\.text), syncResult.firstClauseResults.map(\.text))
+        XCTAssertEqual(directResult.mainResults.map(\.text), sessionResult.mainResults.map(\.text))
+        XCTAssertEqual(directResult.firstClauseResults.map(\.text), sessionResult.firstClauseResults.map(\.text))
     }
 
-    /// Ensure predictNextCharacter synchronous API returns same result as async API.
-    func testPredictNextCharacterSync() async throws {
+    /// Ensure async predictNextCharacter returns same result as converter API.
+    func testPredictNextCharacterAsyncVariant() async throws {
         let converter = KanaKanjiConverter()
         let session = converter.startSession()
         let options = requestOptions()
 
         let asyncResult = await session.predictNextCharacterAsync(leftSideContext: "", count: 3, options: options)
-        let syncResult = session.predictNextCharacter(leftSideContext: "", count: 3, options: options)
+        let directResult = await converter.predictNextCharacterAsync(leftSideContext: "", count: 3, options: options)
 
-        XCTAssertEqual(asyncResult.map(\.character), syncResult.map(\.character))
-        XCTAssertEqual(asyncResult.map(\.value), syncResult.map(\.value))
+        XCTAssertEqual(asyncResult.map(\.character), directResult.map(\.character))
+        XCTAssertEqual(asyncResult.map(\.value), directResult.map(\.value))
     }
 }
