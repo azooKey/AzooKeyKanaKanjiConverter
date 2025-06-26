@@ -216,4 +216,58 @@ package struct LOUDS: Sendable {
         }
         return indices
     }
+
+    /// 辞書順ソート
+    private static func lexLessThan(_ lhs: [UInt8], _ rhs: [UInt8]) -> Bool {
+        let minCount = Swift.min(lhs.count, rhs.count)
+        for i in 0..<minCount {
+            let l = lhs[i]
+            let r = rhs[i]
+            if l != r {
+                return l < r
+            }
+        }
+        return lhs.count < rhs.count
+    }
+
+    /// 部分前方一致検索を実行する
+    ///
+    /// 「しかい」を入力した場合、「しかい」だけでなく「し」「しか」の検索も行う。
+    /// - Parameter chars: CharIDに変換した文字列
+    /// - Returns: 対応するloudstxt3ファイル内のインデックスのリスト
+    /// - Note: より適切な名前に変更したい
+    @inlinable func byfixNodeIndices(targets: [[UInt8]], depth: Range<Int>) -> [Int] {
+        // 辞書順でソートする
+        let targets = targets.sorted(by: Self.lexLessThan)
+        // 最終出力となる
+        var indices: [Int] = []
+        // 現在の探索結果を保存しておく
+        var stack: [(nodeIndex: Int, char: UInt8)] = []
+        for chars in targets {
+            // iがupperBoundを超えない範囲で検索を行う
+            for (i, char) in chars.enumerated() where i < depth.upperBound {
+                if i < stack.count, stack[i].char == char {
+                    // すでに探索済み
+                    continue
+                } else if i < stack.count, stack[i].char != char {
+                    // 異なる文字が見つかったら、その時点でそこから先のstackを破棄
+                    stack = Array(stack[..<i])
+                }
+                // ここに到達する場合、stack[i]は存在しない。
+                assert(i >= stack.count, "stack[\(i)] must not exist for logical reason.")
+                // このケースでは、探索を行う
+                // 直前のstackを取り出し、そのnodeIndexから次のcharを探索する
+                if let nodeIndex = self.searchCharNodeIndex(from: stack.last?.nodeIndex ?? 1, char: char) {
+                    if depth.contains(i) {
+                        indices.append(nodeIndex)
+                    }
+                    stack.append((nodeIndex, char))
+                } else {
+                    // 見つからなかった場合、打ち切る
+                    break
+                }
+            }
+        }
+        return indices
+    }
 }

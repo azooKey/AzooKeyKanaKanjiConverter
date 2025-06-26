@@ -243,6 +243,23 @@ public final class DicdataStore {
         return Array(result[min(depth.lowerBound + 1, result.endIndex) ..< min(depth.upperBound + 1, result.endIndex)])
     }
 
+    /// 辞書検索用関数
+    /// - Parameters:
+    ///   - group: ファイルのプレフィックスとなる文字列（通常、最初の1文字）と、その文字列で始まる文字IDのプレフィックスの集合
+    ///   - depth: 検索対象となる深さ。`2..<4`の場合は2文字・3文字の候補のみ取りだす
+    /// - Returns: 発見されたすべてのインデックス
+    private func throughMatchLOUDS(group: [String: [([Character], [UInt8])]], depth: Range<Int>) -> [(key: String, indices: Set<Int>)] {
+        let indices: [(String, Set<Int>)] = group.map {dic in
+            guard let louds = self.loadLOUDS(query: dic.key) else {
+                return (dic.key, [])
+            }
+            // バルク処理用の実装を呼び出す
+            let result = louds.byfixNodeIndices(targets: dic.value.map { $0.1 }, depth: depth)
+            return (dic.key, Set(result))
+        }
+        return indices
+    }
+
     private func prefixMatchLOUDS(query: String, charIDs: [UInt8], depth: Int = .max, maxCount: Int = .max) -> [Int] {
         guard let louds = self.loadLOUDS(query: query) else {
             return []
@@ -292,20 +309,17 @@ public final class DicdataStore {
         // MARK: 誤り訂正の対象を列挙する。非常に重い処理。
         var stringToInfo = inputData.getRangesWithTypos(fromIndex, rightIndexRange: toIndexLeft ..< toIndexRight)
         // MARK: 検索対象を列挙していく。
-        let stringSet = stringToInfo.keys.map {($0, $0.map(self.character2charId))}
+        let stringSet: [([Character], [UInt8])] = stringToInfo.keys.map {($0, $0.map(self.character2charId))}
         let (minCharIDsCount, maxCharIDsCount) = stringSet.lazy.map {$0.1.count}.minAndMax() ?? (0, -1)
-        // 先頭の文字: そこで検索したい文字列の集合
-        let group = [Character: [([Character], [UInt8])]].init(grouping: stringSet, by: {$0.0.first!})
-
         let depth = minCharIDsCount - 1 ..< maxCharIDsCount
-        var indices: [(String, Set<Int>)] = group.map {dic in
-            let key = String(dic.key)
-            let set = dic.value.flatMapSet {(_, charIDs) in self.throughMatchLOUDS(query: key, charIDs: charIDs, depth: depth)}
-            return (key, set)
-        }
-        indices.append(("user", stringSet.flatMapSet {self.throughMatchLOUDS(query: "user", charIDs: $0.1, depth: depth)}))
+        let group = [String: [([Character], [UInt8])]].init(grouping: stringSet, by: {String($0.0.first!)})
+        var indices = self.throughMatchLOUDS(group: group, depth: depth)
+//        indices.append(("user", stringSet.flatMapSet {self.throughMatchLOUDS(query: "user", charIDs: $0.1, depth: depth)}))
         if learningManager.enabled {
-            indices.append(("memory", stringSet.flatMapSet {self.throughMatchLOUDS(query: "memory", charIDs: $0.1, depth: depth)}))
+//            indices.append(("memory", stringSet.flatMapSet {self.throughMatchLOUDS(query: "memory", charIDs: $0.1, depth: depth)}))
+            indices.append(contentsOf: self.throughMatchLOUDS(group: ["user": stringSet, "memory": stringSet], depth: depth))
+        } else {
+            indices.append(contentsOf: self.throughMatchLOUDS(group: ["memory": stringSet], depth: depth))
         }
         // MARK: 検索によって得たindicesから辞書データを実際に取り出していく
         var dicdata: [DicdataElement] = []
