@@ -238,7 +238,9 @@ package struct LOUDS: Sendable {
     /// - Note: より適切な名前に変更したい
     @inlinable func byfixNodeIndices(targets: [[UInt8]], depth: Range<Int>) -> [Int] {
         // 辞書順でソートする
-        let targets = targets.sorted(by: Self.lexLessThan)
+//        let targets = targets.sorted(by: Self.lexLessThan)
+        var targets = targets
+        targets.sort(by: Self.lexLessThan)
         // 最終出力となる
         var indices: [Int] = []
         // 現在の探索結果を保存しておく

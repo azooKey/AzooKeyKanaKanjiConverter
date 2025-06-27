@@ -314,9 +314,7 @@ public final class DicdataStore {
         let depth = minCharIDsCount - 1 ..< maxCharIDsCount
         let group = [String: [([Character], [UInt8])]].init(grouping: stringSet, by: {String($0.0.first!)})
         var indices = self.throughMatchLOUDS(group: group, depth: depth)
-//        indices.append(("user", stringSet.flatMapSet {self.throughMatchLOUDS(query: "user", charIDs: $0.1, depth: depth)}))
         if learningManager.enabled {
-//            indices.append(("memory", stringSet.flatMapSet {self.throughMatchLOUDS(query: "memory", charIDs: $0.1, depth: depth)}))
             indices.append(contentsOf: self.throughMatchLOUDS(group: ["user": stringSet, "memory": stringSet], depth: depth))
         } else {
             indices.append(contentsOf: self.throughMatchLOUDS(group: ["user": stringSet], depth: depth))
