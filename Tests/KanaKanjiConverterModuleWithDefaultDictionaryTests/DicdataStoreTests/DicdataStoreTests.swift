@@ -155,6 +155,26 @@ final class DicdataStoreTests: XCTestCase {
         }
     }
 
+    /// 入力誤りを確実に修正できてほしい語群
+    func testMustCorrectTypo() throws {
+        let dicdataStore = DicdataStore(convertRequestOptions: requestOptions())
+        let mustWords = [
+            ("タイカクセイ", "大学生"),
+            ("シヨック", "ショック"),
+            ("キヨクイン", "局員"),
+            ("シヨーク", "ジョーク"),
+            ("サリカニ", "ザリガニ"),
+            ("ノクチヒテヨ", "野口英世"),
+            ("オタノフナカ", "織田信長"),
+        ]
+        for (key, word) in mustWords {
+            var c = ComposingText()
+            c.insertAtCursorPosition(key, inputStyle: .direct)
+            let result = dicdataStore.getLOUDSData(inputData: c, from: 0, to: c.input.endIndex - 1, needTypoCorrection: true)
+            XCTAssertEqual(result.first(where: {$0.data.word == word})?.data.word, word)
+        }
+    }
+
     func testGetLOUDSDataInRange() throws {
         let dicdataStore = DicdataStore(convertRequestOptions: requestOptions())
         do {
