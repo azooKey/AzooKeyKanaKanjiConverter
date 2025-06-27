@@ -319,7 +319,7 @@ public final class DicdataStore {
 //            indices.append(("memory", stringSet.flatMapSet {self.throughMatchLOUDS(query: "memory", charIDs: $0.1, depth: depth)}))
             indices.append(contentsOf: self.throughMatchLOUDS(group: ["user": stringSet, "memory": stringSet], depth: depth))
         } else {
-            indices.append(contentsOf: self.throughMatchLOUDS(group: ["memory": stringSet], depth: depth))
+            indices.append(contentsOf: self.throughMatchLOUDS(group: ["user": stringSet], depth: depth))
         }
         // MARK: 検索によって得たindicesから辞書データを実際に取り出していく
         var dicdata: [DicdataElement] = []
