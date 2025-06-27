@@ -27,7 +27,7 @@ public final class DicdataStore {
     private var mmValue: [PValue] = []
 
     private var loudses: [String: LOUDS] = [:]
-    private var loudstxts: [String: Data] = [:]    
+    private var loudstxts: [String: Data] = [:]
     private var importedLoudses: Set<String> = []
     private var charsID: [Character: UInt8] = [:]
     private var learningManager = LearningManager()
@@ -227,28 +227,29 @@ public final class DicdataStore {
         }
     }
 
-    func perfectMatchLOUDS(query: String, charIDs: [UInt8]) -> [Int] {
+    /// 完全一致検索を行う関数。
+    /// - Parameters:
+    ///   - query: 対象とするLOUDS辞書の識別子（通常は先頭1文字や"user"など）。
+    ///   - charIDs: 検索する語を表す文字ID列。
+    /// - Returns: 与えられた文字ID列と完全に一致するノードインデックスの配列（存在すれば1件、存在しなければ空配列）。
+    ///
+    /// 入力の文字ID列がLOUDS内のノードと完全一致する場合、そのノードのインデックスを返す。
+    /// 一致しない場合は空の配列を返す。
+    func perfectMatchingSearch(query: String, charIDs: [UInt8]) -> [Int] {
         guard let louds = self.loadLOUDS(query: query) else {
             return []
         }
         return [louds.searchNodeIndex(chars: charIDs)].compactMap {$0}
     }
 
-    private func throughMatchLOUDS(query: String, charIDs: [UInt8], depth: Range<Int>) -> [Int] {
-        guard let louds = self.loadLOUDS(query: query) else {
-            return []
-        }
-        let result = louds.byfixNodeIndices(chars: charIDs)
-        // result[1]から始まるので、例えば3..<5 (3文字と4文字)の場合は1文字ずつずらして4..<6の範囲をもらう
-        return Array(result[min(depth.lowerBound + 1, result.endIndex) ..< min(depth.upperBound + 1, result.endIndex)])
-    }
-
-    /// 辞書検索用関数
+    /// 入力の各prefix（ア、アイ、アイウ...）をすべて順にたどってLOUDS辞書から候補を検索する関数。
     /// - Parameters:
-    ///   - group: ファイルのプレフィックスとなる文字列（通常、最初の1文字）と、その文字列で始まる文字IDのプレフィックスの集合
-    ///   - depth: 検索対象となる深さ。`2..<4`の場合は2文字・3文字の候補のみ取りだす
-    /// - Returns: 発見されたすべてのインデックス
-    private func throughMatchLOUDS(group: [String: [([Character], [UInt8])]], depth: Range<Int>) -> [(key: String, indices: Set<Int>)] {
+    ///   - group: 検索対象の辞書をキーにした、検索語（Character配列とcharID配列のペア）のリスト。
+    ///   - depth: 各検索語のprefix深さの範囲。例: `2..<4` なら2文字・3文字のprefixを対象にする。
+    /// - Returns: 各辞書ごとに、見つかったノードインデックスの集合。
+    ///
+    /// 「アイウ」に対して「ア」「アイ」「アイウ」のすべてをLOUDSで検索するバルク処理を行う。
+    private func movingTowardPrefixSearch(group: [String: [([Character], [UInt8])]], depth: Range<Int>) -> [(key: String, indices: Set<Int>)] {
         let indices: [(String, Set<Int>)] = group.map {dic in
             guard let louds = self.loadLOUDS(query: dic.key) else {
                 return (dic.key, [])
@@ -260,7 +261,17 @@ public final class DicdataStore {
         return indices
     }
 
-    private func prefixMatchLOUDS(query: String, charIDs: [UInt8], depth: Int = .max, maxCount: Int = .max) -> [Int] {
+    /// prefixを起点として、それに続く語（prefix match）をLOUDS上で探索する関数。
+    /// - Parameters:
+    ///   - query: 辞書ファイルの識別子（通常は先頭1文字や"user"など）。
+    ///   - charIDs: 接頭辞を構成する文字ID列。
+    ///   - depth: 接頭辞から何文字先まで探索するかの上限。
+    ///   - maxCount: 最大取得件数。多すぎると性能劣化につながるため制限できる。
+    /// - Returns: 与えられたprefixで始まる語のノードインデックスのリスト。
+    ///
+    /// 入力のprefixにマッチする語をLOUDSから最大`maxCount`件、最大`depth`文字先まで探索する。
+    /// 「ABC」→「ABC」「ABCD」「ABCDE」などを対象とする検索。
+    private func startingFromPrefixSearch(query: String, charIDs: [UInt8], depth: Int = .max, maxCount: Int = .max) -> [Int] {
         guard let louds = self.loadLOUDS(query: query) else {
             return []
         }
@@ -313,11 +324,11 @@ public final class DicdataStore {
         let (minCharIDsCount, maxCharIDsCount) = stringSet.lazy.map {$0.1.count}.minAndMax() ?? (0, -1)
         let depth = minCharIDsCount - 1 ..< maxCharIDsCount
         let group = [String: [([Character], [UInt8])]].init(grouping: stringSet, by: {String($0.0.first!)})
-        var indices = self.throughMatchLOUDS(group: group, depth: depth)
+        var indices = self.movingTowardPrefixSearch(group: group, depth: depth)
         if learningManager.enabled {
-            indices.append(contentsOf: self.throughMatchLOUDS(group: ["user": stringSet, "memory": stringSet], depth: depth))
+            indices.append(contentsOf: self.movingTowardPrefixSearch(group: ["user": stringSet, "memory": stringSet], depth: depth))
         } else {
-            indices.append(contentsOf: self.throughMatchLOUDS(group: ["user": stringSet], depth: depth))
+            indices.append(contentsOf: self.movingTowardPrefixSearch(group: ["user": stringSet], depth: depth))
         }
         // MARK: 検索によって得たindicesから辞書データを実際に取り出していく
         var dicdata: [DicdataElement] = []
@@ -421,15 +432,18 @@ public final class DicdataStore {
             return [characterNode]
         }
         let maxIDs = maxString.map(self.character2charId)
-        var keys = [String(stringToEndIndex.keys.first!.first!), "user"]
+        var group: [String: [([Character], [UInt8])]] = [
+            String(stringToEndIndex.keys.first!.first!): [(maxString, maxIDs)],
+            "user": [(maxString, maxIDs)],
+        ]
         if learningManager.enabled {
-            keys.append("memory")
+            group["memory"] = group["user"]
         }
         // MARK: 検索によって得たindicesから辞書データを実際に取り出していく
         var dicdata: [DicdataElement] = []
         let depth = minString.count - 1 ..< maxString.count
-        for identifier in keys {
-            dicdata.append(contentsOf: self.getDicdataFromLoudstxt3(identifier: identifier, indices: self.throughMatchLOUDS(query: identifier, charIDs: maxIDs, depth: depth)))
+        for (identifier, indices) in self.movingTowardPrefixSearch(group: group, depth: depth) {
+            dicdata.append(contentsOf: self.getDicdataFromLoudstxt3(identifier: identifier, indices: indices))
         }
         if learningManager.enabled {
             // temporalな学習結果にpenaltyを加えて追加する
@@ -485,19 +499,19 @@ public final class DicdataStore {
         var indices: [(String, Set<Int>)] = group.map {dic in
             let head = String(dic.key)
             let set = dic.value.flatMapSet { (_, charIDs) in
-                self.perfectMatchLOUDS(query: head, charIDs: charIDs)
+                self.perfectMatchingSearch(query: head, charIDs: charIDs)
             }
             return (head, set)
         }
         do {
             let set = strings.flatMapSet { (_, charIDs) in
-                self.perfectMatchLOUDS(query: "user", charIDs: charIDs)
+                self.perfectMatchingSearch(query: "user", charIDs: charIDs)
             }
             indices.append(("user", set))
         }
         if learningManager.enabled {
             let set = strings.flatMapSet { (_, charIDs) in
-                self.perfectMatchLOUDS(query: "memory", charIDs: charIDs)
+                self.perfectMatchingSearch(query: "memory", charIDs: charIDs)
             }
             indices.append(("memory", set))
         }
@@ -591,16 +605,16 @@ public final class DicdataStore {
         } else {
             Int.max
         }
-        let prefixIndices = self.prefixMatchLOUDS(query: first, charIDs: charIDs, depth: depth, maxCount: maxCount)
+        let prefixIndices = self.startingFromPrefixSearch(query: first, charIDs: charIDs, depth: depth, maxCount: maxCount)
 
         result.append(
             contentsOf: self.getDicdataFromLoudstxt3(identifier: first, indices: Set(prefixIndices))
                 .filter { Self.predictionUsable[$0.rcid] }
         )
-        let userDictIndices = self.prefixMatchLOUDS(query: "user", charIDs: charIDs, maxCount: maxCount)
+        let userDictIndices = self.startingFromPrefixSearch(query: "user", charIDs: charIDs, maxCount: maxCount)
         result.append(contentsOf: self.getDicdataFromLoudstxt3(identifier: "user", indices: Set(consume userDictIndices)))
         if learningManager.enabled {
-            let memoryDictIndices = self.prefixMatchLOUDS(query: "memory", charIDs: charIDs, maxCount: maxCount)
+            let memoryDictIndices = self.startingFromPrefixSearch(query: "memory", charIDs: charIDs, maxCount: maxCount)
             result.append(contentsOf: self.getDicdataFromLoudstxt3(identifier: "memory", indices: Set(consume memoryDictIndices)))
             result.append(contentsOf: self.learningManager.temporaryPrefixMatch(charIDs: charIDs))
         }

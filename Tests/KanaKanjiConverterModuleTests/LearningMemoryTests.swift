@@ -78,7 +78,7 @@ final class LearningMemoryTests: XCTestCase {
         let dicdataStore = DicdataStore(requestOptions: options)
         dicdataStore.sendToDicdataStore(.setRequestOptions(options))
         let charIDs = "テスト".map { dicdataStore.character2charId($0) }
-        let indices = dicdataStore.perfectMatchLOUDS(query: "memory", charIDs: charIDs)
+        let indices = dicdataStore.perfectMatchingSearch(query: "memory", charIDs: charIDs)
         let dicdata = dicdataStore.getDicdataFromLoudstxt3(identifier: "memory", indices: indices)
         XCTAssertFalse(dicdata.isEmpty)
         XCTAssertTrue(dicdata.contains { $0.word == element.word && $0.ruby == element.ruby })
@@ -95,7 +95,7 @@ final class LearningMemoryTests: XCTestCase {
             )
         )
 
-        let indices2 = dicdataStore.perfectMatchLOUDS(query: "memory", charIDs: charIDs)
+        let indices2 = dicdataStore.perfectMatchingSearch(query: "memory", charIDs: charIDs)
         let dicdata2 = dicdataStore.getDicdataFromLoudstxt3(identifier: "memory", indices: indices2)
         XCTAssertFalse(dicdata2.contains { $0.word == element.word && $0.ruby == element.ruby })
     }
@@ -118,7 +118,7 @@ final class LearningMemoryTests: XCTestCase {
         let dicdataStore = DicdataStore(requestOptions: options)
         dicdataStore.sendToDicdataStore(.setRequestOptions(options))
         let charIDs = "テスト".map { dicdataStore.character2charId($0) }
-        let indices = dicdataStore.perfectMatchLOUDS(query: "memory", charIDs: charIDs)
+        let indices = dicdataStore.perfectMatchingSearch(query: "memory", charIDs: charIDs)
         let dicdata = dicdataStore.getDicdataFromLoudstxt3(identifier: "memory", indices: indices)
         XCTAssertFalse(dicdata.isEmpty)
         XCTAssertEqual(dicdata.count { $0.word == element.word && $0.ruby == element.ruby }, 2)
@@ -135,7 +135,7 @@ final class LearningMemoryTests: XCTestCase {
             )
         )
 
-        let indices2 = dicdataStore.perfectMatchLOUDS(query: "memory", charIDs: charIDs)
+        let indices2 = dicdataStore.perfectMatchingSearch(query: "memory", charIDs: charIDs)
         let dicdata2 = dicdataStore.getDicdataFromLoudstxt3(identifier: "memory", indices: indices2)
         XCTAssertFalse(dicdata2.contains { $0.word == element.word && $0.ruby == element.ruby })
     }
