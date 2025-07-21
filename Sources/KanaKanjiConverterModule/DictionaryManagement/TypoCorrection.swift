@@ -34,10 +34,10 @@ struct TypoCorrectionGenerator: Sendable {
             let fullConvertTarget = fullConvertTargetElements.reduce(into: "") { $0 += $1.string}
             let convertTarget = convertTargetElements.reduce(into: "") { $0 += $1.string}
 
-            return if fullConvertTarget == actualLeftConvertTarget + convertTarget {
-                (convertTargetElements, typoCandidate.inputElements.count, typoCandidate.weight)
+            if fullConvertTarget == actualLeftConvertTarget + convertTarget {
+                return (convertTargetElements, typoCandidate.inputElements.count, typoCandidate.weight)
             } else {
-                nil
+                return nil
             }
         }
     }
@@ -125,7 +125,7 @@ struct TypoCorrectionGenerator: Sendable {
         while let (convertTargetElements, count, penalty) = self.stack.popLast() {
             var result: ([Character], (endIndex: Lattice.LatticeIndex, penalty: PValue))? = nil
             if self.range.rightIndexRange.contains(count + self.range.leftIndex - 1) {
-                let originalConvertTarget = convertTargetElements.reduce(into: []) { $0 += $1.string }
+                let originalConvertTarget = convertTargetElements.reduce(into: []) { $0 += $1.string.map { $0.toKatakana() } }
                 if self.range.leftIndex + count < self.inputs.endIndex {
                     var newConvertTargetElements = convertTargetElements
                     ComposingText.updateConvertTargetElements(currentElements: &newConvertTargetElements, newElement: inputs[self.range.leftIndex + count])

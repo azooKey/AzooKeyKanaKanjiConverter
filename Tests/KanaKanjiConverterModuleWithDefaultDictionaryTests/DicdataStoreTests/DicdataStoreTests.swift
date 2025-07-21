@@ -175,6 +175,21 @@ final class DicdataStoreTests: XCTestCase {
         }
     }
 
+    /// 入力誤りを確実に修正できてほしい語群
+    func testMustCorrectTypoRoman2Kana() throws {
+        let dicdataStore = DicdataStore(convertRequestOptions: requestOptions())
+        let mustWords = [
+            ("tskamatsu", "高松"),  // ts -> タ
+            ("kitsmura", "北村"),  // ts -> タ
+        ]
+        for (key, word) in mustWords {
+            var c = ComposingText()
+            c.insertAtCursorPosition(key, inputStyle: .roman2kana)
+            let result = dicdataStore.lookupDicdata(composingText: c, inputRange: (0, c.input.endIndex - 1 ..< c.input.endIndex), needTypoCorrection: true)
+            XCTAssertEqual(result.first(where: {$0.data.word == word})?.data.word, word)
+        }
+    }
+
     func testLookupDicdata() throws {
         let dicdataStore = DicdataStore(convertRequestOptions: requestOptions())
         do {
