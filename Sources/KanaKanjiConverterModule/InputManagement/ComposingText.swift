@@ -424,55 +424,6 @@ extension ComposingText {
         return false
     }
 
-    static func isLeftSideValid(first firstElement: InputElement, of originalElements: [InputElement], from leftIndex: Int) -> Bool {
-        // leftIndexの位置にある`el`のチェック
-        // 許されるパターンは以下の通り
-        // * leftIndex == startIndex
-        // * el:direct
-        // * (_:direct) -> el
-        // * (a|i|u|e|o:roman2kana) -> el                  // aka、のような場合、ka部分を正当とみなす
-        // * (e-1:roman2kana and not n) && e-1 == es       // tta、のような場合、ta部分を正当とみなすが、nnaはだめ。
-        // * (n:roman2kana) -> el && el not a|i|u|e|o|y|n  // nka、のような場合、ka部分を正当とみなすが、nnaはだめ。
-
-        if leftIndex < originalElements.startIndex {
-            return false
-        }
-        // 左端か、directなElementである場合
-        guard leftIndex != originalElements.startIndex && firstElement.inputStyle == .roman2kana else {
-            return true
-        }
-
-        let prevLastElement = originalElements[leftIndex - 1]
-        if prevLastElement.inputStyle != .roman2kana || !CharacterUtils.isRomanLetter(prevLastElement.character) {
-            return true
-        }
-
-        if ["a", "i", "u", "e", "o"].contains(prevLastElement.character) {
-            return true
-        }
-        if prevLastElement.character != "n" && prevLastElement.character == firstElement.character {
-            return true
-        }
-        let last_2 = originalElements[0 ..< leftIndex].suffix(2)
-        if ["zl", "zk", "zj", "zh", "xn"].contains(last_2.reduce(into: "") {$0.append($1.character)}) {
-            return true
-        }
-        let n_suffix = originalElements[0 ..< leftIndex].suffix(while: {$0.inputStyle == .roman2kana && $0.character == "n"})
-        // 末尾のnが偶数個で右側にnがなければvalid
-        if n_suffix.count % 2 == 0 && !n_suffix.isEmpty {
-            return true
-        }
-        // 末尾のnが奇数個で、なお直後の文字が母音・ny-・nnではない場合はvalid
-        if n_suffix.count % 2 == 1 && !["a", "i", "u", "e", "o", "y", "n"].contains(firstElement.character) {
-            return true
-        }
-        // 末尾のnが奇数個で、なおかつその1つ前の文字がxであればvalid (xn→ん、への対応)
-        if n_suffix.count % 2 == 1 && originalElements.dropLast(n_suffix.count).last == .init(character: "x", inputStyle: .roman2kana) {
-            return true
-        }
-        return false
-    }
-
     /// 右側がvalidか調べる
     /// - Parameters:
     ///   - lastElement: 領域の最後の要素

@@ -18,18 +18,30 @@ struct TypoCorrectionGenerator: Sendable {
             }
         }
         // 深さ優先で列挙する
+        var leftConvertTargetElements: [ComposingText.ConvertTargetElement] = []
+        for element in inputs[0 ..< range.leftIndex] {
+            ComposingText.updateConvertTargetElements(currentElements: &leftConvertTargetElements, newElement: element)
+        }
+        let actualLeftConvertTarget = leftConvertTargetElements.reduce(into: "") { $0 += $1.string}
+
         self.stack = nodes[0].compactMap { typoCandidate in
             guard let firstElement = typoCandidate.inputElements.first else {
                 return nil
             }
-            if ComposingText.isLeftSideValid(first: firstElement, of: inputs, from: range.leftIndex) {
-                var convertTargetElements = [ComposingText.ConvertTargetElement]()
-                for element in typoCandidate.inputElements {
-                    ComposingText.updateConvertTargetElements(currentElements: &convertTargetElements, newElement: element)
-                }
-                return (convertTargetElements, typoCandidate.inputElements.last!, typoCandidate.inputElements.count, typoCandidate.weight)
+            var convertTargetElements = [ComposingText.ConvertTargetElement]()
+            var leftElements = leftConvertTargetElements
+            for element in typoCandidate.inputElements {
+                ComposingText.updateConvertTargetElements(currentElements: &convertTargetElements, newElement: element)
+                ComposingText.updateConvertTargetElements(currentElements: &leftElements, newElement: element)
             }
-            return nil
+            let newFullConvertTarget = leftElements.reduce(into: "") { $0 += $1.string}
+            let convertTarget = convertTargetElements.reduce(into: "") { $0 += $1.string}
+
+            return if newFullConvertTarget == actualLeftConvertTarget + convertTarget {
+                (convertTargetElements, typoCandidate.inputElements.last!, typoCandidate.inputElements.count, typoCandidate.weight)
+            } else {
+                nil
+            }
         }
     }
 
