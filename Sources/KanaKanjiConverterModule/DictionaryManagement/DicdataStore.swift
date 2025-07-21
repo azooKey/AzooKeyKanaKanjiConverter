@@ -1027,15 +1027,4 @@ public final class DicdataStore {
 
         return true
     }
-
-    static let possibleNexts: [String: [String]] = {
-        var results: [String: [String]] = [:]
-        for (key, value) in Roman2Kana.katakanaChanges {
-            for prefixCount in 0 ..< key.count where 0 < prefixCount {
-                let prefix = String(key.prefix(prefixCount))
-                results[prefix, default: []].append(value)
-            }
-        }
-        return results
-    }()
 }

@@ -97,9 +97,14 @@ struct TypoCorrectionGenerator: Sendable {
                 switch item.inputStyle {
                 case .direct:
                     stablePrefix.append(contentsOf: item.string)
-                case .roman2kana:
+                case .roman2kana, .mapped:
+                    let table = if case let .mapped(id) = item.inputStyle {
+                        InputStyleManager.shared.table(for: .custom(id))
+                    } else {
+                        InputStyleManager.shared.table(for: .defaultRomanToKana)
+                    }
                     var stableIndex = item.string.endIndex
-                    for suffix in Roman2Kana.unstableSuffixes {
+                    for suffix in table.unstableSuffixes {
                         if item.string.hasSuffix(suffix) {
                             stableIndex = min(stableIndex, item.string.endIndex - suffix.count)
                         }

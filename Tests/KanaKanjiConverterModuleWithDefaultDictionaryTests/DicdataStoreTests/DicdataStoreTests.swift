@@ -331,7 +331,7 @@ final class DicdataStoreTests: XCTestCase {
     }
 
     func testPossibleNexts() throws {
-        let possibleNexts = DicdataStore.possibleNexts
+        let possibleNexts = InputStyleManager.shared.table(for: .defaultRomanToKana).possibleNexts
         XCTAssertEqual(Set(possibleNexts["f", default: []]).symmetricDifference(["ファ", "フィ", "フ", "フェ", "フォ", "フャ", "フュ", "フョ", "フゥ", "ッf"]), [])
         XCTAssertEqual(Set(possibleNexts["xy", default: []]).symmetricDifference(["ャ", "ョ", "ュ"]), [])
         XCTAssertEqual(possibleNexts["", default: []], [])

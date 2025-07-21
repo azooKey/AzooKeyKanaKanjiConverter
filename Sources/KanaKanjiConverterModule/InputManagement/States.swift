@@ -5,13 +5,6 @@
 //  Created by ensan on 2023/04/30.
 //
 
-public enum InputStyle: String, Sendable {
-    /// 入力された文字を直接入力するスタイル
-    case direct = "direct"
-    /// ローマ字日本語入力とするスタイル
-    case roman2kana = "roman"
-}
-
 public enum KeyboardLanguage: String, Codable, Equatable, Sendable {
     case en_US
     case ja_JP

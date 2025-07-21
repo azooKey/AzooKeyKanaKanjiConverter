@@ -436,7 +436,9 @@ extension ComposingText {
         case .direct:
             return current + [newCharacter]
         case .roman2kana:
-            return Roman2Kana.toHiragana(currentText: current, added: newCharacter)
+            return InputStyleManager.shared.table(for: .defaultRomanToKana).toHiragana(currentText: current, added: newCharacter)
+        case .mapped(let id):
+            return InputStyleManager.shared.table(for: .custom(id)).toHiragana(currentText: current, added: newCharacter)
         }
     }
 
@@ -445,7 +447,9 @@ extension ComposingText {
         case .direct:
             convertTarget.append(newCharacter)
         case .roman2kana:
-            convertTarget = Roman2Kana.toHiragana(currentText: convertTarget, added: newCharacter)
+            convertTarget = InputStyleManager.shared.table(for: .defaultRomanToKana).toHiragana(currentText: convertTarget, added: newCharacter)
+        case .mapped(let id):
+            convertTarget = InputStyleManager.shared.table(for: .custom(id)).toHiragana(currentText: convertTarget, added: newCharacter)
         }
     }
 
@@ -486,9 +490,11 @@ extension ComposingText.InputElement: CustomDebugStringConvertible {
     public var debugDescription: String {
         switch self.inputStyle {
         case .direct:
-            return "direct(\(character))"
+            "direct(\(character))"
         case .roman2kana:
-            return "roman2kana(\(character))"
+            "roman2kana(\(character))"
+        case .mapped(let id):
+            "mapped(\(id); \(character))"
         }
     }
 }
@@ -500,7 +506,14 @@ extension ComposingText.ConvertTargetElement: CustomDebugStringConvertible {
 }
 extension InputStyle: CustomDebugStringConvertible {
     public var debugDescription: String {
-        "." + self.rawValue
+        switch self {
+        case .direct:
+            ".direct"
+        case .roman2kana:
+            ".roman2kana"
+        case .mapped(let id):
+            ".mapped(\(id))"
+        }
     }
 }
 #endif
