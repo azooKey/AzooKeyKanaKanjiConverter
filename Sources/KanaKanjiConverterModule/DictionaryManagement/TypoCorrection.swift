@@ -25,20 +25,17 @@ struct TypoCorrectionGenerator: Sendable {
         let actualLeftConvertTarget = leftConvertTargetElements.reduce(into: "") { $0 += $1.string}
 
         self.stack = nodes[0].compactMap { typoCandidate in
-            guard let firstElement = typoCandidate.inputElements.first else {
-                return nil
-            }
             var convertTargetElements = [ComposingText.ConvertTargetElement]()
-            var leftElements = leftConvertTargetElements
+            var fullConvertTargetElements = leftConvertTargetElements
             for element in typoCandidate.inputElements {
                 ComposingText.updateConvertTargetElements(currentElements: &convertTargetElements, newElement: element)
-                ComposingText.updateConvertTargetElements(currentElements: &leftElements, newElement: element)
+                ComposingText.updateConvertTargetElements(currentElements: &fullConvertTargetElements, newElement: element)
             }
-            let newFullConvertTarget = leftElements.reduce(into: "") { $0 += $1.string}
+            let fullConvertTarget = fullConvertTargetElements.reduce(into: "") { $0 += $1.string}
             let convertTarget = convertTargetElements.reduce(into: "") { $0 += $1.string}
 
-            return if newFullConvertTarget == actualLeftConvertTarget + convertTarget {
-                (convertTargetElements, typoCandidate.inputElements.last!, typoCandidate.inputElements.count, typoCandidate.weight)
+            return if fullConvertTarget == actualLeftConvertTarget + convertTarget {
+                (convertTargetElements, typoCandidate.inputElements.count, typoCandidate.weight)
             } else {
                 nil
             }
@@ -56,11 +53,45 @@ struct TypoCorrectionGenerator: Sendable {
         var rightIndexRange: Range<Int>
     }
 
-    var stack: [(convertTargetElements: [ComposingText.ConvertTargetElement], lastElement: ComposingText.InputElement, count: Int, penalty: PValue)]
+    var stack: [(convertTargetElements: [ComposingText.ConvertTargetElement], count: Int, penalty: PValue)]
+
+    private static func check(
+        _ leftConvertTargetElements: [ComposingText.ConvertTargetElement],
+        isPrefixOf rightConvertTargetElements: [ComposingText.ConvertTargetElement]
+    ) -> Bool {
+        if leftConvertTargetElements.count > rightConvertTargetElements.count {
+            // 常に不成立
+            return false
+        } else if leftConvertTargetElements.count == rightConvertTargetElements.count {
+            let lastIndex = leftConvertTargetElements.count - 1
+            if lastIndex == -1 {
+                // この場合、両者emptyの配列なのでtrueを返す。
+                return true
+            }
+            // 最後の1つのエレメントがprefixの関係にあれば成立
+            for (lhs, rhs) in zip(leftConvertTargetElements[0 ..< lastIndex], rightConvertTargetElements[0 ..< lastIndex]) {
+                if lhs != rhs {
+                    return false
+                }
+            }
+            if leftConvertTargetElements[lastIndex].inputStyle != rightConvertTargetElements[lastIndex].inputStyle {
+                return false
+            }
+            return rightConvertTargetElements[lastIndex].string.hasPrefix(leftConvertTargetElements[lastIndex].string)
+        } else {
+            // leftConvertTargetElementsのインデックスの範囲ですべて一致していればprefixが成立
+            for (lhs, rhs) in zip(leftConvertTargetElements, rightConvertTargetElements[0 ..< leftConvertTargetElements.endIndex]) {
+                if lhs != rhs {
+                    return false
+                }
+            }
+            return true
+        }
+    }
 
     /// `target`で始まる場合は到達不可能であることを知らせる
     mutating func setUnreachablePath(target: some Collection<Character>) {
-        self.stack = self.stack.filter { (convertTargetElements, lastElement, count, penalty) in
+        self.stack = self.stack.filter { (convertTargetElements, count, penalty) in
             var stablePrefix: [Character] = []
             loop: for item in convertTargetElements {
                 switch item.inputStyle {
@@ -91,15 +122,14 @@ struct TypoCorrectionGenerator: Sendable {
     }
 
     mutating func next() -> ([Character], (endIndex: Lattice.LatticeIndex, penalty: PValue))? {
-        while let (convertTargetElements, _, count, penalty) = self.stack.popLast() {
+        while let (convertTargetElements, count, penalty) = self.stack.popLast() {
             var result: ([Character], (endIndex: Lattice.LatticeIndex, penalty: PValue))? = nil
             if self.range.rightIndexRange.contains(count + self.range.leftIndex - 1) {
                 let originalConvertTarget = convertTargetElements.reduce(into: []) { $0 += $1.string }
                 if self.range.leftIndex + count < self.inputs.endIndex {
-                    var convertTargetElements = convertTargetElements
-                    ComposingText.updateConvertTargetElements(currentElements: &convertTargetElements, newElement: inputs[self.range.leftIndex + count])
-                    let newConvertTarget = convertTargetElements.reduce(into: []) { $0 += $1.string }
-                    if newConvertTarget.hasPrefix(originalConvertTarget) {
+                    var newConvertTargetElements = convertTargetElements
+                    ComposingText.updateConvertTargetElements(currentElements: &newConvertTargetElements, newElement: inputs[self.range.leftIndex + count])
+                    if Self.check(convertTargetElements, isPrefixOf: newConvertTargetElements) {
                         result = (originalConvertTarget, (.input(count + self.range.leftIndex - 1), penalty))
                     }
                 } else {
@@ -128,7 +158,7 @@ struct TypoCorrectionGenerator: Sendable {
                 for element in correct {
                     ComposingText.updateConvertTargetElements(currentElements: &convertTargetElements, newElement: element)
                 }
-                stack.append((convertTargetElements, correct.last!, count + correct.count, penalty))
+                stack.append((convertTargetElements, count + correct.count, penalty))
             } else {
                 stack.append(contentsOf: self.nodes[count].compactMap {
                     if count + $0.inputElements.count > self.nodes.endIndex {
@@ -140,7 +170,6 @@ struct TypoCorrectionGenerator: Sendable {
                     }
                     return (
                         convertTargetElements: convertTargetElements,
-                        lastElement: $0.inputElements.last!,
                         count: count + $0.inputElements.count,
                         penalty: penalty + $0.weight
                     )

@@ -209,6 +209,12 @@ final class DicdataStoreTests: XCTestCase {
             var c = ComposingText()
             sequentialInput(&c, sequence: "tukatt", inputStyle: .roman2kana)
             let result = dicdataStore.lookupDicdata(composingText: c, inputRange: (0, 4..<6))
+            XCTAssertFalse(result.contains(where: {$0.data.word == "使っ"}))
+        }
+        do {
+            var c = ComposingText()
+            sequentialInput(&c, sequence: "tukatt", inputStyle: .roman2kana)
+            let result = dicdataStore.lookupDicdata(composingText: c, surfaceRange: (0, nil))
             XCTAssertTrue(result.contains(where: {$0.data.word == "使っ"}))
         }
     }
@@ -288,9 +294,14 @@ final class DicdataStoreTests: XCTestCase {
         do {
             var c = ComposingText()
             sequentialInput(&c, sequence: "tesutowaーdo", inputStyle: .roman2kana)
-            let result = dicdataStore.lookupDicdata(composingText: c, inputRange: (0, c.input.endIndex - 1 ..< c.input.endIndex), needTypoCorrection: false)
+            let result = dicdataStore.lookupDicdata(
+                composingText: c,
+                inputRange: (0, c.input.endIndex - 1 ..< c.input.endIndex),
+                surfaceRange: (0, c.convertTarget.count - 1 ..< c.convertTarget.count),
+                needTypoCorrection: false
+            )
             XCTAssertTrue(result.contains(where: {$0.data.word == "テストワード"}))
-            XCTAssertEqual(result.first(where: {$0.data.word == "テストワード"})?.range, .input(from: 0, to: 11))
+            XCTAssertEqual(result.first(where: {$0.data.word == "テストワード"})?.range, .surface(from: 0, to: 6))
         }
         
         // 動的ユーザ辞書の単語が通常の辞書よりも優先されることのテスト
