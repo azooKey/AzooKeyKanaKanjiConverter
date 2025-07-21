@@ -91,11 +91,19 @@ struct TypoCorrectionGenerator: Sendable {
     }
 
     mutating func next() -> ([Character], (endIndex: Lattice.LatticeIndex, penalty: PValue))? {
-        while let (convertTargetElements, lastElement, count, penalty) = self.stack.popLast() {
+        while let (convertTargetElements, _, count, penalty) = self.stack.popLast() {
             var result: ([Character], (endIndex: Lattice.LatticeIndex, penalty: PValue))? = nil
             if self.range.rightIndexRange.contains(count + self.range.leftIndex - 1) {
-                if let convertTarget = ComposingText.getConvertTargetIfRightSideIsValid(lastElement: lastElement, of: inputs, to: count + self.range.leftIndex, convertTargetElements: convertTargetElements)?.map({$0.toKatakana()}) {
-                    result = (convertTarget, (.input(count + self.range.leftIndex - 1), penalty))
+                let originalConvertTarget = convertTargetElements.reduce(into: []) { $0 += $1.string }
+                if self.range.leftIndex + count < self.inputs.endIndex {
+                    var convertTargetElements = convertTargetElements
+                    ComposingText.updateConvertTargetElements(currentElements: &convertTargetElements, newElement: inputs[self.range.leftIndex + count])
+                    let newConvertTarget = convertTargetElements.reduce(into: []) { $0 += $1.string }
+                    if newConvertTarget.hasPrefix(originalConvertTarget) {
+                        result = (originalConvertTarget, (.input(count + self.range.leftIndex - 1), penalty))
+                    }
+                } else {
+                    result = (originalConvertTarget, (.input(count + self.range.leftIndex - 1), penalty))
                 }
             }
             // エスケープ

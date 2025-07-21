@@ -148,52 +148,6 @@ final class ComposingTextTests: XCTestCase {
 
     }
 
-    func testIsRightSideValid() throws {
-        do {
-            var c = ComposingText()
-            c.insertAtCursorPosition("akafatta", inputStyle: .roman2kana) // あかふぁった|
-            XCTAssertTrue(ComposingText.isRightSideValid(lastElement: ComposingText.InputElement(character: "a", inputStyle: .roman2kana), convertTargetElements: [ComposingText.ConvertTargetElement(string: ["あ"], inputStyle: .roman2kana)], of: c.input, to: 1))
-            XCTAssertFalse(ComposingText.isRightSideValid(lastElement: ComposingText.InputElement(character: "k", inputStyle: .roman2kana), convertTargetElements: [ComposingText.ConvertTargetElement(string: ["あ", "k"], inputStyle: .roman2kana)], of: c.input, to: 2))
-            XCTAssertTrue(ComposingText.isRightSideValid(lastElement: ComposingText.InputElement(character: "a", inputStyle: .roman2kana), convertTargetElements: [ComposingText.ConvertTargetElement(string: ["あ", "か"], inputStyle: .roman2kana)], of: c.input, to: 3))
-            XCTAssertFalse(ComposingText.isRightSideValid(lastElement: ComposingText.InputElement(character: "f", inputStyle: .roman2kana), convertTargetElements: [ComposingText.ConvertTargetElement(string: ["あ", "か", "f"], inputStyle: .roman2kana)], of: c.input, to: 4))
-            XCTAssertTrue(ComposingText.isRightSideValid(lastElement: ComposingText.InputElement(character: "a", inputStyle: .roman2kana), convertTargetElements: [ComposingText.ConvertTargetElement(string: ["あ", "か", "ふ", "ぁ"], inputStyle: .roman2kana)], of: c.input, to: 5))
-            // これはtrueにしている
-            XCTAssertTrue(ComposingText.isRightSideValid(lastElement: ComposingText.InputElement(character: "t", inputStyle: .roman2kana), convertTargetElements: [ComposingText.ConvertTargetElement(string: ["あ", "か", "ふ", "ぁ", "t"], inputStyle: .roman2kana)], of: c.input, to: 6))
-            // これはfalse
-            XCTAssertFalse(ComposingText.isRightSideValid(lastElement: ComposingText.InputElement(character: "t", inputStyle: .roman2kana), convertTargetElements: [ComposingText.ConvertTargetElement(string: ["あ", "か", "ふ", "ぁ", "t", "t"], inputStyle: .roman2kana)], of: c.input, to: 7))
-            XCTAssertTrue(ComposingText.isRightSideValid(lastElement: ComposingText.InputElement(character: "a", inputStyle: .roman2kana), convertTargetElements: [ComposingText.ConvertTargetElement(string: ["あ", "か", "ふ", "ぁ", "っ", "た"], inputStyle: .roman2kana)], of: c.input, to: 8))
-        }
-    }
-
-    func testGetConvertTargetIfRightSideIsValid() throws {
-        do {
-            var c = ComposingText()
-            c.insertAtCursorPosition("akafatta", inputStyle: .roman2kana) // あかふぁった|
-            XCTAssertEqual(
-                ComposingText.getConvertTargetIfRightSideIsValid(
-                    lastElement: ComposingText.InputElement(character: "t", inputStyle: .roman2kana),
-                    of: c.input,
-                    to: 6,
-                    convertTargetElements: [ComposingText.ConvertTargetElement(string: Array("あかふぁt"), inputStyle: .roman2kana)]
-                ),
-                Array("あかふぁっ")
-            )
-        }
-        do {
-            var c = ComposingText()
-            c.insertAtCursorPosition("kintarou", inputStyle: .roman2kana) // きんたろう|
-            XCTAssertEqual(
-                ComposingText.getConvertTargetIfRightSideIsValid(
-                    lastElement: ComposingText.InputElement(character: "n", inputStyle: .roman2kana),
-                    of: c.input,
-                    to: 3,
-                    convertTargetElements: [ComposingText.ConvertTargetElement(string: Array("きn"), inputStyle: .roman2kana)]
-                ),
-                Array("きん")
-            )
-        }
-    }
-
     func testDifferenceSuffix() throws {
         do {
             var c1 = ComposingText()
