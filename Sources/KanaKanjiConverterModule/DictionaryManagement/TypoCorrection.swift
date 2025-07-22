@@ -99,7 +99,7 @@ struct TypoCorrectionGenerator: Sendable {
                     stablePrefix.append(contentsOf: item.string)
                 case .roman2kana, .mapped:
                     let table = if case let .mapped(id) = item.inputStyle {
-                        InputStyleManager.shared.table(for: .custom(id))
+                        InputStyleManager.shared.table(for: id)
                     } else {
                         InputStyleManager.shared.table(for: .defaultRomanToKana)
                     }

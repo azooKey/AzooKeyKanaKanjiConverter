@@ -64,7 +64,7 @@ extension Kana2Kanji {
             dicdata = self.dicdataStore.getPredictionLOUDSDicdata(key: lastRuby)
         case .roman2kana, .mapped:
             let table = if case let .mapped(id) = inputStyle {
-                InputStyleManager.shared.table(for: .custom(id))
+                InputStyleManager.shared.table(for: id)
             } else {
                 InputStyleManager.shared.table(for: .defaultRomanToKana)
             }

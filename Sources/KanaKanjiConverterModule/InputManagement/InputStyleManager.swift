@@ -5,7 +5,7 @@ final class InputStyleManager {
     nonisolated(unsafe) static let shared = InputStyleManager()
 
     struct Table {
-        internal init(hiraganaChanges: [[Character] : [Character]]) {
+        init(hiraganaChanges: [[Character] : [Character]]) {
             self.hiraganaChanges = hiraganaChanges
             self.unstableSuffixes = hiraganaChanges.keys.flatMapSet { characters in
                 characters.indices.map { i in
@@ -52,25 +52,49 @@ final class InputStyleManager {
         }
     }
 
-    enum TableID: Sendable, Equatable, Hashable {
-        case `defaultRomanToKana`
-        case custom(String)
-    }
-
-    private var customTables: [TableID: Table] = [:]
+    private var tables: [InputTableID: Table] = [:]
 
     private init() {
         // デフォルトのテーブルは最初から追加しておく
-        self.customTables[.defaultRomanToKana] = Table(
-            hiraganaChanges: Roman2KanaMaps.defaultRomanToKanaMap,
-        )
-        // `__azik__`は仮実装であるため、このような記述にしている。
-        self.customTables[.custom("__azik__")] = Table(
-            hiraganaChanges: Roman2KanaMaps.defaultAzikMap,
-        )
+        let defaultRomanToKana = Table(hiraganaChanges: Roman2KanaMaps.defaultRomanToKanaMap)
+        let defaultAZIK = Table(hiraganaChanges: Roman2KanaMaps.defaultAzikMap)
+        self.tables = [
+            .defaultRomanToKana: defaultRomanToKana,
+            .defaultAZIK: defaultAZIK
+        ]
     }
 
-    func table(for tableID: TableID) -> Table {
-        self.customTables[tableID, default: .empty]
+    func table(for id: InputTableID) -> Table {
+        switch id {
+        case .defaultRomanToKana, .defaultAZIK:
+            return self.tables[id]!
+        case .custom(let url):
+            if let table = self.tables[id] {
+                return table
+            } else if let table = try? Self.loadTable(from: url) {
+                self.tables[id] = table
+                return table
+            } else {
+                return .empty
+            }
+        }
+    }
+
+    private static func loadTable(from url: URL) throws -> Table {
+        let content = try String(contentsOf: url, encoding: .utf8)
+        var map: [[Character]: [Character]] = [:]
+        for line in content.components(separatedBy: .newlines) {
+            // 空行は無視
+            guard !line.trimmingCharacters(in: .whitespaces).isEmpty else { continue }
+            // `# `で始まる行はコメントとして明示的に無視
+            guard !line.hasPrefix("# ") else { continue }
+            let cols = line.split(separator: "\t")
+            // 要素の無い行は無視
+            guard cols.count >= 2 else { continue }
+            let key = Array(String(cols[0]))
+            let value = Array(String(cols[1]))
+            map[key] = value
+        }
+        return Table(hiraganaChanges: map)
     }
 }

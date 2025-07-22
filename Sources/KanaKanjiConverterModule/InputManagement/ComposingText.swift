@@ -438,7 +438,7 @@ extension ComposingText {
         case .roman2kana:
             return InputStyleManager.shared.table(for: .defaultRomanToKana).toHiragana(currentText: current, added: newCharacter)
         case .mapped(let id):
-            return InputStyleManager.shared.table(for: .custom(id)).toHiragana(currentText: current, added: newCharacter)
+            return InputStyleManager.shared.table(for: id).toHiragana(currentText: current, added: newCharacter)
         }
     }
 
@@ -449,7 +449,7 @@ extension ComposingText {
         case .roman2kana:
             convertTarget = InputStyleManager.shared.table(for: .defaultRomanToKana).toHiragana(currentText: convertTarget, added: newCharacter)
         case .mapped(let id):
-            convertTarget = InputStyleManager.shared.table(for: .custom(id)).toHiragana(currentText: convertTarget, added: newCharacter)
+            convertTarget = InputStyleManager.shared.table(for: id).toHiragana(currentText: convertTarget, added: newCharacter)
         }
     }
 

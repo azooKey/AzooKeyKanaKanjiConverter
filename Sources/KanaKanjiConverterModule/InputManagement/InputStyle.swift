@@ -4,5 +4,5 @@ public enum InputStyle: Sendable, Equatable, Hashable {
     /// ローマ字日本語入力とするスタイル
     case roman2kana
     /// カスタムローマ字かな変換テーブルなど、任意のマッピングを管理
-    case mapped(id: String)
+    case mapped(id: InputTableID)
 }
