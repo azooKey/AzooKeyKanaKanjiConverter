@@ -336,10 +336,8 @@ import EfficientNGram
     ///   付加的な変換候補
     private func getTopLevelAdditionalCandidate(_ inputData: ComposingText, options: ConvertRequestOptions) -> [Candidate] {
         var candidates: [Candidate] = []
-        if inputData.input.allSatisfy({$0.inputStyle == .roman2kana}) {
-            if options.englishCandidateInRoman2KanaInput {
-                candidates.append(contentsOf: self.getForeignPredictionCandidate(inputData: inputData, language: "en-US", penalty: -10))
-            }
+        if options.englishCandidateInRoman2KanaInput, inputData.input.allSatisfy({$0.character.isASCII}) {
+            candidates.append(contentsOf: self.getForeignPredictionCandidate(inputData: inputData, language: "en-US", penalty: -10))
         }
         return candidates
     }
