@@ -66,7 +66,7 @@ final class InputStyleManager {
         )
         // `__azik__`は仮実装であるため、このような記述にしている。
         self.customTables[.custom("__azik__")] = Table(
-            hiraganaChanges: Roman2KanaMaps.defaultRomanToKanaMap,
+            hiraganaChanges: Roman2KanaMaps.defaultAzikMap,
         )
     }
 

@@ -215,7 +215,14 @@ struct TypoCorrectionGenerator: Sendable {
                 return result
             }
         }
-        return []
+        // `.mapped`や、混ざっているケースでここに到達する
+        return if elements.count == 1 {
+            [
+                TypoCandidate(inputElements: [elements.first!], weight: 0)
+            ]
+        } else {
+            []
+        }
     }
 
     fileprivate static let lengths = [0, 1]
