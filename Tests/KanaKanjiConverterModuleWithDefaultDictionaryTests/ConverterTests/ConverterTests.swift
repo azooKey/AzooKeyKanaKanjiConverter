@@ -75,6 +75,29 @@ final class ConverterTests: XCTestCase {
         }
     }
 
+    func testAzikFullConversion() async throws {
+        for needTypoCorrection in [true, false] {
+            do {
+                let converter = await KanaKanjiConverter()
+                var c = ComposingText()
+                // ： -> ー, sk -> しん, dq → だい, kf -> き, ds: です
+                c.insertAtCursorPosition("azu：ki：haskzidqnokf：bo：doapurids", inputStyle: .mapped(id: .defaultAZIK))
+                XCTAssertEqual(c.convertTarget, "あずーきーはしんじだいのきーぼーどあぷりです")
+                let results = await converter.requestCandidates(c, options: requestOptions(needTypoCorrection: needTypoCorrection))
+                XCTAssertEqual(results.mainResults.first?.text, "azooKeyは新時代のキーボードアプリです")
+            }
+            do {
+                let converter = await KanaKanjiConverter()
+                var c = ComposingText()
+                // yp -> よう, xp -> しょう, kf -> き, kr -> から, kyh -> きゅう, rk -> りん, kd -> けん, pp -> ぽう, ： -> ー, kw -> けい, gr -> がら, ； -> っ, kp -> こう, dq -> だい, sz -> さん, kk -> きん, tq -> たい, zq -> ざい, tw -> てい
+                c.insertAtCursorPosition("ypxpkfkrtenisusuieiyakyhxprkzikdppnadosamazamanasupo：tuwokwkdsinagrsodatixpga；kpzidqharoszzerusukkkpnitqzqsiteorigoruhuyatenisuwonara；twta", inputStyle: .mapped(id: .defaultAZIK))
+                XCTAssertEqual(c.convertTarget, "ようしょうきからてにすすいえいやきゅうしょうりんじけんぽうなどさまざまなすぽーつをけいけんしながらそだちしょうがっこうじだいはろさんぜるすきんこうにたいざいしておりごるふやてにすをならっていた")
+                let results = await converter.requestCandidates(c, options: requestOptions(needTypoCorrection: needTypoCorrection))
+                XCTAssertEqual(results.mainResults.first?.text, "幼少期からテニス水泳野球少林寺拳法など様々なスポーツを経験しながら育ち小学校時代はロサンゼルス近郊に滞在しておりゴルフやテニスを習っていた")
+            }
+        }
+    }
+
     // 1文字ずつ変換する
     // memo: 内部実装としては別のモジュールが呼ばれるのだが、それをテストする方法があまりないかもしれない
     func testGradualConversion() async throws {

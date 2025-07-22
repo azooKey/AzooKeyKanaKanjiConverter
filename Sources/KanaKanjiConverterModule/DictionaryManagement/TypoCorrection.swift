@@ -202,7 +202,7 @@ struct TypoCorrectionGenerator: Sendable {
                 return result
             }
         }
-        if (elements.allSatisfy {$0.inputStyle == .roman2kana}) {
+        if (elements.allSatisfy {$0.inputStyle == .roman2kana || $0.inputStyle == .mapped(id: .defaultRomanToKana)}) {
             let dictionary: [String: [TypoCandidate]] = frozen ? [:] : Self.roman2KanaPossibleTypo
             if key.count > 1 {
                 return dictionary[key, default: []]
