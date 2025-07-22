@@ -24,18 +24,6 @@ final class CharacterUtilsTests: XCTestCase {
         XCTAssertFalse(CharacterUtils.isKogana("!"))
     }
 
-    func testIsRomanLetter() throws {
-        XCTAssertTrue(CharacterUtils.isRomanLetter("a"))
-        XCTAssertTrue(CharacterUtils.isRomanLetter("A"))
-        XCTAssertTrue(CharacterUtils.isRomanLetter("b"))
-
-        XCTAssertFalse(CharacterUtils.isRomanLetter("ぁ"))
-        XCTAssertFalse(CharacterUtils.isRomanLetter("'"))
-        XCTAssertFalse(CharacterUtils.isRomanLetter("あ"))
-        XCTAssertFalse(CharacterUtils.isRomanLetter("カ"))
-        XCTAssertFalse(CharacterUtils.isRomanLetter("!"))
-    }
-
     func testIsDakuten() throws {
         XCTAssertTrue(CharacterUtils.isDakuten("が"))
         XCTAssertTrue(CharacterUtils.isDakuten("ば"))

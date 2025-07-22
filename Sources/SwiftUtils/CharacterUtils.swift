@@ -25,11 +25,6 @@ public enum CharacterUtils {
         kogakiKana.contains(character)
     }
 
-    /// ローマ字(a-z, A-Zか否か)
-    @inlinable public static func isRomanLetter(_ character: Character) -> Bool {
-        character.isASCII && character.isCased
-    }
-
     /// 自分が小書きであれば該当する文字を返す。
     public static func kogaki(_ character: Character) -> Character {
         switch character {
