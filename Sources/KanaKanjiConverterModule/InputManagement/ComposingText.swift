@@ -185,10 +185,17 @@ public struct ComposingText: Sendable {
             // 例えばcovnertTargetが「あき|ょ」で、`[a, k, y, o]`まで見て「あきょ」になってしまった場合、「あき」がprefixとなる。
             // この場合、lastPrefix=1なので、1番目から現在までの入力をひらがな(suffix)で置き換える
             else if converted.hasPrefix(target) {
+                // lastPrefixIndex: 「あ」までなので1
+                // count: 「あきょ」までなので4
+                // replaceCount: 3
                 let replaceCount = count - lastPrefixIndex
+                // suffix: 「あきょ」から「あ」を落とした分なので、「きょ」
                 let suffix = converted.suffix(converted.count - lastPrefix.count)
+                // lastPrefixIndexから現在のカウントまでをReplace
                 self.input.removeSubrange(count - replaceCount ..< count)
-                self.input.insert(contentsOf: suffix.map {InputElement(character: $0, inputStyle: CharacterUtils.isRomanLetter($0) ? .roman2kana : .direct)}, at: count - replaceCount)
+                // suffix1文字ずつを入力に追加する
+                // この結果として生じる文字列については、`frozen`で処理する
+                self.input.insert(contentsOf: suffix.map {InputElement(character: $0, inputStyle: .frozen)}, at: count - replaceCount)
 
                 count -= replaceCount
                 count += suffix.count

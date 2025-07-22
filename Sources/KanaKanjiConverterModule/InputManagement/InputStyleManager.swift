@@ -59,6 +59,7 @@ final class InputStyleManager {
         let defaultRomanToKana = Table(hiraganaChanges: Roman2KanaMaps.defaultRomanToKanaMap)
         let defaultAZIK = Table(hiraganaChanges: Roman2KanaMaps.defaultAzikMap)
         self.tables = [
+            .empty: .empty,
             .defaultRomanToKana: defaultRomanToKana,
             .defaultAZIK: defaultAZIK
         ]
@@ -66,7 +67,7 @@ final class InputStyleManager {
 
     func table(for id: InputTableID) -> Table {
         switch id {
-        case .defaultRomanToKana, .defaultAZIK:
+        case .defaultRomanToKana, .defaultAZIK, .empty:
             return self.tables[id]!
         case .custom(let url):
             if let table = self.tables[id] {

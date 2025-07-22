@@ -140,7 +140,7 @@ final class ComposingTextTests: XCTestCase {
                 ComposingText.InputElement(character: "a", inputStyle: .roman2kana),
                 ComposingText.InputElement(character: "k", inputStyle: .roman2kana),
                 ComposingText.InputElement(character: "a", inputStyle: .roman2kana),
-                ComposingText.InputElement(character: "ふ", inputStyle: .direct)
+                ComposingText.InputElement(character: "ふ", inputStyle: .frozen)
             ])
             XCTAssertEqual(c.convertTarget, "あかふ")
             XCTAssertEqual(c.convertTargetCursorPosition, 3)
