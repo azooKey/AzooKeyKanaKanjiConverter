@@ -296,6 +296,8 @@ enum Roman2KanaMaps {
         "xx": "っx",
         "yy": "っy",
         "zz": "っz",
+        "ky": "ky",  // k<any> -> く<any>の例外処理
+        "gy": "gy",  // g<any> -> ぐ<any>の例外処理
         "sy": "sy",  // s<any> -> す<any>の例外処理
         "sh": "sh",  // s<any> -> す<any>の例外処理
         "zy": "zy",  // z<any> -> ず<any>の例外処理
