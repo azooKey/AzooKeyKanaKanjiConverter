@@ -307,7 +307,19 @@ enum Roman2KanaMaps {
     /// Mapping including special end-of-text rules.
     static let defaultRomanToKanaPieceMap = Self.constructPieceMap(defaultRomanToKanaMap, additionalMapping: [
         [.piece(.endOfText)]: [],
-        [.piece(.character("n")), .piece(.endOfText)]: [.character("ん")],
+        [.piece(.character("k")), .any1]: [.character("く"), .any1],
+        [.piece(.character("g")), .any1]: [.character("ぐ"), .any1],
+        [.piece(.character("s")), .any1]: [.character("す"), .any1],
+        [.piece(.character("z")), .any1]: [.character("ず"), .any1],
+        [.piece(.character("t")), .any1]: [.character("つ"), .any1],
+        [.piece(.character("d")), .any1]: [.character("づ"), .any1],
+        [.piece(.character("n")), .any1]: [.character("ん"), .any1],
+        [.piece(.character("h")), .any1]: [.character("ふ"), .any1],
+        [.piece(.character("b")), .any1]: [.character("ぶ"), .any1],
+        [.piece(.character("p")), .any1]: [.character("ぷ"), .any1],
+        [.piece(.character("m")), .any1]: [.character("む"), .any1],
+        [.piece(.character("y")), .any1]: [.character("ゆ"), .any1],
+        [.piece(.character("r")), .any1]: [.character("る"), .any1],
         [.piece(.character("n")), .any1]: [.character("ん"), .any1]
     ])
 
