@@ -296,6 +296,19 @@ enum Roman2KanaMaps {
         "xx": "っx",
         "yy": "っy",
         "zz": "っz",
+        "sy": "sy",  // s<any> -> す<any>の例外処理
+        "sh": "sh",  // s<any> -> す<any>の例外処理
+        "zy": "zy",  // z<any> -> ず<any>の例外処理
+        "ty": "ty",  // t<any> -> つ<any>の例外処理
+        "th": "th",  // t<any> -> つ<any>の例外処理
+        "tw": "tw",  // t<any> -> つ<any>の例外処理
+        "dy": "dy",  // d<any> -> づ<any>の例外処理
+        "dh": "dh",  // d<any> -> づ<any>の例外処理
+        "hy": "hy",  // h<any> -> ふ<any>の例外処理
+        "by": "by",  // b<any> -> ぶ<any>の例外処理
+        "py": "py",  // p<any> -> ぷ<any>の例外処理
+        "my": "my",  // m<any> -> む<any>の例外処理
+        "ry": "ry",  // r<any> -> る<any>の例外処理
         "ny": "ny",  // n<any> -> ん<any>の例外処理
         "xn": "ん",
         "zh": "←",
