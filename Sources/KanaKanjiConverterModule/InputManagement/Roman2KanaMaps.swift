@@ -313,7 +313,6 @@ enum Roman2KanaMaps {
         [.piece(.character("z")), .any1]: [.character("ず"), .any1],
         [.piece(.character("t")), .any1]: [.character("つ"), .any1],
         [.piece(.character("d")), .any1]: [.character("づ"), .any1],
-        [.piece(.character("n")), .any1]: [.character("ん"), .any1],
         [.piece(.character("h")), .any1]: [.character("ふ"), .any1],
         [.piece(.character("b")), .any1]: [.character("ぶ"), .any1],
         [.piece(.character("p")), .any1]: [.character("ぷ"), .any1],
