@@ -16,10 +16,10 @@ import SwiftUtils
 /// カーソルのポジションもこのクラスが管理する。
 /// 設計方針として、inputStyleに関わる実装の違いは全てアップデート方法の違いとして吸収し、`input` / `delete` / `moveCursor` / `complete`時の違いとしては露出させないようにすることを目指した。
 public struct ComposingText: Sendable {
-    public init(convertTargetCursorPosition: Int = 0, input: [ComposingText.InputElement] = [], convertTarget: String = "") {
-        self.convertTargetCursorPosition = convertTargetCursorPosition
-        self.input = input
-        self.convertTarget = convertTarget
+    public init() {
+        self.convertTargetCursorPosition = 0
+        self.input = []
+        self.surface = []
     }
 
     /// カーソルの位置。0は左端（左から右に書く言語の場合）に対応する。
@@ -27,7 +27,15 @@ public struct ComposingText: Sendable {
     /// ユーザの入力シーケンス。historyとは異なり、変換対象文字列に対応するものを保持する。また、deleteやmove cursor等の操作履歴は保持しない。
     public private(set) var input: [InputElement] = []
     /// 変換対象文字列。
-    public private(set) var convertTarget: String = ""
+    private var surface: [SurfacePiece] = []
+    public var convertTarget: String {
+        String(self.surface.compactMap {
+            switch $0 {
+            case .character(let c): c
+            case .surfaceSeparator: nil
+            }
+        })
+    }
 
     /// ユーザ入力の単位
     public struct InputElement: Sendable {
@@ -178,12 +186,12 @@ public struct ComposingText: Sendable {
         var count = 0
         var lastPrefixIndex = 0
         var lastPrefix = ""
-        var converting: [ConvertTargetElement] = []
+        var converting: [SurfacePatch] = []
         var validCount: Int?
 
         for element in input {
-            Self.updateConvertTargetElements(currentElements: &converting, newElement: element)
-            var converted = converting.reduce(into: "") {$0 += $1.string}
+            Self.updateSurfacePatches(currentElements: &converting, newElement: element)
+            var converted = String(converting.flatMap { $0.pieces.compactMap { $0.character } })
             count += 1
 
             // convertedがtargetと一致するようなcount(validCount)は複数ありえるが、その中で最も大きいものを返す
@@ -230,6 +238,14 @@ public struct ComposingText: Sendable {
         let common = oldString.commonPrefix(with: newString)
         return (oldString.count - common.count, String(newString.dropFirst(common.count)))
     }
+
+    private func diff(from oldSurface: [SurfacePiece], to newSurface: [SurfacePiece]) -> (delete: Int, input: String) {
+        let oldChars = oldSurface.compactMap { $0.character }
+        let newChars = newSurface.compactMap { $0.character }
+        let common = oldChars.commonPrefix(with: newChars)
+        return (oldChars.count - common.count, String(newChars.dropFirst(common.count)))
+    }
+
     /// 現在のカーソル位置に文字を追加する関数
     public mutating func insertAtCursorPosition(_ string: String, inputStyle: InputStyle) {
         self.insertAtCursorPosition(string.map {InputElement(piece: .character($0), inputStyle: inputStyle)})
@@ -244,12 +260,17 @@ public struct ComposingText: Sendable {
         // inputを更新
         self.input.insert(contentsOf: elements, at: inputCursorPosition)
 
-        let oldConvertTarget = self.convertTarget.prefix(self.convertTargetCursorPosition)
-        let newConvertTarget = Self.getConvertTarget(for: self.input.prefix(inputCursorPosition + elements.count))
+        let oldConvertTarget: [SurfacePiece] = self.surface.reduce(into: (count: 0, pieces: [])) { (items, piece) in
+            let addCount = (piece.character != nil ? 1 : 0)
+            if items.count + addCount <= self.convertTargetCursorPosition {
+                items.pieces.append(piece)
+                items.count += addCount
+            }
+        }.pieces
+        let newConvertTarget = Self.getSurface(for: self.input.prefix(inputCursorPosition + elements.count))
         let diff = self.diff(from: oldConvertTarget, to: newConvertTarget)
         // convertTargetを更新
-        self.convertTarget.removeFirst(convertTargetCursorPosition)
-        self.convertTarget.insert(contentsOf: newConvertTarget, at: convertTarget.startIndex)
+        self.surface.replaceSubrange(oldConvertTarget.indices, with: newConvertTarget)
         // convertTargetCursorPositionを更新
         self.convertTargetCursorPosition -= diff.delete
         self.convertTargetCursorPosition += diff.input.count
@@ -320,7 +341,7 @@ public struct ComposingText: Sendable {
         self.convertTargetCursorPosition -= count
 
         // convetTargetを更新する
-        self.convertTarget = Self.getConvertTarget(for: self.input)
+        self.surface = Self.getSurface(for: self.input)
     }
 
     /// 現在のカーソル位置からカーソルを動かす関数
@@ -343,10 +364,10 @@ public struct ComposingText: Sendable {
             let correspondingCount = min(correspondingCount, self.input.count)
             self.input.removeFirst(correspondingCount)
             // convetTargetを更新する
-            let newConvertTarget = Self.getConvertTarget(for: self.input)
+            let newSurface = Self.getSurface(for: self.input)
             // カーソルの位置は、消す文字数の分削除する
-            let cursorDelta = self.convertTarget.count - newConvertTarget.count
-            self.convertTarget = newConvertTarget
+            let cursorDelta = self.surface.compactMap{$0.character}.count - newSurface.compactMap{$0.character}.count
+            self.surface = newSurface
             self.convertTargetCursorPosition -= cursorDelta
             // もしも左端にカーソルが位置していたら、文頭に移動させる
             if self.convertTargetCursorPosition == 0 {
@@ -358,7 +379,16 @@ public struct ComposingText: Sendable {
             let prefix = self.convertTarget.prefix(correspondingCount)
             let index = self.forceGetInputCursorPosition(target: prefix)
             self.input = Array(self.input[index...])
-            self.convertTarget = String(self.convertTarget.dropFirst(correspondingCount))
+
+            let actualSurfaceCount = self.surface.reduce(into: (internalCount: 0, displayedCount: 0)) { (items, piece) in
+                let additionalDisplayedCount = piece.character != nil ? 1 : 0
+                if items.displayedCount + additionalDisplayedCount <= correspondingCount {
+                    items.internalCount += 1
+                    items.displayedCount += additionalDisplayedCount
+                }
+            }.internalCount
+
+            self.surface = Array(self.surface.dropFirst(actualSurfaceCount))
             self.convertTargetCursorPosition -= correspondingCount
             // もしも左端にカーソルが位置していたら、文頭に移動させる
             if self.convertTargetCursorPosition == 0 {
@@ -376,7 +406,14 @@ public struct ComposingText: Sendable {
         var text = self
         let index = text.forceGetInputCursorPosition(target: text.convertTarget.prefix(text.convertTargetCursorPosition))
         text.input = Array(text.input.prefix(index))
-        text.convertTarget = String(text.convertTarget.prefix(text.convertTargetCursorPosition))
+        let actualSurfaceCount = self.surface.reduce(into: (internalCount: 0, displayedCount: 0)) { (items, piece) in
+            let additionalDisplayedCount = piece.character != nil ? 1 : 0
+            if items.displayedCount + additionalDisplayedCount <= self.convertTargetCursorPosition {
+                items.internalCount += 1
+                items.displayedCount += additionalDisplayedCount
+            }
+        }.internalCount
+        text.surface = Array(text.surface.prefix(actualSurfaceCount))
         return text
     }
 
@@ -389,22 +426,22 @@ public struct ComposingText: Sendable {
         // [き, ょ, う, は, い, い, て, ん, き, だ]
         // i2c: [0: 0, 3: 2(きょ), 4: 3(う), 6: 4(は), 7: 5(い), 8: 6(い), 10: 7(て), 13: 9(んき), 15: 10(だ)]
 
-        var map: [Int: (surfaceIndex: Int, surface: String)] = [0: (0, "")]
+        var map: [Int: (surfaceIndex: Int, surface: [SurfacePiece])] = [0: (0, [])]
 
         // 逐次更新用のバッファ
-        var convertTargetElements: [ConvertTargetElement] = []
+        var surfacePatches: [SurfacePatch] = []
 
         for (idx, element) in self.input.enumerated() {
             // 要素を追加して表層文字列を更新
-            Self.updateConvertTargetElements(currentElements: &convertTargetElements, newElement: element)
+            Self.updateSurfacePatches(currentElements: &surfacePatches, newElement: element)
             // 表層側の長さを再計算
-            let currentSurface = convertTargetElements.reduce(into: "") { $0 += $1.string }
+            let currentSurface = surfacePatches.flatMap { $0.pieces }
             // idx 個の要素を処理し終えた直後（= 次の要素を処理する前）の
             // カーソル位置は idx + 1
             map[idx + 1] = (currentSurface.count, currentSurface)
         }
         // 最終的なサーフェスと一致したものだけ残す
-        let finalSurface = convertTargetElements.reduce(into: "") { $0 += $1.string }
+        let finalSurface = surfacePatches.flatMap { $0.pieces }
         return map
             .filter {
                 finalSurface.hasPrefix($0.value.surface)
@@ -416,7 +453,7 @@ public struct ComposingText: Sendable {
 
     public mutating func stopComposition() {
         self.input = []
-        self.convertTarget = ""
+        self.surface = []
         self.convertTargetCursorPosition = 0
     }
 }
@@ -425,94 +462,96 @@ public struct ComposingText: Sendable {
 // 例えば、「akafa」という入力があるとき、「aka」はvalidな部分領域だが、「kaf」はinvalidである。
 // 難しいケースとして「itta」の「it」を「いっ」としてvalidな部分領域と見做したいというモチベーションがある。
 extension ComposingText {
-    static func getConvertTarget(for elements: some Sequence<InputElement>) -> String {
-        var convertTargetElements: [ConvertTargetElement] = []
+    static func getSurface(for elements: some Sequence<InputElement>) -> [SurfacePiece] {
+        var surfacePatches: [SurfacePatch] = []
         for element in elements {
-            updateConvertTargetElements(currentElements: &convertTargetElements, newElement: element)
+            Self.updateSurfacePatches(currentElements: &surfacePatches, newElement: element)
         }
-        return convertTargetElements.reduce(into: "") {$0 += $1.string}
+        return surfacePatches.flatMap {
+            $0.pieces
+        }
     }
 
     // inputStyleが同一であるような文字列を集積したもの
     // k, o, r, e, h, aまでをローマ字入力し、p, e, nをダイレクト入力、d, e, s, uをローマ字入力した場合、
     // originalInputに対して[ElementComposition(これは, roman2kana), ElementComposition(pen, direct), ElementComposition(です, roman2kana)]、のようになる。
-    struct ConvertTargetElement {
-        var string: [Character]
+    struct SurfacePatch {
+        var pieces: [SurfacePiece]
         var inputStyle: InputStyle
     }
 
-    static func updateConvertTargetElements(currentElements: inout [ConvertTargetElement], newElement: InputElement) {
+    static func updateSurfacePatches(currentElements: inout [SurfacePatch], newElement: InputElement) {
         switch newElement.piece {
         case .character(let ch):
             if currentElements.last?.inputStyle != newElement.inputStyle {
                 currentElements.append(
-                    ConvertTargetElement(
-                        string: updateConvertTarget(current: [], inputStyle: newElement.inputStyle, newCharacter: ch),
+                    SurfacePatch(
+                        pieces: updateSurface(current: [], inputStyle: newElement.inputStyle, newCharacter: ch),
                         inputStyle: newElement.inputStyle
                     )
                 )
                 return
             }
-            updateConvertTarget(&currentElements[currentElements.endIndex - 1].string, inputStyle: newElement.inputStyle, newCharacter: ch)
-        case .endOfText:
+            updateSurface(&currentElements[currentElements.endIndex - 1].pieces, inputStyle: newElement.inputStyle, newCharacter: ch)
+        case .compositionSeparator:
             guard let lastIndex = currentElements.indices.last,
                   currentElements[lastIndex].inputStyle == newElement.inputStyle else {
                 return
             }
-            updateConvertTarget(&currentElements[lastIndex].string, inputStyle: newElement.inputStyle, piece: .endOfText)
+            updateSurface(&currentElements[lastIndex].pieces, inputStyle: newElement.inputStyle, piece: .compositionSeparator)
         }
     }
 
-    static func updateConvertTarget(current: [Character], inputStyle: InputStyle, newCharacter: Character) -> [Character] {
+    static func updateSurface(current: [SurfacePiece], inputStyle: InputStyle, newCharacter: Character) -> [SurfacePiece] {
         switch inputStyle {
         case .direct:
-            return current + [newCharacter]
+            return current + [.character(newCharacter)]
         case .roman2kana:
-            return InputStyleManager.shared.table(for: .defaultRomanToKana).toHiragana(currentText: current, added: .character(newCharacter))
+            return InputStyleManager.shared.table(for: .defaultRomanToKana).updateSurface(current: current, added: .character(newCharacter))
         case .mapped(let id):
-            return InputStyleManager.shared.table(for: id).toHiragana(currentText: current, added: .character(newCharacter))
+            return InputStyleManager.shared.table(for: id).updateSurface(current: current, added: .character(newCharacter))
         }
     }
 
-    static func updateConvertTarget(_ convertTarget: inout [Character], inputStyle: InputStyle, newCharacter: Character) {
+    static func updateSurface(_ convertTarget: inout [SurfacePiece], inputStyle: InputStyle, newCharacter: Character) {
         switch inputStyle {
         case .direct:
-            convertTarget.append(newCharacter)
+            convertTarget.append(.character(newCharacter))
         case .roman2kana:
-            convertTarget = InputStyleManager.shared.table(for: .defaultRomanToKana).toHiragana(currentText: convertTarget, added: .character(newCharacter))
+            convertTarget = InputStyleManager.shared.table(for: .defaultRomanToKana).updateSurface(current: convertTarget, added: .character(newCharacter))
         case .mapped(let id):
-            convertTarget = InputStyleManager.shared.table(for: id).toHiragana(currentText: convertTarget, added: .character(newCharacter))
+            convertTarget = InputStyleManager.shared.table(for: id).updateSurface(current: convertTarget, added: .character(newCharacter))
         }
     }
 
-    static func updateConvertTarget(current: [Character], inputStyle: InputStyle, piece: InputPiece) -> [Character] {
+    static func updateSurface(current: [SurfacePiece], inputStyle: InputStyle, piece: InputPiece) -> [SurfacePiece] {
         switch piece {
         case .character(let ch):
-            return updateConvertTarget(current: current, inputStyle: inputStyle, newCharacter: ch)
-        case .endOfText:
+            return updateSurface(current: current, inputStyle: inputStyle, newCharacter: ch)
+        case .compositionSeparator:
             switch inputStyle {
             case .direct:
                 return current
             case .roman2kana:
-                return InputStyleManager.shared.table(for: .defaultRomanToKana).toHiragana(currentText: current, added: .endOfText)
+                return InputStyleManager.shared.table(for: .defaultRomanToKana).updateSurface(current: current, added: .compositionSeparator)
             case .mapped(let id):
-                return InputStyleManager.shared.table(for: id).toHiragana(currentText: current, added: .endOfText)
+                return InputStyleManager.shared.table(for: id).updateSurface(current: current, added: .compositionSeparator)
             }
         }
     }
 
-    static func updateConvertTarget(_ convertTarget: inout [Character], inputStyle: InputStyle, piece: InputPiece) {
+    static func updateSurface(_ convertTarget: inout [SurfacePiece], inputStyle: InputStyle, piece: InputPiece) {
         switch piece {
         case .character(let ch):
-            updateConvertTarget(&convertTarget, inputStyle: inputStyle, newCharacter: ch)
-        case .endOfText:
+            updateSurface(&convertTarget, inputStyle: inputStyle, newCharacter: ch)
+        case .compositionSeparator:
             switch inputStyle {
             case .direct:
                 break
             case .roman2kana:
-                convertTarget = InputStyleManager.shared.table(for: .defaultRomanToKana).toHiragana(currentText: convertTarget, added: .endOfText)
+                convertTarget = InputStyleManager.shared.table(for: .defaultRomanToKana).updateSurface(current: convertTarget, added: .compositionSeparator)
             case .mapped(let id):
-                convertTarget = InputStyleManager.shared.table(for: id).toHiragana(currentText: convertTarget, added: .endOfText)
+                convertTarget = InputStyleManager.shared.table(for: id).updateSurface(current: convertTarget, added: .compositionSeparator)
             }
         }
     }
@@ -522,7 +561,7 @@ extension ComposingText {
 // Equatableにしておく
 extension ComposingText: Equatable {}
 extension ComposingText.InputElement: Equatable {}
-extension ComposingText.ConvertTargetElement: Equatable {}
+extension ComposingText.SurfacePatch: Equatable {}
 
 // MARK: 差分計算用のAPI
 extension ComposingText {
@@ -563,9 +602,9 @@ extension ComposingText.InputElement: CustomDebugStringConvertible {
     }
 }
 
-extension ComposingText.ConvertTargetElement: CustomDebugStringConvertible {
+extension ComposingText.SurfacePatch: CustomDebugStringConvertible {
     var debugDescription: String {
-        "ConvertTargetElement(string: \"\(string)\", inputStyle: \(inputStyle)"
+        "ConvertTargetElement(string: \"\(pieces)\", inputStyle: \(inputStyle)"
     }
 }
 extension InputStyle: CustomDebugStringConvertible {

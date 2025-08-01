@@ -224,7 +224,7 @@ extension Subcommands {
                         let specialInput = String(input.split(by: ":input ").last ?? "")
                         switch specialInput {
                         case "eot":
-                            composingText.insertAtCursorPosition([.init(piece: .endOfText, inputStyle: inputStyle)])
+                            composingText.insertAtCursorPosition([.init(piece: .compositionSeparator, inputStyle: inputStyle)])
                         default:
                             fatalError("Unknown special input: \(specialInput)")
                         }

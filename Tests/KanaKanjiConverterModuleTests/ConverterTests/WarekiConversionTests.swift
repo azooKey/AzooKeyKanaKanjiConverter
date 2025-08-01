@@ -10,12 +10,10 @@
 import XCTest
 
 final class WarekiConversionTests: XCTestCase {
-    func makeDirectInput(direct input: String) -> ComposingText {
-        ComposingText(
-            convertTargetCursorPosition: input.count,
-            input: input.map {.init(character: $0, inputStyle: .direct)},
-            convertTarget: input
-        )
+    private func makeDirectInput(direct input: String) -> ComposingText {
+        var c = ComposingText()
+        c.insertAtCursorPosition(input, inputStyle: .direct)
+        return c
     }
 
     func testSeireki2Wareki() async throws {
@@ -95,11 +93,7 @@ final class WarekiConversionTests: XCTestCase {
     func testWareki2Seireki() async throws {
         do {
             let converter = await KanaKanjiConverter()
-            let input = ComposingText(
-                convertTargetCursorPosition: 8,
-                input: "れいわがんねん".map {.init(character: $0, inputStyle: .direct)},
-                convertTarget: "れいわがんねん"
-            )
+            let input = makeDirectInput(direct: "れいわがんねん")
             let result = await converter.toSeirekiCandidates(input)
             XCTAssertEqual(result.count, 1)
             if result.count == 1 {
@@ -109,11 +103,7 @@ final class WarekiConversionTests: XCTestCase {
 
         do {
             let converter = await KanaKanjiConverter()
-            let input = ComposingText(
-                convertTargetCursorPosition: 8,
-                input: "れいわ1ねん".map {.init(character: $0, inputStyle: .direct)},
-                convertTarget: "れいわ1ねん"
-            )
+            let input = makeDirectInput(direct: "れいわ1ねん")
             let result = await converter.toSeirekiCandidates(input)
             XCTAssertEqual(result.count, 1)
             if result.count == 1 {
@@ -123,11 +113,7 @@ final class WarekiConversionTests: XCTestCase {
 
         do {
             let converter = await KanaKanjiConverter()
-            let input = ComposingText(
-                convertTargetCursorPosition: 8,
-                input: "しょうわ25ねん".map {.init(character: $0, inputStyle: .direct)},
-                convertTarget: "しょうわ25ねん"
-            )
+            let input = makeDirectInput(direct: "しょうわ25ねん")
             let result = await converter.toSeirekiCandidates(input)
             XCTAssertEqual(result.count, 1)
             if result.count == 1 {
@@ -137,11 +123,7 @@ final class WarekiConversionTests: XCTestCase {
 
         do {
             let converter = await KanaKanjiConverter()
-            let input = ComposingText(
-                convertTargetCursorPosition: 8,
-                input: "めいじ9ねん".map {.init(character: $0, inputStyle: .direct)},
-                convertTarget: "めいじ9ねん"
-            )
+            let input = makeDirectInput(direct: "めいじ9ねん")
             let result = await converter.toSeirekiCandidates(input)
             XCTAssertEqual(result.count, 1)
             if result.count == 1 {

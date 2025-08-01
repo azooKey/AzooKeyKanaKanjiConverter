@@ -18,21 +18,21 @@ struct TypoCorrectionGenerator: Sendable {
             }
         }
         // 深さ優先で列挙する
-        var leftConvertTargetElements: [ComposingText.ConvertTargetElement] = []
+        var leftConvertTargetElements: [ComposingText.SurfacePatch] = []
         for element in inputs[0 ..< range.leftIndex] {
-            ComposingText.updateConvertTargetElements(currentElements: &leftConvertTargetElements, newElement: element)
+            ComposingText.updateSurfacePatches(currentElements: &leftConvertTargetElements, newElement: element)
         }
-        let actualLeftConvertTarget = leftConvertTargetElements.reduce(into: "") { $0 += $1.string}
+        let actualLeftConvertTarget = leftConvertTargetElements.reduce(into: []) { $0 += $1.pieces}
 
         self.stack = nodes[0].compactMap { typoCandidate in
-            var convertTargetElements = [ComposingText.ConvertTargetElement]()
+            var convertTargetElements = [ComposingText.SurfacePatch]()
             var fullConvertTargetElements = leftConvertTargetElements
             for element in typoCandidate.inputElements {
-                ComposingText.updateConvertTargetElements(currentElements: &convertTargetElements, newElement: element)
-                ComposingText.updateConvertTargetElements(currentElements: &fullConvertTargetElements, newElement: element)
+                ComposingText.updateSurfacePatches(currentElements: &convertTargetElements, newElement: element)
+                ComposingText.updateSurfacePatches(currentElements: &fullConvertTargetElements, newElement: element)
             }
-            let fullConvertTarget = fullConvertTargetElements.reduce(into: "") { $0 += $1.string}
-            let convertTarget = convertTargetElements.reduce(into: "") { $0 += $1.string}
+            let fullConvertTarget = fullConvertTargetElements.reduce(into: []) { $0 += $1.pieces}
+            let convertTarget = convertTargetElements.reduce(into: []) { $0 += $1.pieces}
 
             if fullConvertTarget == actualLeftConvertTarget + convertTarget {
                 return (convertTargetElements, typoCandidate.inputElements.count, typoCandidate.weight)
@@ -53,11 +53,11 @@ struct TypoCorrectionGenerator: Sendable {
         var rightIndexRange: Range<Int>
     }
 
-    var stack: [(convertTargetElements: [ComposingText.ConvertTargetElement], count: Int, penalty: PValue)]
+    var stack: [(convertTargetElements: [ComposingText.SurfacePatch], count: Int, penalty: PValue)]
 
     private static func check(
-        _ leftConvertTargetElements: [ComposingText.ConvertTargetElement],
-        isPrefixOf rightConvertTargetElements: [ComposingText.ConvertTargetElement]
+        _ leftConvertTargetElements: [ComposingText.SurfacePatch],
+        isPrefixOf rightConvertTargetElements: [ComposingText.SurfacePatch]
     ) -> Bool {
         if leftConvertTargetElements.count > rightConvertTargetElements.count {
             // 常に不成立
@@ -77,7 +77,7 @@ struct TypoCorrectionGenerator: Sendable {
             if leftConvertTargetElements[lastIndex].inputStyle != rightConvertTargetElements[lastIndex].inputStyle {
                 return false
             }
-            return rightConvertTargetElements[lastIndex].string.hasPrefix(leftConvertTargetElements[lastIndex].string)
+            return rightConvertTargetElements[lastIndex].pieces.hasPrefix(leftConvertTargetElements[lastIndex].pieces)
         } else {
             // leftConvertTargetElementsのインデックスの範囲ですべて一致していればprefixが成立
             for (lhs, rhs) in zip(leftConvertTargetElements, rightConvertTargetElements[0 ..< leftConvertTargetElements.endIndex]) {
@@ -91,34 +91,36 @@ struct TypoCorrectionGenerator: Sendable {
 
     /// `target`で始まる場合は到達不可能であることを知らせる
     mutating func setUnreachablePath(target: some Collection<Character>) {
-        self.stack = self.stack.filter { (convertTargetElements, _, _) in
-            var stablePrefix: [Character] = []
+        self.stack = self.stack.filter { (convertTargetElements, _, _) -> Bool in
+            var stablePrefix: [SurfacePiece] = []
             loop: for item in convertTargetElements {
                 switch item.inputStyle {
                 case .direct:
-                    stablePrefix.append(contentsOf: item.string)
+                    stablePrefix.append(contentsOf: item.pieces)
                 case .roman2kana, .mapped:
                     let table = if case let .mapped(id) = item.inputStyle {
                         InputStyleManager.shared.table(for: id)
                     } else {
                         InputStyleManager.shared.table(for: .defaultRomanToKana)
                     }
-                    var stableIndex = item.string.endIndex
+                    var stableIndex = item.pieces.endIndex
+                    let characters = item.pieces.compactMap{$0.character}
                     for suffix in table.unstableSuffixes {
-                        if item.string.hasSuffix(suffix) {
-                            stableIndex = min(stableIndex, item.string.endIndex - suffix.count)
+                        if characters.hasSuffix(suffix) {
+                            stableIndex = min(stableIndex, item.pieces.endIndex - suffix.count)
                         }
                     }
-                    if stableIndex == item.string.endIndex {
-                        stablePrefix.append(contentsOf: item.string)
+                    if stableIndex == item.pieces.endIndex {
+                        stablePrefix.append(contentsOf: item.pieces)
                     } else {
                         // 全体が安定でない場合は、そこでbreakする
-                        stablePrefix.append(contentsOf: item.string[0 ..< stableIndex])
+                        stablePrefix.append(contentsOf: item.pieces[0 ..< stableIndex])
                         break loop
                     }
                 }
                 // 安定なprefixがtargetをprefixに持つ場合、このstack内のアイテムについてもunreachableであることが分かるので、除去する
-                if stablePrefix.hasPrefix(target) {
+                let hasPrefix = stablePrefix.compactMap{$0.character}.hasPrefix(target)
+                if hasPrefix {
                     return false
                 }
             }
@@ -130,15 +132,22 @@ struct TypoCorrectionGenerator: Sendable {
         while let (convertTargetElements, count, penalty) = self.stack.popLast() {
             var result: ([Character], (endIndex: Lattice.LatticeIndex, penalty: PValue))?
             if self.range.rightIndexRange.contains(count + self.range.leftIndex - 1) {
-                let originalConvertTarget = convertTargetElements.reduce(into: []) { $0 += $1.string.map { $0.toKatakana() } }
+                let originalConvertTarget: [SurfacePiece] = convertTargetElements.reduce(into: []) {
+                    $0 += $1.pieces.map {
+                        switch $0 {
+                        case .character(let c): .character(c.toKatakana())
+                        case .surfaceSeparator: .surfaceSeparator
+                        }
+                    }
+                }
                 if self.range.leftIndex + count < self.inputs.endIndex {
                     var newConvertTargetElements = convertTargetElements
-                    ComposingText.updateConvertTargetElements(currentElements: &newConvertTargetElements, newElement: inputs[self.range.leftIndex + count])
+                    ComposingText.updateSurfacePatches(currentElements: &newConvertTargetElements, newElement: inputs[self.range.leftIndex + count])
                     if Self.check(convertTargetElements, isPrefixOf: newConvertTargetElements) {
-                        result = (originalConvertTarget, (.input(count + self.range.leftIndex - 1), penalty))
+                        result = (originalConvertTarget.compactMap {$0.character}, (.input(count + self.range.leftIndex - 1), penalty))
                     }
                 } else {
-                    result = (originalConvertTarget, (.input(count + self.range.leftIndex - 1), penalty))
+                    result = (originalConvertTarget.compactMap {$0.character}, (.input(count + self.range.leftIndex - 1), penalty))
                 }
             }
             // エスケープ
@@ -169,7 +178,7 @@ struct TypoCorrectionGenerator: Sendable {
                     }
                 }
                 for element in correct {
-                    ComposingText.updateConvertTargetElements(currentElements: &convertTargetElements, newElement: element)
+                    ComposingText.updateSurfacePatches(currentElements: &convertTargetElements, newElement: element)
                 }
                 stack.append((convertTargetElements, count + correct.count, penalty))
             } else {
@@ -179,7 +188,7 @@ struct TypoCorrectionGenerator: Sendable {
                     }
                     var convertTargetElements = convertTargetElements
                     for element in $0.inputElements {
-                        ComposingText.updateConvertTargetElements(currentElements: &convertTargetElements, newElement: element)
+                        ComposingText.updateSurfacePatches(currentElements: &convertTargetElements, newElement: element)
                     }
                     return (
                         convertTargetElements: convertTargetElements,

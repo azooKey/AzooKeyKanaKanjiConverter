@@ -36,7 +36,9 @@ final class ComposingTextTests: XCTestCase {
             XCTAssertEqual(c.convertTargetCursorPosition, 1)
 
             c.insertAtCursorPosition("ん", inputStyle: .direct)
-            XCTAssertEqual(c, ComposingText(convertTargetCursorPosition: 2, input: [.init(character: "あ", inputStyle: .direct), .init(character: "ん", inputStyle: .direct)], convertTarget: "あん"))
+            XCTAssertEqual(c.input, [.init(character: "あ", inputStyle: .direct), .init(character: "ん", inputStyle: .direct)])
+            XCTAssertEqual(c.convertTarget, "あん")
+            XCTAssertEqual(c.convertTargetCursorPosition, 2)
         }
         // ローマ字
         do {
@@ -48,10 +50,15 @@ final class ComposingTextTests: XCTestCase {
             XCTAssertEqual(c.convertTargetCursorPosition, 1)
 
             c.insertAtCursorPosition("k", inputStyle: inputStyle)
-            XCTAssertEqual(c, ComposingText(convertTargetCursorPosition: 2, input: [.init(character: "a", inputStyle: inputStyle), .init(character: "k", inputStyle: inputStyle)], convertTarget: "あk"))
+            XCTAssertEqual(c.input, [.init(character: "a", inputStyle: inputStyle), .init(character: "k", inputStyle: inputStyle)])
+            XCTAssertEqual(c.convertTarget, "あk")
+            XCTAssertEqual(c.convertTargetCursorPosition, 2)
+
 
             c.insertAtCursorPosition("i", inputStyle: inputStyle)
-            XCTAssertEqual(c, ComposingText(convertTargetCursorPosition: 2, input: [.init(character: "a", inputStyle: inputStyle), .init(character: "k", inputStyle: inputStyle), .init(character: "i", inputStyle: inputStyle)], convertTarget: "あき"))
+            XCTAssertEqual(c.input, [.init(character: "a", inputStyle: inputStyle), .init(character: "k", inputStyle: inputStyle), .init(character: "i", inputStyle: inputStyle)])
+            XCTAssertEqual(c.convertTarget, "あき")
+            XCTAssertEqual(c.convertTargetCursorPosition, 2)
         }
         // ローマ字で一気に入力
         do {
@@ -104,10 +111,14 @@ final class ComposingTextTests: XCTestCase {
             XCTAssertEqual(c.convertTargetCursorPosition, 1)
 
             c.insertAtCursorPosition("k", inputStyle: .roman2kana)
-            XCTAssertEqual(c, ComposingText(convertTargetCursorPosition: 2, input: [.init(character: "a", inputStyle: .direct), .init(character: "k", inputStyle: .roman2kana)], convertTarget: "ak"))
+            XCTAssertEqual(c.input, [.init(character: "a", inputStyle: .direct), .init(character: "k", inputStyle: .roman2kana)])
+            XCTAssertEqual(c.convertTarget, "ak")
+            XCTAssertEqual(c.convertTargetCursorPosition, 2)
 
             c.insertAtCursorPosition("i", inputStyle: .roman2kana)
-            XCTAssertEqual(c, ComposingText(convertTargetCursorPosition: 2, input: [.init(character: "a", inputStyle: .direct), .init(character: "k", inputStyle: .roman2kana), .init(character: "i", inputStyle: .roman2kana)], convertTarget: "aき"))
+            XCTAssertEqual(c.input, [.init(character: "a", inputStyle: .direct), .init(character: "k", inputStyle: .roman2kana), .init(character: "i", inputStyle: .roman2kana)])
+            XCTAssertEqual(c.convertTarget, "aき")
+            XCTAssertEqual(c.convertTargetCursorPosition, 2)
         }
     }
 
@@ -213,9 +224,9 @@ final class ComposingTextTests: XCTestCase {
     func testNEndOfTextConversion() throws {
         let elements: [ComposingText.InputElement] = [
             .init(character: "n", inputStyle: .roman2kana),
-            .init(piece: .endOfText, inputStyle: .roman2kana)
+            .init(piece: .compositionSeparator, inputStyle: .roman2kana)
         ]
-        XCTAssertEqual(ComposingText.getConvertTarget(for: elements), "ん")
+        XCTAssertEqual(ComposingText.getSurface(for: elements), [.character("ん")])
     }
 
     func testNEndOfTextComposition() throws {
@@ -223,7 +234,7 @@ final class ComposingTextTests: XCTestCase {
         c.insertAtCursorPosition("a", inputStyle: .roman2kana)
         c.insertAtCursorPosition("n", inputStyle: .roman2kana)
         XCTAssertEqual(c.convertTarget, "あn")
-        c.insertAtCursorPosition([.init(piece: .endOfText, inputStyle: .roman2kana)])
+        c.insertAtCursorPosition([.init(piece: .compositionSeparator, inputStyle: .roman2kana)])
         XCTAssertEqual(c.convertTarget, "あん")
         c.insertAtCursorPosition("i", inputStyle: .roman2kana)
         XCTAssertEqual(c.convertTarget, "あんい")
@@ -232,9 +243,9 @@ final class ComposingTextTests: XCTestCase {
         c.deleteBackwardFromCursorPosition(count: 1)
         XCTAssertEqual(c.convertTarget, "あ")
         XCTAssertEqual(c.input, [.init(character: "a", inputStyle: .roman2kana)])
-        c.insertAtCursorPosition([.init(piece: .endOfText, inputStyle: .roman2kana)])
+        c.insertAtCursorPosition([.init(piece: .compositionSeparator, inputStyle: .roman2kana)])
         XCTAssertEqual(c.convertTarget, "あ")
-        c.insertAtCursorPosition([.init(piece: .endOfText, inputStyle: .roman2kana)])
+        c.insertAtCursorPosition([.init(piece: .compositionSeparator, inputStyle: .roman2kana)])
         XCTAssertEqual(c.convertTarget, "あ")
     }
 
@@ -243,11 +254,11 @@ final class ComposingTextTests: XCTestCase {
         c.insertAtCursorPosition("a", inputStyle: .roman2kana)
         c.insertAtCursorPosition("n", inputStyle: .roman2kana)
         XCTAssertEqual(c.convertTarget, "あn")
-        c.insertAtCursorPosition([.init(piece: .endOfText, inputStyle: .roman2kana)])
-        c.insertAtCursorPosition([.init(piece: .endOfText, inputStyle: .roman2kana)])
-        c.insertAtCursorPosition([.init(piece: .endOfText, inputStyle: .roman2kana)])
-        c.insertAtCursorPosition([.init(piece: .endOfText, inputStyle: .roman2kana)])
-        c.insertAtCursorPosition([.init(piece: .endOfText, inputStyle: .roman2kana)])
+        c.insertAtCursorPosition([.init(piece: .compositionSeparator, inputStyle: .roman2kana)])
+        c.insertAtCursorPosition([.init(piece: .compositionSeparator, inputStyle: .roman2kana)])
+        c.insertAtCursorPosition([.init(piece: .compositionSeparator, inputStyle: .roman2kana)])
+        c.insertAtCursorPosition([.init(piece: .compositionSeparator, inputStyle: .roman2kana)])
+        c.insertAtCursorPosition([.init(piece: .compositionSeparator, inputStyle: .roman2kana)])
         XCTAssertEqual(c.convertTarget, "あん")
         c.deleteBackwardFromCursorPosition(count: 1)
         XCTAssertEqual(c.convertTarget, "あ")

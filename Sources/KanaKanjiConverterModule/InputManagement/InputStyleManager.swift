@@ -42,7 +42,7 @@ final class InputStyleManager {
                 let token = String(str[str.index(after: i)..<end])
                 switch token {
                 case "composition-separator":
-                    result.append(.piece(.endOfText))
+                    result.append(.piece(.compositionSeparator))
                     i = str.index(after: end)
                     continue
                 case "any character":
@@ -80,18 +80,18 @@ final class InputStyleManager {
                     i = str.index(after: end)
                     continue
                 case "lbracket":
-                    result.append(.character("{"))
+                    result.append(.piece(.character("{")))
                     i = str.index(after: end)
                     continue
                 case "rbracket":
-                    result.append(.character("}"))
+                    result.append(.piece(.character("}")))
                     i = str.index(after: end)
                     continue
                 default:
                     break
                 }
             }
-            result.append(.character(str[i]))
+            result.append(.piece(.character(str[i])))
             i = str.index(after: i)
         }
         return result

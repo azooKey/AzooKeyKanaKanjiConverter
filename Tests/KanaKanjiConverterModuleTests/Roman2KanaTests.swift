@@ -2,56 +2,73 @@
 import XCTest
 
 final class Roman2KanaTests: XCTestCase {
+    func toSurfacePieces(_ input: String) -> [SurfacePiece] {
+        input.map { .character($0) }
+    }
+
     func testToHiragana() throws {
         let table = InputStyleManager.shared.table(for: .defaultRomanToKana)
         // xtsu -> っ
-        XCTAssertEqual(table.toHiragana(currentText: Array(""), added: .character("x")), Array("x"))
-        XCTAssertEqual(table.toHiragana(currentText: Array("x"), added: .character("t")), Array("xt"))
-        XCTAssertEqual(table.toHiragana(currentText: Array("xt"), added: .character("s")), Array("xts"))
-        XCTAssertEqual(table.toHiragana(currentText: Array("xts"), added: .character("u")), Array("っ"))
+        XCTAssertEqual(table.updateSurface(current: toSurfacePieces(""), added: "x"), toSurfacePieces("x"))
+        XCTAssertEqual(table.updateSurface(current: toSurfacePieces("x"), added: "t"), toSurfacePieces("xt"))
+        XCTAssertEqual(table.updateSurface(current: toSurfacePieces("xt"), added: "s"), toSurfacePieces("xts"))
+        XCTAssertEqual(table.updateSurface(current: toSurfacePieces("xts"), added: "u"), toSurfacePieces("っ"))
 
         // kanto -> かんと
-        XCTAssertEqual(table.toHiragana(currentText: Array(""), added: .character("k")), Array("k"))
-        XCTAssertEqual(table.toHiragana(currentText: Array("k"), added: .character("a")), Array("か"))
-        XCTAssertEqual(table.toHiragana(currentText: Array("か"), added: .character("n")), Array("かn"))
-        XCTAssertEqual(table.toHiragana(currentText: Array("かn"), added: .character("t")), Array("かんt"))
-        XCTAssertEqual(table.toHiragana(currentText: Array("かんt"), added: .character("o")), Array("かんと"))
+        XCTAssertEqual(table.updateSurface(current: toSurfacePieces(""), added: "k"), toSurfacePieces("k"))
+        XCTAssertEqual(table.updateSurface(current: toSurfacePieces("k"), added: "a"), toSurfacePieces("か"))
+        XCTAssertEqual(table.updateSurface(current: toSurfacePieces("か"), added: "n"), toSurfacePieces("かn"))
+        XCTAssertEqual(table.updateSurface(current: toSurfacePieces("かn"), added: "t"), toSurfacePieces("かんt"))
+        XCTAssertEqual(table.updateSurface(current: toSurfacePieces("かんt"), added: "o"), toSurfacePieces("かんと"))
 
         // zl -> →
-        XCTAssertEqual(table.toHiragana(currentText: Array(""), added: .character("z")), Array("z"))
-        XCTAssertEqual(table.toHiragana(currentText: Array("z"), added: .character("l")), Array("→"))
+        XCTAssertEqual(table.updateSurface(current: toSurfacePieces(""), added: "z"), toSurfacePieces("z"))
+        XCTAssertEqual(table.updateSurface(current: toSurfacePieces("z"), added: "l"), toSurfacePieces("→"))
 
         // TT -> TT
-        XCTAssertEqual(table.toHiragana(currentText: Array("T"), added: .character("T")), Array("TT"))
+        XCTAssertEqual(table.updateSurface(current: toSurfacePieces("T"), added: "T"), toSurfacePieces("TT"))
 
         // n<any> -> ん<any>
-        XCTAssertEqual(table.toHiragana(currentText: Array("n"), added: .character("。")), Array("ん。"))
-        XCTAssertEqual(table.toHiragana(currentText: Array("n"), added: .character("+")), Array("ん+"))
-        XCTAssertEqual(table.toHiragana(currentText: Array("n"), added: .character("N")), Array("んN"))
-        XCTAssertEqual(table.toHiragana(currentText: Array("n"), added: .endOfText), Array("ん"))
+        XCTAssertEqual(table.updateSurface(current: toSurfacePieces("n"), added: "。"), toSurfacePieces("ん。"))
+        XCTAssertEqual(table.updateSurface(current: toSurfacePieces("n"), added: "+"), toSurfacePieces("ん+"))
+        XCTAssertEqual(table.updateSurface(current: toSurfacePieces("n"), added: "N"), toSurfacePieces("んN"))
+        XCTAssertEqual(table.updateSurface(current: toSurfacePieces("n"), added: .compositionSeparator), toSurfacePieces("ん"))
 
         // nyu
-        XCTAssertEqual(table.toHiragana(currentText: Array("ny"), added: .character("u")), Array("にゅ"))
+        XCTAssertEqual(table.updateSurface(current: toSurfacePieces("ny"), added: "u"), toSurfacePieces("にゅ"))
     }
 
     func testAny1Cases() throws {
         let table = InputTable(pieceHiraganaChanges: [
-            [.any1, .any1]: [.character("😄")],
-            [.piece(.character("s")), .piece(.character("s"))]: [.character("ß")],
-            [.piece(.character("a")), .piece(.character("z")), .piece(.character("z"))]: [.character("Q")],
-            [.any1, .any1, .any1]: [.character("["), .any1, .character("]")],
-            [.piece(.character("n")), .any1]: [.character("ん"), .any1]
+            [.any1, .any1]: [.piece(.character("😄"))],
+            [.piece(.character("s")), .piece(.character("s"))]: [.piece(.character("ß"))],
+            [.piece(.character("a")), .piece(.character("z")), .piece(.character("z"))]: [.piece(.character("Q"))],
+            [.any1, .any1, .any1]: [.piece(.character("[")), .any1, .piece(.character("]"))],
+            [.piece(.character("n")), .any1]: [.piece(.character("ん")), .any1]
         ])
-        XCTAssertEqual(table.toHiragana(currentText: Array("a"), added: .character("b")), Array("ab"))
-        XCTAssertEqual(table.toHiragana(currentText: Array("abc"), added: .character("d")), Array("abcd"))
-        XCTAssertEqual(table.toHiragana(currentText: Array(""), added: .character("z")), Array("z"))
-        XCTAssertEqual(table.toHiragana(currentText: Array("z"), added: .character("z")), Array("😄"))
-        XCTAssertEqual(table.toHiragana(currentText: Array("z"), added: .character("s")), Array("zs"))
-        XCTAssertEqual(table.toHiragana(currentText: Array("s"), added: .character("s")), Array("ß"))
-        XCTAssertEqual(table.toHiragana(currentText: Array("az"), added: .character("z")), Array("Q"))
-        XCTAssertEqual(table.toHiragana(currentText: Array("ss"), added: .character("s")), Array("[s]"))
-        XCTAssertEqual(table.toHiragana(currentText: Array("sr"), added: .character("s")), Array("srs"))
-        XCTAssertEqual(table.toHiragana(currentText: Array("n"), added: .character("t")), Array("んt"))
-        XCTAssertEqual(table.toHiragana(currentText: Array("n"), added: .character("n")), Array("んn"))
+        XCTAssertEqual(table.updateSurface(current: toSurfacePieces("a"), added: "b"), toSurfacePieces("ab"))
+        XCTAssertEqual(table.updateSurface(current: toSurfacePieces("abc"), added: "d"), toSurfacePieces("abcd"))
+        XCTAssertEqual(table.updateSurface(current: toSurfacePieces(""), added: "z"), toSurfacePieces("z"))
+        XCTAssertEqual(table.updateSurface(current: toSurfacePieces("z"), added: "z"), toSurfacePieces("😄"))
+        XCTAssertEqual(table.updateSurface(current: toSurfacePieces("z"), added: "s"), toSurfacePieces("zs"))
+        XCTAssertEqual(table.updateSurface(current: toSurfacePieces("s"), added: "s"), toSurfacePieces("ß"))
+        XCTAssertEqual(table.updateSurface(current: toSurfacePieces("az"), added: "z"), toSurfacePieces("Q"))
+        XCTAssertEqual(table.updateSurface(current: toSurfacePieces("ss"), added: "s"), toSurfacePieces("[s]"))
+        XCTAssertEqual(table.updateSurface(current: toSurfacePieces("sr"), added: "s"), toSurfacePieces("srs"))
+        XCTAssertEqual(table.updateSurface(current: toSurfacePieces("n"), added: "t"), toSurfacePieces("んt"))
+        XCTAssertEqual(table.updateSurface(current: toSurfacePieces("n"), added: "n"), toSurfacePieces("んn"))
+    }
+
+    func testToggleInputMock() throws {
+        let table = InputTable(pieceHiraganaChanges: [
+            [.piece("あ")]: [.piece("あ")],
+            [.piece("あ"), .piece("あ")]: [.piece("い")],
+            [.piece("い"), .piece("あ")]: [.piece("う")],
+            // compositionSeparatorが入ったら、そこで区切りを切る
+            [.any1, .piece(.compositionSeparator)]: [.any1, .piece(.surfaceSeparator)],
+            // @を巻き戻し記号と考える場合
+        ])
+        XCTAssertEqual(table.updateSurface(current: toSurfacePieces("あ"), added: "あ"), toSurfacePieces("い"))
+        XCTAssertEqual(table.updateSurface(current: ["あ", .surfaceSeparator], added: "あ"), ["あ", .surfaceSeparator, "あ"])
     }
 }

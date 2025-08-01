@@ -3,11 +3,9 @@ import XCTest
 
 final class TimeExpressionTests: XCTestCase {
     private func makeDirectInput(direct input: String) -> ComposingText {
-        ComposingText(
-            convertTargetCursorPosition: input.count,
-            input: input.map {.init(character: $0, inputStyle: .direct)},
-            convertTarget: input
-        )
+        var c = ComposingText()
+        c.insertAtCursorPosition(input, inputStyle: .direct)
+        return c
     }
 
     func testConvertToTimeExpression() async throws {

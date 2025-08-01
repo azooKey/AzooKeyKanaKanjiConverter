@@ -29,20 +29,20 @@ private indirect enum TrieNode {
     /// Returns the kana sequence stored at this node, resolving `.any1`
     /// placeholders in the *output* side using `state.resolvedAny1`
     /// (which is set when a wildcard edge was taken during the lookup).
-    func outputValue(state: State) -> [Character]? {
+    func outputValue(state: State) -> [SurfacePiece]? {
         switch self {
         case .node(let output, _):
             output?.compactMap { elem in
                 switch elem {
-                case .character(let c): c
+                case .piece(let piece): piece
                 case .any1:
                     // Replace `.any1` with the character captured when a
                     // wildcard edge was followed. If none is available,
                     // we return the NUL character so the caller can treat
                     // it as an invalid match.
                     switch state.resolvedAny1 {
-                    case .character(let c): c
-                    case .endOfText, nil: nil
+                    case .character(let c): .character(c)
+                    case .compositionSeparator, nil: nil
                     }
                 }
             }
@@ -60,7 +60,7 @@ struct InputTable: Sendable {
     }
 
     enum ValueElement: Sendable, Equatable, Hashable {
-        case character(Character)
+        case piece(SurfacePiece)
         case any1
     }
 
@@ -78,7 +78,7 @@ struct InputTable: Sendable {
             }
             guard chars.count == key.count else { return nil }
             let valueChars = value.compactMap {
-                if case let .character(c) = $0 { c } else { nil }
+                if case let .piece(piece) = $0, case let .character(c) = piece { c } else { nil }
             }
             return (String(chars), String(valueChars).toKatakana())
         })
@@ -118,7 +118,7 @@ struct InputTable: Sendable {
     // `.any1` edges at each depth.  It keeps the deepest match; when
     // multiple matches share the same depth, the one that travelled
     // through fewer `.any1` edges is preferred.
-    private static func match(root: TrieNode, pieces: [InputPiece], maxKeyCount: Int) -> ([Character], Int)? {
+    private static func match(root: TrieNode, pieces: [InputPiece], maxKeyCount: Int) -> ([SurfacePiece], Int)? {
         struct Candidate {
             var node: TrieNode
             var state: TrieNode.State
@@ -126,11 +126,11 @@ struct InputTable: Sendable {
         }
 
         var frontier: [Candidate] = [.init(node: root, state: .init(), any1Count: 0)]
-        var best: (kana: [Character], depth: Int, any1Count: Int)?
+        var best: (kana: [SurfacePiece], depth: Int, any1Count: Int)?
 
         /// Update the current `best` candidate if the new one is deeper,
         /// or at the same depth but with fewer `.any1` hops.
-        func updateBest(_ kana: [Character], _ depth: Int, _ any1Count: Int) {
+        func updateBest(_ kana: [SurfacePiece], _ depth: Int, _ any1Count: Int) {
             if best == nil ||
                 depth > best!.depth ||
                 (depth == best!.depth && any1Count < best!.any1Count) {
@@ -178,10 +178,15 @@ struct InputTable: Sendable {
     /// The algorithm walks the suffix‑trie from the newly added piece
     /// backwards, examining at most `maxKeyCount` pieces, and keeps the
     /// longest match.
-    func toHiragana(currentText: [Character], added: InputPiece) -> [Character] {
+    func updateSurface(current: [SurfacePiece], added: InputPiece) -> [SurfacePiece] {
         // Build the sequence to inspect: the newly‑added piece followed by up to
         // `maxKeyCount‑1` characters from the tail of `currentText`, in reverse.
-        let pieces: [InputPiece] = [added] + currentText.suffix(max(0, self.maxKeyCount - 1)).reversed().map(InputPiece.character)
+        let pieces: [InputPiece] = [added] + current.suffix(max(0, self.maxKeyCount - 1)).reversed().map {
+            switch $0 {
+            case .character(let c): .character(c)
+            case .surfaceSeparator: .compositionSeparator
+            }
+        }
 
         // Use the breadth‑first match.
         let bestMatch = Self.match(root: self.trieRoot, pieces: pieces, maxKeyCount: self.maxKeyCount)
@@ -189,15 +194,15 @@ struct InputTable: Sendable {
         // Apply the result or fall back to passthrough behaviour.
         if let (kana, matchedDepth) = bestMatch {
             // `matchedDepth` includes `added`, so drop `matchedDepth - 1` chars.
-            return Array(currentText.dropLast(matchedDepth - 1)) + kana
+            return Array(current.dropLast(matchedDepth - 1)) + kana
         }
 
         // In case where no match found
         switch added {
         case .character(let ch):
-            return currentText + [ch]
-        case .endOfText:
-            return currentText
+            return current + [.character(ch)]
+        case .compositionSeparator:
+            return current
         }
     }
 }

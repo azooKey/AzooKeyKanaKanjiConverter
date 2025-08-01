@@ -10,12 +10,10 @@
 import XCTest
 
 final class UnicodeConversionTests: XCTestCase {
-    func makeDirectInput(direct input: String) -> ComposingText {
-        ComposingText(
-            convertTargetCursorPosition: input.count,
-            input: input.map {.init(character: $0, inputStyle: .direct)},
-            convertTarget: input
-        )
+    private func makeDirectInput(direct input: String) -> ComposingText {
+        var c = ComposingText()
+        c.insertAtCursorPosition(input, inputStyle: .direct)
+        return c
     }
 
     func testFromUnicode() async throws {

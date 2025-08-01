@@ -3,7 +3,7 @@ import Foundation
 enum Roman2KanaMaps {
     private static func constructPieceMap(_ base: [String: String], additionalMapping: [[InputTable.KeyElement]: [InputTable.ValueElement]] = [:]) -> [[InputTable.KeyElement]: [InputTable.ValueElement]] {
         var map: [[InputTable.KeyElement]: [InputTable.ValueElement]] = Dictionary(uniqueKeysWithValues: base.map { key, value in
-            (key.map { .piece(.character($0)) }, value.map(InputTable.ValueElement.character))
+            (key.map { .piece(.character($0)) }, value.map { .piece(.character($0)) })
         })
         map.merge(additionalMapping, uniquingKeysWith: { (first, _) in first })
         return map
@@ -306,9 +306,9 @@ enum Roman2KanaMaps {
 
     /// Mapping including special end-of-text rules.
     static let defaultRomanToKanaPieceMap = Self.constructPieceMap(defaultRomanToKanaMap, additionalMapping: [
-        [.piece(.endOfText)]: [],
-        [.piece(.character("n")), .piece(.endOfText)]: [.character("ん")],
-        [.piece(.character("n")), .any1]: [.character("ん"), .any1]
+        [.piece(.compositionSeparator)]: [],
+        [.piece(.character("n")), .piece(.compositionSeparator)]: [.piece(.character("ん"))],
+        [.piece(.character("n")), .any1]: [.piece(.character("ん")), .any1]
     ])
 
     static let defaultAzikPieceMap: [[InputTable.KeyElement]: [InputTable.ValueElement]] = Self.constructPieceMap([
@@ -882,6 +882,6 @@ enum Roman2KanaMaps {
         "tb": "たび",
         "gt": "ごと"
     ], additionalMapping: [
-        [.piece(.endOfText)]: []
+        [.piece(.compositionSeparator)]: []
     ])
 }

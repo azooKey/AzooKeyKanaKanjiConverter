@@ -26,7 +26,7 @@ extension Kana2Kanji {
         let lastRuby = lastClause.ranges.reduce(into: "") {
             let ruby = switch $1 {
             case let .input(left, right):
-                ComposingText.getConvertTarget(for: composingText.input[left..<right]).toKatakana()
+                String(ComposingText.getSurface(for: composingText.input[left..<right]).compactMap{$0.character}).toKatakana()
             case let .surface(left, right):
                 String(composingText.convertTarget.dropFirst(left).prefix(right - left)).toKatakana()
             }
