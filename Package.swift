@@ -4,6 +4,8 @@
 import PackageDescription
 import Foundation
 
+let buildingForWASI = ProcessInfo.processInfo.environment["BUILDING_FOR_WASI"] == "1"
+
 let swiftSettings: [SwiftSetting] = [
     .enableUpcomingFeature("ExistentialAny"),
     .enableUpcomingFeature("MemberImportVisibility"),
@@ -16,9 +18,11 @@ var dependencies: [Package.Dependency] = [
     // .package(url: /* package url */, from: "1.0.0"),
     .package(url: "https://github.com/apple/swift-algorithms", from: "1.0.0"),
     .package(url: "https://github.com/apple/swift-collections", from: "1.0.0"),
-    .package(url: "https://github.com/apple/swift-argument-parser", .upToNextMajor(from: "1.0.0")),
     .package(url: "https://github.com/ensan-hcl/swift-tokenizers", from: "0.0.1")
 ]
+if !buildingForWASI {
+    dependencies.append(.package(url: "https://github.com/apple/swift-argument-parser", .upToNextMajor(from: "1.0.0")))
+}
 
 var efficientNGramDependencies: [Target.Dependency] = [
     .product(name: "Transformers", package: "swift-tokenizers")
@@ -66,15 +70,23 @@ var targets: [Target] = [
             .copy("azooKey_emoji_dictionary_storage/EmojiDictionary"),
         ],
         swiftSettings: swiftSettings
-    ),
-    .executableTarget(
-        name: "CliTool",
-        dependencies: [
-            "KanaKanjiConverterModuleWithDefaultDictionary",
-            .product(name: "ArgumentParser", package: "swift-argument-parser"),
-        ],
-        swiftSettings: swiftSettings
-    ),
+    )
+]
+
+if !buildingForWASI {
+    targets.append(
+        .executableTarget(
+            name: "CliTool",
+            dependencies: [
+                "KanaKanjiConverterModuleWithDefaultDictionary",
+                .product(name: "ArgumentParser", package: "swift-argument-parser"),
+            ],
+            swiftSettings: swiftSettings
+        )
+    )
+}
+
+targets += [
     .testTarget(
         name: "SwiftUtilsTests",
         dependencies: ["SwiftUtils"],
@@ -86,24 +98,29 @@ var targets: [Target] = [
         dependencies: ["EfficientNGram"],
         resources: [],
         swiftSettings: swiftSettings
-    ),
-    .testTarget(
-        name: "KanaKanjiConverterModuleTests",
-        dependencies: ["KanaKanjiConverterModule"],
-        resources: [
-            .copy("DictionaryMock")
-        ],
-        swiftSettings: swiftSettings
-    ),
-    .testTarget(
-        name: "KanaKanjiConverterModuleWithDefaultDictionaryTests",
-        dependencies: [
-            "KanaKanjiConverterModuleWithDefaultDictionary",
-            .product(name: "Collections", package: "swift-collections")
-        ],
-        swiftSettings: swiftSettings
     )
 ]
+
+if !buildingForWASI {
+    targets += [
+        .testTarget(
+            name: "KanaKanjiConverterModuleTests",
+            dependencies: ["KanaKanjiConverterModule"],
+            resources: [
+                .copy("DictionaryMock")
+            ],
+            swiftSettings: swiftSettings
+        ),
+        .testTarget(
+            name: "KanaKanjiConverterModuleWithDefaultDictionaryTests",
+            dependencies: [
+                "KanaKanjiConverterModuleWithDefaultDictionary",
+                .product(name: "Collections", package: "swift-collections")
+            ],
+            swiftSettings: swiftSettings
+        )
+    ]
+}
 
 #if os(Linux) && !canImport(Android)
 func checkObjcAvailability() -> Bool {

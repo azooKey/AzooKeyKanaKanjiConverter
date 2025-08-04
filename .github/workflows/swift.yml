@@ -178,3 +178,26 @@ jobs:
           api-level: 29
           arch: x86_64
           script: ~/test-toolchain.sh
+
+  wasm-build:
+    name: Swift WASM build and test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: ensan-hcl/setup-swift@swift-6.1.0
+        with:
+          swift-version: '6.1'
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+      - name: Install Swift WASM SDK
+        run: swift sdk install https://github.com/swiftwasm/swift/releases/download/swift-wasm-6.1-RELEASE/swift-wasm-6.1-RELEASE-wasm32-unknown-wasi.artifactbundle.zip --checksum 7550b4c77a55f4b637c376f5d192f297fe185607003a6212ad608276928db992
+      - name: Install wasmtime
+        run: |
+          curl https://wasmtime.dev/install.sh -sSf | bash
+          echo "$HOME/.wasmtime/bin" >> $GITHUB_PATH
+      - name: Build
+        run: BUILDING_FOR_WASI=1 swift build --swift-sdk 6.1-RELEASE-wasm32-unknown-wasi --target KanaKanjiConverterModuleWithDefaultDictionary
+      - name: Build tests
+        run: BUILDING_FOR_WASI=1 swift build --swift-sdk 6.1-RELEASE-wasm32-unknown-wasi --build-tests
+      - name: Run tests
+        run: wasmtime --dir=. .build/wasm32-unknown-wasi/debug/AzooKeyKanakanjiConverterPackageTests.xctest
