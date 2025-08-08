@@ -39,8 +39,12 @@ import SwiftUtils
     }
 
     func getZenzaiPersonalization(mode: ConvertRequestOptions.ZenzaiMode.PersonalizationMode?) -> (mode: ConvertRequestOptions.ZenzaiMode.PersonalizationMode, base: EfficientNGram, personal: EfficientNGram)? {
-        guard let mode else { return nil }
-        if let zenzaiPersonalization, zenzaiPersonalization.mode == mode { return zenzaiPersonalization }
+        guard let mode else {
+            return nil
+        }
+        if let zenzaiPersonalization, zenzaiPersonalization.mode == mode {
+            return zenzaiPersonalization
+        }
         let tokenizer = ZenzTokenizer()
         let baseModel = EfficientNGram(baseFilename: mode.baseNgramLanguageModel, n: mode.n, d: mode.d, tokenizer: tokenizer)
         let personalModel = EfficientNGram(baseFilename: mode.personalNgramLanguageModel, n: mode.n, d: mode.d, tokenizer: tokenizer)
