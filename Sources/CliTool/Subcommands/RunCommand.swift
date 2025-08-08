@@ -36,9 +36,10 @@ extension Subcommands {
 
         @MainActor mutating func run() async {
             let converter = KanaKanjiConverter()
+            let session = converter.makeSession()
             var composingText = ComposingText()
             composingText.insertAtCursorPosition(input, inputStyle: .direct)
-            let result = converter.requestCandidates(composingText, options: requestOptions())
+            let result = session.requestCandidates(composingText, options: requestOptions())
             let mainResults = result.mainResults.filter {
                 !self.onlyWholeConversion || $0.data.reduce(into: "", {$0.append(contentsOf: $1.ruby)}) == input.toKatakana()
             }
@@ -59,6 +60,7 @@ extension Subcommands {
                 let entropy = -probs.reduce(into: 0) { $0 += $1 * log($1) }
                 print("\(bold: "Entropy:") \(entropy)")
             }
+            session.stop()
         }
 
         func requestOptions() -> ConvertRequestOptions {

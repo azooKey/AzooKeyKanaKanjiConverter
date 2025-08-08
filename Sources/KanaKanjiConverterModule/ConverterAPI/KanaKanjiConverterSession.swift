@@ -8,7 +8,7 @@
 
 import Algorithms
 import EfficientNGram
-package import Foundation
+import Foundation
 import SwiftUtils
 
 @MainActor public final class KanaKanjiConverterSession {
@@ -57,6 +57,12 @@ import SwiftUtils
     // MARK: - Public conversion APIs
 
     public func requestCandidates(_ inputData: ComposingText, options: ConvertRequestOptions) -> ConversionResult {
+        // Reset session-local caches when core dictionary/memory settings changed
+        if options.dictionaryResourceURL != self.currentOptions.dictionaryResourceURL ||
+            options.learningType != self.currentOptions.learningType ||
+            options.shouldResetMemory != self.currentOptions.shouldResetMemory {
+            self.stop()
+        }
         self.currentOptions = options
         // empty input → no candidates
         if inputData.convertTarget.isEmpty {
@@ -158,7 +164,7 @@ import SwiftUtils
         return result
     }
 
-    private let checker = SpellChecker()
+    // Use shared spell checker from converter to leverage its warm-up
 
     private func getForeignPredictionCandidate(inputData: ComposingText, language: String, penalty: PValue = -5) -> [Candidate] {
         switch language {
@@ -171,7 +177,7 @@ import SwiftUtils
             if !ruby.onlyRomanAlphabet {
                 return result
             }
-            if let completions = self.checker.completions(forPartialWordRange: range, in: ruby, language: language) {
+            if let completions = self.converter.sharedChecker.completions(forPartialWordRange: range, in: ruby, language: language) {
                 if !completions.isEmpty {
                     let data = [DicdataElement(ruby: ruby, cid: CIDData.固有名詞.cid, mid: MIDData.一般.mid, value: penalty)]
                     let candidate: Candidate = Candidate(
@@ -205,7 +211,7 @@ import SwiftUtils
                 if case let .character(c) = $0.piece { c } else { nil }
             })
             let range = NSRange(location: 0, length: ruby.utf16.count)
-            if let completions = self.checker.completions(forPartialWordRange: range, in: ruby, language: language) {
+            if let completions = self.converter.sharedChecker.completions(forPartialWordRange: range, in: ruby, language: language) {
                 if !completions.isEmpty {
                     let data = [DicdataElement(ruby: ruby, cid: CIDData.固有名詞.cid, mid: MIDData.一般.mid, value: penalty)]
                     let candidate: Candidate = Candidate(
@@ -274,6 +280,52 @@ import SwiftUtils
         var candidates: [Candidate] = []
         if options.englishCandidateInRoman2KanaInput, inputData.input.allSatisfy({ if case let .character(c) = $0.piece { c.isASCII } else { false } }) {
             candidates.append(contentsOf: self.getForeignPredictionCandidate(inputData: inputData, language: "en-US", penalty: -10))
+        }
+        return candidates
+    }
+
+    // Additional candidates like hiragana/katakana/fullwidth/halfwidth transformations
+    private func getAdditionalCandidate(_ inputData: ComposingText, options: ConvertRequestOptions) -> [Candidate] {
+        var candidates: [Candidate] = []
+        let string = inputData.convertTarget.toKatakana()
+        let composingCount: ComposingCount = .inputCount(inputData.input.count)
+        do {
+            let value: PValue = -14 * {
+                var score: PValue = 1
+                for c in string {
+                    if "プヴペィフ".contains(c) { score *= 0.5 }
+                    else if "ュピポ".contains(c) { score *= 0.6 }
+                    else if "パォグーム".contains(c) { score *= 0.7 }
+                }
+                return score
+            }()
+            let data = DicdataElement(ruby: string, cid: CIDData.固有名詞.cid, mid: MIDData.一般.mid, value: value)
+            let katakana = Candidate(text: string, value: value, composingCount: composingCount, lastMid: MIDData.一般.mid, data: [data])
+            candidates.append(katakana)
+        }
+        let hiraganaString = string.toHiragana()
+        do {
+            let data = DicdataElement(word: hiraganaString, ruby: string, cid: CIDData.固有名詞.cid, mid: MIDData.一般.mid, value: -14.5)
+            let hiragana = Candidate(text: hiraganaString, value: -14.5, composingCount: composingCount, lastMid: MIDData.一般.mid, data: [data])
+            candidates.append(hiragana)
+        }
+        do {
+            let word = string.uppercased()
+            let data = DicdataElement(word: word, ruby: string, cid: CIDData.固有名詞.cid, mid: MIDData.一般.mid, value: -15)
+            let uppercasedLetter = Candidate(text: word, value: -14.6, composingCount: composingCount, lastMid: MIDData.一般.mid, data: [data])
+            candidates.append(uppercasedLetter)
+        }
+        if options.fullWidthRomanCandidate {
+            let word = string.applyingTransform(.fullwidthToHalfwidth, reverse: true) ?? ""
+            let data = DicdataElement(word: word, ruby: string, cid: CIDData.固有名詞.cid, mid: MIDData.一般.mid, value: -15)
+            let fullWidthLetter = Candidate(text: word, value: -14.7, composingCount: composingCount, lastMid: MIDData.一般.mid, data: [data])
+            candidates.append(fullWidthLetter)
+        }
+        if options.halfWidthKanaCandidate {
+            let word = string.applyingTransform(.fullwidthToHalfwidth, reverse: false) ?? ""
+            let data = DicdataElement(word: word, ruby: string, cid: CIDData.固有名詞.cid, mid: MIDData.一般.mid, value: -15)
+            let halfWidthKatakana = Candidate(text: word, value: -15, composingCount: composingCount, lastMid: MIDData.一般.mid, data: [data])
+            candidates.append(halfWidthKatakana)
         }
         return candidates
     }
