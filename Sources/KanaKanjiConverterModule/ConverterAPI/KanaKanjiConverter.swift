@@ -13,7 +13,7 @@ import SwiftUtils
 
 /// かな漢字変換の管理を受け持つクラス
 @MainActor public final class KanaKanjiConverter {
-    private let converter: Kana2Kanji
+    package let converter: Kana2Kanji
     public init() {
         self.converter = .init()
     }
@@ -54,7 +54,8 @@ import SwiftUtils
         self.lastData = nil
     }
 
-    private func getZenzaiPersonalization(mode: ConvertRequestOptions.ZenzaiMode.PersonalizationMode?) -> (mode: ConvertRequestOptions.ZenzaiMode.PersonalizationMode, base: EfficientNGram, personal: EfficientNGram)? {
+    // Exposed to sessions to share personalized models across sessions
+    package func getZenzaiPersonalization(mode: ConvertRequestOptions.ZenzaiMode.PersonalizationMode?) -> (mode: ConvertRequestOptions.ZenzaiMode.PersonalizationMode, base: EfficientNGram, personal: EfficientNGram)? {
         guard let mode else {
             return nil
         }
@@ -66,6 +67,11 @@ import SwiftUtils
         let personalModel = EfficientNGram(baseFilename: mode.personalNgramLanguageModel, n: mode.n, d: mode.d, tokenizer: tokenizer)
         self.zenzaiPersonalization = (mode, baseModel, personalModel)
         return (mode, baseModel, personalModel)
+    }
+
+    /// Create a new conversion session that maintains its own cache/state.
+    public func makeSession() -> KanaKanjiConverterSession {
+        KanaKanjiConverterSession(converter: self)
     }
 
     package func getModel(modelURL: URL) -> Zenz? {
