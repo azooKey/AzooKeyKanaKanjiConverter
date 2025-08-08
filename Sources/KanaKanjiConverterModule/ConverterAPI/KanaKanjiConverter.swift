@@ -7,8 +7,12 @@ import SwiftUtils
     let converter: Kana2Kanji
     private lazy var defaultSession: KanaKanjiConverterSession = self.makeSession()
 
-    public init() { self.converter = .init() }
-    public init(dicdataStore: DicdataStore) { self.converter = .init(dicdataStore: dicdataStore) }
+    public init() {
+        self.converter = .init()
+    }
+    public init(dicdataStore: DicdataStore) {
+        self.converter = .init(dicdataStore: dicdataStore)
+    }
 
     nonisolated public static let defaultSpecialCandidateProviders: [any SpecialCandidateProvider] = [
         CalendarSpecialCandidateProvider(),
@@ -44,7 +48,9 @@ import SwiftUtils
         return (mode, baseModel, personalModel)
     }
 
-    public func makeSession() -> KanaKanjiConverterSession { KanaKanjiConverterSession(converter: self) }
+    public func makeSession() -> KanaKanjiConverterSession {
+        KanaKanjiConverterSession(converter: self)
+    }
 
     package func getModel(modelURL: URL) -> Zenz? {
         if let model = self.zenz, model.resourceURL == modelURL {
@@ -63,7 +69,8 @@ import SwiftUtils
     }
 
     public func predictNextCharacter(leftSideContext: String, count: Int, options: ConvertRequestOptions) -> [(character: Character, value: Float)] {
-        guard let zenz = self.getModel(modelURL: options.zenzaiMode.weightURL) else { print("zenz-v2 model unavailable")
+        guard let zenz = self.getModel(modelURL: options.zenzaiMode.weightURL) else {
+            print("zenz-v2 model unavailable")
             return []
         }
         guard options.zenzaiMode.versionDependentMode.version == .v2 else {
@@ -92,11 +99,19 @@ import SwiftUtils
         }
     }
 
-    public func sendToDicdataStore(_ data: DicdataStore.Notification) { self.converter.dicdataStore.sendToDicdataStore(data) }
+    public func sendToDicdataStore(_ data: DicdataStore.Notification) {
+        self.converter.dicdataStore.sendToDicdataStore(data)
+    }
 
-    public func setCompletedData(_ candidate: Candidate) { self.defaultSession.setCompletedData(candidate) }
-    public func updateLearningData(_ candidate: Candidate) { self.defaultSession.updateLearningData(candidate) }
-    public func updateLearningData(_ candidate: Candidate, with predictionCandidate: PostCompositionPredictionCandidate) { self.defaultSession.updateLearningData(candidate, with: predictionCandidate) }
+    public func setCompletedData(_ candidate: Candidate) {
+        self.defaultSession.setCompletedData(candidate)
+    }
+    public func updateLearningData(_ candidate: Candidate) {
+        self.defaultSession.updateLearningData(candidate)
+    }
+    public func updateLearningData(_ candidate: Candidate, with predictionCandidate: PostCompositionPredictionCandidate) {
+        self.defaultSession.updateLearningData(candidate, with: predictionCandidate)
+    }
 
     public func getAppropriateActions(_ candidate: Candidate) -> [CompleteAction] {
         if ["[]", "()", "｛｝", "〈〉", "〔〕", "（）", "「」", "『』", "【】", "{}", "<>", "《》", "\"\"", "\'\'", "””"].contains(candidate.text) { return [.moveCursor(-1)] }
@@ -104,7 +119,13 @@ import SwiftUtils
         return []
     }
 
-    public func mergeCandidates(_ left: Candidate, _ right: Candidate) -> Candidate { converter.mergeCandidates(left, right) }
-    public func requestCandidates(_ inputData: ComposingText, options: ConvertRequestOptions) -> ConversionResult { self.defaultSession.requestCandidates(inputData, options: options) }
-    public func requestPostCompositionPredictionCandidates(leftSideCandidate: Candidate, options: ConvertRequestOptions) -> [PostCompositionPredictionCandidate] { self.defaultSession.requestPostCompositionPredictionCandidates(leftSideCandidate: leftSideCandidate, options: options) }
+    public func mergeCandidates(_ left: Candidate, _ right: Candidate) -> Candidate {
+        converter.mergeCandidates(left, right)
+    }
+    public func requestCandidates(_ inputData: ComposingText, options: ConvertRequestOptions) -> ConversionResult {
+        self.defaultSession.requestCandidates(inputData, options: options)
+    }
+    public func requestPostCompositionPredictionCandidates(leftSideCandidate: Candidate, options: ConvertRequestOptions) -> [PostCompositionPredictionCandidate] {
+        self.defaultSession.requestPostCompositionPredictionCandidates(leftSideCandidate: leftSideCandidate, options: options)
+    }
 }
