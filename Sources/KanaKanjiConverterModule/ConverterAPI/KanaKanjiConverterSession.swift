@@ -293,9 +293,7 @@ import SwiftUtils
             let value: PValue = -14 * {
                 var score: PValue = 1
                 for c in string {
-                    if "プヴペィフ".contains(c) { score *= 0.5 }
-                    else if "ュピポ".contains(c) { score *= 0.6 }
-                    else if "パォグーム".contains(c) { score *= 0.7 }
+                    if "プヴペィフ".contains(c) { score *= 0.5 } else if "ュピポ".contains(c) { score *= 0.6 } else if "パォグーム".contains(c) { score *= 0.7 }
                 }
                 return score
             }()

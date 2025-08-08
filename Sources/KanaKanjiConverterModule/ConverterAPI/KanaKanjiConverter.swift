@@ -1,10 +1,3 @@
-//
-//  KanaKanjiConverter.swift
-//  AzooKeyKanaKanjiConverter
-//
-//  Created by ensan on 2020/09/03.
-//
-
 import Algorithms
 import EfficientNGram
 package import Foundation
@@ -55,11 +48,13 @@ import SwiftUtils
 
     package func getModel(modelURL: URL) -> Zenz? {
         if let model = self.zenz, model.resourceURL == modelURL {
-            self.zenzStatus = "load \(modelURL.absoluteString)"; return model
+            self.zenzStatus = "load \(modelURL.absoluteString)"
+            return model
         } else {
             do {
                 self.zenz = try Zenz(resourceURL: modelURL)
-                self.zenzStatus = "load \(modelURL.absoluteString)"; return self.zenz
+                self.zenzStatus = "load \(modelURL.absoluteString)"
+                return self.zenz
             } catch {
                 self.zenzStatus = "load \(modelURL.absoluteString)    " + error.localizedDescription
                 return nil
@@ -68,8 +63,13 @@ import SwiftUtils
     }
 
     public func predictNextCharacter(leftSideContext: String, count: Int, options: ConvertRequestOptions) -> [(character: Character, value: Float)] {
-        guard let zenz = self.getModel(modelURL: options.zenzaiMode.weightURL) else { print("zenz-v2 model unavailable"); return [] }
-        guard options.zenzaiMode.versionDependentMode.version == .v2 else { print("next character prediction requires zenz-v2 models, not zenz-v1 nor zenz-v3 and later"); return [] }
+        guard let zenz = self.getModel(modelURL: options.zenzaiMode.weightURL) else { print("zenz-v2 model unavailable")
+            return []
+        }
+        guard options.zenzaiMode.versionDependentMode.version == .v2 else {
+            print("next character prediction requires zenz-v2 models, not zenz-v1 nor zenz-v3 and later")
+            return []
+        }
         return zenz.predictNextCharacter(leftSideContext: leftSideContext, count: count)
     }
 
@@ -77,9 +77,15 @@ import SwiftUtils
         if !checkerInitialized[language, default: false] {
             switch language {
             case .en_US:
-                Task { @MainActor in _ = self.checker.completions(forPartialWordRange: NSRange(location: 0, length: 1), in: "a", language: "en-US"); self.checkerInitialized[language] = true }
+                Task { @MainActor in
+                    _ = self.checker.completions(forPartialWordRange: NSRange(location: 0, length: 1), in: "a", language: "en-US")
+                    self.checkerInitialized[language] = true
+                }
             case .el_GR:
-                Task { @MainActor in _ = self.checker.completions(forPartialWordRange: NSRange(location: 0, length: 1), in: "a", language: "el-GR"); self.checkerInitialized[language] = true }
+                Task { @MainActor in
+                    _ = self.checker.completions(forPartialWordRange: NSRange(location: 0, length: 1), in: "a", language: "el-GR")
+                    self.checkerInitialized[language] = true
+                }
             case .none, .ja_JP:
                 checkerInitialized[language] = true
             }
@@ -102,4 +108,3 @@ import SwiftUtils
     public func requestCandidates(_ inputData: ComposingText, options: ConvertRequestOptions) -> ConversionResult { self.defaultSession.requestCandidates(inputData, options: options) }
     public func requestPostCompositionPredictionCandidates(leftSideCandidate: Candidate, options: ConvertRequestOptions) -> [PostCompositionPredictionCandidate] { self.defaultSession.requestPostCompositionPredictionCandidates(leftSideCandidate: leftSideCandidate, options: options) }
 }
-
