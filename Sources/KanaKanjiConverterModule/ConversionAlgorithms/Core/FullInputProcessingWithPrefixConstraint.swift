@@ -19,7 +19,7 @@ extension Kana2Kanji {
     /// (3)(1)のregisterされた結果をresultノードに追加していく。この際EOSとの連接計算を行っておく。
     ///
     /// (4)ノードをアップデートした上で返却する。
-    func kana2lattice_all_with_prefix_constraint(_ inputData: ComposingText, N_best: Int, constraint: PrefixConstraint) -> (result: LatticeNode, lattice: Lattice) {
+    func kana2lattice_all_with_prefix_constraint(_ inputData: ComposingText, N_best: Int, constraint: PrefixConstraint, state: DicdataStoreState? = nil) -> (result: LatticeNode, lattice: Lattice) {
         debug("新規に計算を行います。inputされた文字列は\(inputData.input.count)文字分の\(inputData.convertTarget)。制約は\(constraint)")
         let result: LatticeNode = LatticeNode.EOSNode
         let inputCount: Int = inputData.input.count
@@ -41,7 +41,8 @@ extension Kana2Kanji {
                 composingText: inputData,
                 inputRange: inputRange,
                 surfaceRange: surfaceRange,
-                needTypoCorrection: false
+                needTypoCorrection: false,
+                state: state
             )
         }
         let lattice: Lattice = Lattice(

@@ -12,7 +12,7 @@ final class EmailAddressConversionTests: XCTestCase {
 
     func testtoEmailAddressCandidates() async throws {
         do {
-            let converter = await KanaKanjiConverter()
+            let converter = await KanaKanjiConverter.withoutDictionary()
             let input = makeDirectInput(direct: "azooKey@")
             let result = await converter.toEmailAddressCandidates(input)
             XCTAssertFalse(result.isEmpty)
@@ -23,7 +23,7 @@ final class EmailAddressConversionTests: XCTestCase {
         }
 
         do {
-            let converter = await KanaKanjiConverter()
+            let converter = await KanaKanjiConverter.withoutDictionary()
             let input = makeDirectInput(direct: "my.dev_az@")
             let result = await converter.toEmailAddressCandidates(input)
             XCTAssertFalse(result.isEmpty)
@@ -34,7 +34,7 @@ final class EmailAddressConversionTests: XCTestCase {
         }
 
         do {
-            let converter = await KanaKanjiConverter()
+            let converter = await KanaKanjiConverter.withoutDictionary()
             let input = makeDirectInput(direct: "@")
             let result = await converter.toEmailAddressCandidates(input)
             XCTAssertFalse(result.isEmpty)
@@ -46,7 +46,7 @@ final class EmailAddressConversionTests: XCTestCase {
 
         // New tests for partial domain inputs
         do {
-            let converter = await KanaKanjiConverter()
+            let converter = await KanaKanjiConverter.withoutDictionary()
             let input = makeDirectInput(direct: "azooKey@g")
             let result = await converter.toEmailAddressCandidates(input)
             XCTAssertFalse(result.isEmpty)
@@ -56,7 +56,7 @@ final class EmailAddressConversionTests: XCTestCase {
         }
 
         do {
-            let converter = await KanaKanjiConverter()
+            let converter = await KanaKanjiConverter.withoutDictionary()
             let input = makeDirectInput(direct: "azooKey@y")
             let result = await converter.toEmailAddressCandidates(input)
             XCTAssertFalse(result.isEmpty)

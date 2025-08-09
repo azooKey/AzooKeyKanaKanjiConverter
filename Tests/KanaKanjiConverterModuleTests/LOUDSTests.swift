@@ -30,7 +30,7 @@ final class LOUDSTests: XCTestCase {
     func testSearchNodeIndex() throws {
         // データリソースの場所を指定する
         print("Options: ", requestOptions())
-        let louds = LOUDS.load("シ", option: requestOptions())
+        let louds = LOUDS.load("シ", dicdataLocation: .init(from: requestOptions()))
         XCTAssertNotNil(louds)
         guard let louds else { return }
         let charIDs = loadCharIDs()
@@ -40,7 +40,7 @@ final class LOUDSTests: XCTestCase {
         XCTAssertNotNil(index)
         guard let index else { return }
 
-        let dicdata: [DicdataElement] = LOUDS.getDataForLoudstxt3("シ" + "\(index >> 11)", indices: [index & 2047], option: requestOptions())
+        let dicdata: [DicdataElement] = LOUDS.getDataForLoudstxt3("シ" + "\(index >> 11)", indices: [index & 2047], dicdataLocation: .init(from: requestOptions()))
         XCTAssertTrue(dicdata.contains {$0.word == "司会"})
         XCTAssertTrue(dicdata.contains {$0.word == "視界"})
         XCTAssertTrue(dicdata.contains {$0.word == "死界"})

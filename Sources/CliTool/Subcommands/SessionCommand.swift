@@ -119,11 +119,12 @@ extension Subcommands {
             }
             print("Working with \(learningType) mode. Memory path is \(memoryDirectory).")
 
-            let converter = KanaKanjiConverter()
-            converter.sendToDicdataStore(
-                .setRequestOptions(requestOptions(learningType: learningType, memoryDirectory: memoryDirectory, leftSideContext: nil))
+            let converter = KanaKanjiConverter(
+                dicdataLocation: .init(from: requestOptions(learningType: learningType, memoryDirectory: memoryDirectory, leftSideContext: nil)),
+                preloadDictionary: false
             )
-            converter.sendToDicdataStore(.importDynamicUserDict(userDictionary))
+            let session = converter.makeSession()
+            session.importDynamicUserDictionary(userDictionary)
             var composingText = ComposingText()
             let inputStyle: InputStyle = self.roman2kana ? .roman2kana : .direct
             var lastCandidates: [Candidate] = []
@@ -163,7 +164,7 @@ extension Subcommands {
                 case ":c", ":clear":
                     // クリア
                     composingText.stopComposition()
-                    converter.stopComposition()
+                    session.stop()
                     leftSideContext = ""
                     print("composition is stopped")
                     continue
@@ -180,8 +181,8 @@ extension Subcommands {
                     continue
                 case ":s", ":save":
                     composingText.stopComposition()
-                    converter.stopComposition()
-                    converter.sendToDicdataStore(.closeKeyboard)
+                    session.stop()
+                    session.saveLearning()
                     if learningType.needUpdateMemory {
                         print("saved")
                     } else {
@@ -245,12 +246,12 @@ extension Subcommands {
                         }
                         let candidate = lastCandidates[index]
                         print("Submit \(candidate.text)")
-                        converter.setCompletedData(candidate)
-                        converter.updateLearningData(candidate)
+                        session.setCompletedData(candidate)
+                        session.updateLearningData(candidate)
                         composingText.prefixComplete(composingCount: candidate.composingCount)
                         if composingText.isEmpty {
                             composingText.stopComposition()
-                            converter.stopComposition()
+                            session.stop()
                         }
                         leftSideContext += candidate.text
                     } else {
@@ -266,7 +267,7 @@ extension Subcommands {
                 }
                 print(composingText.convertTarget)
                 let start = Date()
-                let result = converter.requestCandidates(composingText, options: requestOptions(learningType: learningType, memoryDirectory: memoryDirectory, leftSideContext: leftSideContext))
+                let result = session.requestCandidates(composingText, options: requestOptions(learningType: learningType, memoryDirectory: memoryDirectory, leftSideContext: leftSideContext))
                 let mainResults = result.mainResults.filter {
                     !self.onlyWholeConversion || $0.data.reduce(into: "", {$0.append(contentsOf: $1.ruby)}) == input.toKatakana()
                 }

@@ -60,7 +60,8 @@ extension Kana2Kanji {
         inferenceLimit: Int,
         requestRichCandidates: Bool,
         personalizationMode: (mode: ConvertRequestOptions.ZenzaiMode.PersonalizationMode, base: EfficientNGram, personal: EfficientNGram)?,
-        versionDependentConfig: ConvertRequestOptions.ZenzaiVersionDependentMode
+        versionDependentConfig: ConvertRequestOptions.ZenzaiVersionDependentMode,
+        state: DicdataStoreState? = nil
     ) -> (result: LatticeNode, lattice: Lattice, cache: ZenzaiCache) {
         var constraint = zenzaiCache?.getNewConstraint(for: inputData) ?? PrefixConstraint([])
         debug("initial constraint", constraint)
@@ -77,10 +78,10 @@ extension Kana2Kanji {
             let draftResult = if constraint.isEmpty {
                 // 全部を変換する場合はN=2の変換を行う
                 // 実験の結果、ここは2-bestを取ると平均的な速度が最良になることがわかったので、そうしている。
-                self.kana2lattice_all(inputData, N_best: 2, needTypoCorrection: false)
+                self.kana2lattice_all(inputData, N_best: 2, needTypoCorrection: false, state: state)
             } else {
                 // 制約がついている場合は高速になるので、N=3としている
-                self.kana2lattice_all_with_prefix_constraint(inputData, N_best: 3, constraint: constraint)
+                self.kana2lattice_all_with_prefix_constraint(inputData, N_best: 3, constraint: constraint, state: state)
             }
             if lattice.isEmpty {
                 // 初回のみ
@@ -143,7 +144,7 @@ extension Kana2Kanji {
                                 insertedCandidates.insert(mostLiklyCandidate, at: 1)
                             } else if alternativeConstraint.probabilityRatio > 0.5 {
                                 // 十分に高い確率の場合、変換器を実際に呼び出して候補を作ってもらう
-                                let draftResult = self.kana2lattice_all_with_prefix_constraint(inputData, N_best: 3, constraint: PrefixConstraint(alternativeConstraint.prefixConstraint))
+                                let draftResult = self.kana2lattice_all_with_prefix_constraint(inputData, N_best: 3, constraint: PrefixConstraint(alternativeConstraint.prefixConstraint), state: state)
                                 let candidates = draftResult.result.getCandidateData().map(self.processClauseCandidate)
                                 let best: (Int, Candidate)? = candidates.enumerated().reduce(into: nil) { best, pair in
                                     if let (_, c) = best, pair.1.value > c.value {

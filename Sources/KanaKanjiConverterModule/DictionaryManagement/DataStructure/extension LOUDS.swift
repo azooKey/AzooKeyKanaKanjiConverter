@@ -21,41 +21,41 @@ extension LOUDS {
         }
     }
 
-    private static func getLOUDSURL(_ identifier: String, option: ConvertRequestOptions) -> (chars: URL, louds: URL) {
+    private static func getLOUDSURL(_ identifier: String, dicdataLocation: DicdataStore.DicdataLocation) -> (chars: URL, louds: URL) {
 
         if identifier == "user" {
             return (
-                option.sharedContainerURL.appendingPathComponent("user.loudschars2", isDirectory: false),
-                option.sharedContainerURL.appendingPathComponent("user.louds", isDirectory: false)
+                dicdataLocation.userConfigurationDirectoryURL.appendingPathComponent("user.loudschars2", isDirectory: false),
+                dicdataLocation.userConfigurationDirectoryURL.appendingPathComponent("user.louds", isDirectory: false)
             )
         }
         if identifier == "memory" {
             return (
-                option.memoryDirectoryURL.appendingPathComponent("memory.loudschars2", isDirectory: false),
-                option.memoryDirectoryURL.appendingPathComponent("memory.louds", isDirectory: false)
+                dicdataLocation.memoryDirectoryURL.appendingPathComponent("memory.loudschars2", isDirectory: false),
+                dicdataLocation.memoryDirectoryURL.appendingPathComponent("memory.louds", isDirectory: false)
             )
         }
         return (
-            option.dictionaryResourceURL.appendingPathComponent("louds/\(identifier).loudschars2", isDirectory: false),
-            option.dictionaryResourceURL.appendingPathComponent("louds/\(identifier).louds", isDirectory: false)
+            dicdataLocation.dictionaryResourceURL.appendingPathComponent("louds/\(identifier).loudschars2", isDirectory: false),
+            dicdataLocation.dictionaryResourceURL.appendingPathComponent("louds/\(identifier).louds", isDirectory: false)
         )
     }
 
-    private static func getLoudstxt3URL(_ identifier: String, option: ConvertRequestOptions) -> URL {
+    private static func getLoudstxt3URL(_ identifier: String, dicdataLocation: DicdataStore.DicdataLocation) -> URL {
         if identifier.hasPrefix("user") {
-            return option.sharedContainerURL.appendingPathComponent("\(identifier).loudstxt3", isDirectory: false)
+            return dicdataLocation.userConfigurationDirectoryURL.appendingPathComponent("\(identifier).loudstxt3", isDirectory: false)
         }
         if identifier.hasPrefix("memory") {
-            return option.memoryDirectoryURL.appendingPathComponent("\(identifier).loudstxt3", isDirectory: false)
+            return dicdataLocation.memoryDirectoryURL.appendingPathComponent("\(identifier).loudstxt3", isDirectory: false)
         }
-        return option.dictionaryResourceURL.appendingPathComponent("louds/\(identifier).loudstxt3", isDirectory: false)
+        return dicdataLocation.dictionaryResourceURL.appendingPathComponent("louds/\(identifier).loudstxt3", isDirectory: false)
     }
 
     /// LOUDSをファイルから読み込む関数
     /// - Parameter identifier: ファイル名
     /// - Returns: 存在すればLOUDSデータを返し、存在しなければ`nil`を返す。
-    package static func load(_ identifier: String, option: ConvertRequestOptions) -> LOUDS? {
-        let (charsURL, loudsURL) = getLOUDSURL(identifier, option: option)
+    package static func load(_ identifier: String, dicdataLocation: DicdataStore.DicdataLocation) -> LOUDS? {
+        let (charsURL, loudsURL) = getLOUDSURL(identifier, dicdataLocation: dicdataLocation)
         let nodeIndex2ID: [UInt8]
         do {
             nodeIndex2ID = try Array(Data(contentsOf: charsURL, options: [.uncached]))   // 2度読み込むことはないのでキャッシュ不要
@@ -104,14 +104,14 @@ extension LOUDS {
 
     }
 
-    static func getDataForLoudstxt3(_ identifier: String, indices: [Int], cache: Data? = nil, option: ConvertRequestOptions) -> [DicdataElement] {
+    static func getDataForLoudstxt3(_ identifier: String, indices: [Int], cache: Data? = nil, dicdataLocation: DicdataStore.DicdataLocation) -> [DicdataElement] {
         let binary: Data
 
         if let cache {
             binary = cache
         } else {
             do {
-                let url = getLoudstxt3URL(identifier, option: option)
+                let url = getLoudstxt3URL(identifier, dicdataLocation: dicdataLocation)
                 binary = try Data(contentsOf: url)
             } catch {
                 debug("getDataForLoudstxt3: \(error)")
@@ -132,14 +132,14 @@ extension LOUDS {
     }
 
     /// indexとの対応を維持したバージョン
-    static func getDataForLoudstxt3(_ identifier: String, indices: [(trueIndex: Int, keyIndex: Int)], cache: Data? = nil, option: ConvertRequestOptions) -> [(loudsNodeIndex: Int, dicdata: [DicdataElement])] {
+    static func getDataForLoudstxt3(_ identifier: String, indices: [(trueIndex: Int, keyIndex: Int)], cache: Data? = nil, dicdataLocation: DicdataStore.DicdataLocation) -> [(loudsNodeIndex: Int, dicdata: [DicdataElement])] {
         let binary: Data
 
         if let cache {
             binary = cache
         } else {
             do {
-                let url = getLoudstxt3URL(identifier, option: option)
+                let url = getLoudstxt3URL(identifier, dicdataLocation: dicdataLocation)
                 binary = try Data(contentsOf: url)
             } catch {
                 debug("getDataForLoudstxt3: \(error)")

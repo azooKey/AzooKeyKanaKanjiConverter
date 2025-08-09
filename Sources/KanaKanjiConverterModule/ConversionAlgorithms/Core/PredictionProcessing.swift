@@ -32,7 +32,7 @@ extension Kana2Kanji {
         )
     }
 
-    func getPredictionCandidates(prepart: Candidate, N_best: Int) -> [PostCompositionPredictionCandidate] {
+    func getPredictionCandidates(prepart: Candidate, N_best: Int, state: DicdataStoreState? = nil) -> [PostCompositionPredictionCandidate] {
         var result: [PostCompositionPredictionCandidate] = []
         var count = 1
         var prefixCandidate = prepart
@@ -63,7 +63,7 @@ extension Kana2Kanji {
             totalWord.insert(contentsOf: element.word, at: totalWord.startIndex)
             totalRuby.insert(contentsOf: element.ruby, at: totalRuby.startIndex)
             totalData.insert(element, at: 0)
-            let dicdata = self.dicdataStore.getPredictionLOUDSDicdata(key: totalRuby).filter {
+            let dicdata = self.dicdataStore.getPredictionLOUDSDicdata(key: totalRuby, state: state).filter {
                 DicdataStore.predictionUsable[$0.rcid] && $0.word.hasPrefix(totalWord)
             }
 
