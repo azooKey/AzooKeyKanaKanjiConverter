@@ -57,10 +57,7 @@ import SwiftUtils
 
     // Import dynamic user dictionary into this session
     public func importDynamicUserDictionary(_ dicdata: [DicdataElement]) {
-        self.state.dynamicUserDict = dicdata
-        self.state.dynamicUserDict.mutatingForEach { element in
-            element.metadata = .isFromUserDictionary
-        }
+        self.state.setDynamicUserDictionary(dicdata)
     }
 
     public func setKeyboardLanguage(_ language: KeyboardLanguage) {

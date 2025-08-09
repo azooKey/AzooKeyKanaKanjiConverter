@@ -66,8 +66,6 @@ public final class DicdataStore {
     private var loudstxts: [String: Data] = [:]
     private var importedLoudses: Set<String> = []
     private var charsID: [Character: UInt8] = [:]
-    // Test-only dynamic user dictionary bucket for legacy APIs
-    private var dynamicUserDict: [DicdataElement] = []
 
     // MARK: 辞書の設定
     /// 辞書のエントリの最大長さ
@@ -367,11 +365,11 @@ public final class DicdataStore {
                     }
                 }
             }
-            let sessionDynamicUserDict = state?.dynamicUserDict ?? self.dynamicUserDict
+            let sessionDynamicUserDict = state?.dynamicUserDict ?? []
             if !sessionDynamicUserDict.isEmpty {
                 // 動的ユーザ辞書にデータがある場合、この位置で処理する
                 let katakanaString = String(characters).toKatakana()
-                let dynamicUserDictResult = self.getMatchDynamicUserDict(katakanaString, dynamicUserDictOverride: sessionDynamicUserDict)
+                let dynamicUserDictResult = self.getMatchDynamicUserDict(katakanaString, dynamicUserDictionary: sessionDynamicUserDict)
                 updated = updated || !dynamicUserDictResult.isEmpty
                 for data in dynamicUserDictResult {
                     let depth = characters.endIndex
@@ -783,21 +781,13 @@ public final class DicdataStore {
     }
 
     /// 動的ユーザ辞書からrubyに等しい語を返す。
-    func getMatchDynamicUserDict(_ ruby: some StringProtocol, dynamicUserDictOverride: [DicdataElement]? = nil) -> [DicdataElement] {
-        let base = dynamicUserDictOverride ?? self.dynamicUserDict
-        return base.filter { $0.ruby == ruby }
-    }
-    public func getMatchDynamicUserDict(_ ruby: some StringProtocol) -> [DicdataElement] {
-        self.getMatchDynamicUserDict(ruby, dynamicUserDictOverride: nil)
+    func getMatchDynamicUserDict(_ ruby: some StringProtocol, dynamicUserDictionary: [DicdataElement]) -> [DicdataElement] {
+        return dynamicUserDictionary.filter { $0.ruby == ruby }
     }
 
     /// 動的ユーザ辞書からrubyに先頭一致する語を返す。
-    func getPrefixMatchDynamicUserDict(_ ruby: some StringProtocol, dynamicUserDictOverride: [DicdataElement]? = nil) -> [DicdataElement] {
-        let base = dynamicUserDictOverride ?? self.dynamicUserDict
-        return base.filter { $0.ruby.hasPrefix(ruby) }
-    }
-    public func getPrefixMatchDynamicUserDict(_ ruby: some StringProtocol) -> [DicdataElement] {
-        self.getPrefixMatchDynamicUserDict(ruby, dynamicUserDictOverride: nil)
+    func getPrefixMatchDynamicUserDict(_ ruby: some StringProtocol, dynamicUserDictionary: [DicdataElement]) -> [DicdataElement] {
+        return dynamicUserDictionary.filter { $0.ruby.hasPrefix(ruby) }
     }
 
     // Learning updates are session-scoped and handled via DicdataStoreState
@@ -1016,19 +1006,6 @@ public final class DicdataStore {
         }
 
         return true
-    }
-
-    // Legacy adapter for tests/backward-compat (limited support)
-    public enum Notification {
-        case importDynamicUserDict([DicdataElement])
-    }
-
-    public func sendToDicdataStore(_ data: Notification) {
-        switch data {
-        case .importDynamicUserDict(let dicdata):
-            self.dynamicUserDict = dicdata
-            self.dynamicUserDict.mutatingForEach { $0.metadata = .isFromUserDictionary }
-        }
     }
 
     // Legacy overload for tests/backward-compat
