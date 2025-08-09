@@ -27,10 +27,6 @@ import SwiftUtils
 
     // MARK: - Session state for DicdataStore
     let state = DicdataStoreState()
-    /// Update session state (e.g., dynamic user dictionary)
-    public func updateConfiguration(_ update: (inout [DicdataElement]) -> Void) {
-        update(&self.state.dynamicUserDict)
-    }
 
     public func stop() {
         // Reset only session-local states
