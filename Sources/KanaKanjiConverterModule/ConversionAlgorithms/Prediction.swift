@@ -21,7 +21,7 @@ extension Kana2Kanji {
     ///    「これはき」から「これは今日」に対応する候補などを作って返す。
     /// - note:
     ///     この関数の役割は意味連接の考慮にある。
-    func getPredictionCandidates(composingText: ComposingText, prepart: CandidateData, lastClause: ClauseDataUnit, N_best: Int) -> [Candidate] {
+    func getPredictionCandidates(composingText: ComposingText, prepart: CandidateData, lastClause: ClauseDataUnit, N_best: Int, state: DicdataStoreState? = nil) -> [Candidate] {
         debug(#function, composingText, lastClause.ranges, lastClause.text)
         let lastRuby = lastClause.ranges.reduce(into: "") {
             let ruby = switch $1 {
@@ -48,7 +48,7 @@ extension Kana2Kanji {
             datas = Array(prepart.data.prefix(count))
         }
 
-        let osuserdict: [DicdataElement] = dicdataStore.getPrefixMatchDynamicUserDict(lastRuby)
+        let osuserdict: [DicdataElement] = dicdataStore.getPrefixMatchDynamicUserDict(lastRuby, dynamicUserDictOverride: state?.dynamicUserDict)
 
         let lastCandidate: Candidate = prepart.isEmpty ? Candidate(text: "", value: .zero, composingCount: .inputCount(0), lastMid: MIDData.EOS.mid, data: []) : self.processClauseCandidate(prepart)
         let lastRcid: Int = lastCandidate.data.last?.rcid ?? CIDData.EOS.cid
@@ -61,7 +61,7 @@ extension Kana2Kanji {
         let dicdata: [DicdataElement]
         switch inputStyle {
         case .direct:
-            dicdata = self.dicdataStore.getPredictionLOUDSDicdata(key: lastRuby)
+            dicdata = self.dicdataStore.getPredictionLOUDSDicdata(key: lastRuby, state: state)
         case .roman2kana, .mapped:
             let table = if case let .mapped(id) = inputStyle {
                 InputStyleManager.shared.table(for: id)
@@ -77,10 +77,10 @@ extension Kana2Kanji {
                 }
                 let possibleNexts: [Substring] = table.possibleNexts[String(roman), default: []].map {ruby + $0}
                 debug(#function, lastRuby, ruby, roman, possibleNexts, prepart, lastRubyCount)
-                dicdata = possibleNexts.flatMap { self.dicdataStore.getPredictionLOUDSDicdata(key: $0) }
+                dicdata = possibleNexts.flatMap { self.dicdataStore.getPredictionLOUDSDicdata(key: $0, state: state) }
             } else {
                 debug(#function, lastRuby, "roman == \"\"")
-                dicdata = self.dicdataStore.getPredictionLOUDSDicdata(key: lastRuby)
+                dicdata = self.dicdataStore.getPredictionLOUDSDicdata(key: lastRuby, state: state)
             }
         }
 

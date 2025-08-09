@@ -30,7 +30,8 @@ extension Kana2Kanji {
         N_best: Int,
         counts: (deletedInput: Int, addedInput: Int, deletedSurface: Int, addedSurface: Int),
         previousResult: (inputData: ComposingText, lattice: Lattice),
-        needTypoCorrection: Bool
+        needTypoCorrection: Bool,
+        state: DicdataStoreState? = nil
     ) -> (result: LatticeNode, lattice: Lattice) {
         // (0)
         let inputCount = inputData.input.count
@@ -70,7 +71,8 @@ extension Kana2Kanji {
                     composingText: inputData,
                     inputRange: inputRange,
                     surfaceRange: surfaceRange,
-                    needTypoCorrection: needTypoCorrection
+                    needTypoCorrection: needTypoCorrection,
+                    state: state
                 )
             }
             let addedNodes: Lattice = Lattice(

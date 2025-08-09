@@ -119,12 +119,12 @@ extension Subcommands {
             }
             print("Working with \(learningType) mode. Memory path is \(memoryDirectory).")
 
-            let converter = KanaKanjiConverter()
-            let session = converter.makeSession()
-            converter.sendToDicdataStore(
-                .setRequestOptions(requestOptions(learningType: learningType, memoryDirectory: memoryDirectory, leftSideContext: nil))
+            let converter = KanaKanjiConverter(
+                dicdataLocation: .init(from: requestOptions(learningType: learningType, memoryDirectory: memoryDirectory, leftSideContext: nil)),
+                preloadDictionary: false
             )
-            converter.sendToDicdataStore(.importDynamicUserDict(userDictionary))
+            let session = converter.makeSession()
+            converter.importDynamicUserDictionary(userDictionary)
             var composingText = ComposingText()
             let inputStyle: InputStyle = self.roman2kana ? .roman2kana : .direct
             var lastCandidates: [Candidate] = []
@@ -182,7 +182,7 @@ extension Subcommands {
                 case ":s", ":save":
                     composingText.stopComposition()
                     session.stop()
-                    converter.sendToDicdataStore(.closeKeyboard)
+                    converter.closeKeyboard()
                     if learningType.needUpdateMemory {
                         print("saved")
                     } else {

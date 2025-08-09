@@ -25,6 +25,13 @@ import SwiftUtils
         self.converter = converter
     }
 
+    // MARK: - Session state for DicdataStore
+    let state = DicdataStoreState()
+    /// Update session state (e.g., dynamic user dictionary)
+    public func updateConfiguration(_ update: (inout [DicdataElement]) -> Void) {
+        update(&self.state.dynamicUserDict)
+    }
+
     public func stop() {
         // Reset only session-local states
         self.zenzaiCache = nil
@@ -32,44 +39,81 @@ import SwiftUtils
         self.lattice = .init()
         self.completedData = nil
         self.lastData = nil
+        // do not touch long-term memory here
     }
 
     public func setCompletedData(_ candidate: Candidate) {
         self.completedData = candidate
     }
 
+    // Persist session learning into long-term memory
+    public func saveLearning() {
+        self.state.save()
+        self.converter.converterCore.dicdataStore.reloadUser()
+        self.converter.converterCore.dicdataStore.reloadMemory()
+    }
+
+    // Forget specified candidate from learning (both temporary and long-term)
+    public func forgetMemory(_ candidate: Candidate) {
+        self.state.forget(candidate)
+        self.converter.converterCore.dicdataStore.reloadMemory()
+    }
+
+    // Import dynamic user dictionary into this session
+    public func importDynamicUserDictionary(_ dicdata: [DicdataElement]) {
+        self.state.dynamicUserDict = dicdata
+        self.state.dynamicUserDict.mutatingForEach { element in
+            element.metadata = .isFromUserDictionary
+        }
+    }
+
+    public func setKeyboardLanguage(_ language: KeyboardLanguage) {
+        self.converter.warmupSpellChecker(language)
+        self.state.keyboardLanguage = language
+    }
+
     public func updateLearningData(_ candidate: Candidate) {
-        // Update learning memory with previous context kept per session
-        self.converter.converter.dicdataStore.updateLearningData(candidate, with: self.lastData)
+        // Update learning memory (session-scoped temporary memory)
+        if let previous = self.lastData {
+            self.state.learningManager.update(data: [previous] + candidate.data)
+        } else {
+            self.state.learningManager.update(data: candidate.data)
+        }
         self.lastData = candidate.data.last
     }
 
     public func updateLearningData(_ candidate: Candidate, with predictionCandidate: PostCompositionPredictionCandidate) {
-        self.converter.converter.dicdataStore.updateLearningData(candidate, with: predictionCandidate)
+        switch predictionCandidate.type {
+        case .additional(data: let data):
+            self.state.learningManager.update(data: candidate.data, updatePart: data)
+        case .replacement(targetData: let targetData, replacementData: let replacementData):
+            self.state.learningManager.update(data: candidate.data.dropLast(targetData.count), updatePart: replacementData)
+        }
         self.lastData = predictionCandidate.lastData
     }
-
-    // Keep the latest options used in requestCandidates for cases e.g. learning data interaction
-    private var currentOptions: ConvertRequestOptions = .default
 
     public var zenzStatus: String { converter.zenzStatus }
 
     // MARK: - Public conversion APIs
 
     public func requestCandidates(_ inputData: ComposingText, options: ConvertRequestOptions) -> ConversionResult {
-        // Reset session-local caches when core dictionary/memory settings changed
-        if options.dictionaryResourceURL != self.currentOptions.dictionaryResourceURL ||
-            options.learningType != self.currentOptions.learningType ||
-            options.shouldResetMemory != self.currentOptions.shouldResetMemory {
-            self.stop()
+        // メモリのリセットが必要である場合、このタイミングでまず実施する
+        if options.shouldResetMemory {
+            let resetSuceess = self.state.resetLearning()
+            if resetSuceess {
+                self.converter.converterCore.dicdataStore.reloadMemory()
+            }
         }
-        self.currentOptions = options
+        let learningManagerConfiguration = LearningManagerConfiguration(from: options)
+        self.state.learningManager.updateConfiguration(learningManagerConfiguration)
+
+
         // empty input → no candidates
         if inputData.convertTarget.isEmpty {
             return ConversionResult(mainResults: [], firstClauseResults: [])
         }
-        // Notify DicdataStore about options
-        self.converter.sendToDicdataStore(.setRequestOptions(options))
+        // Note: Do not mutate shared DicdataStore options here.
+        // Caller (app/CLI) should set request options on converter upfront to avoid cross-session interference.
 
         #if os(iOS)
         let needTypoCorrection = options.needTypoCorrection ?? true
@@ -84,7 +128,7 @@ import SwiftUtils
     }
 
     public func requestPostCompositionPredictionCandidates(leftSideCandidate: Candidate, options: ConvertRequestOptions) -> [PostCompositionPredictionCandidate] {
-        var zeroHintResults = self.getUniquePostCompositionPredictionCandidate(self.converter.converter.getZeroHintPredictionCandidates(preparts: [leftSideCandidate], N_best: 15))
+        var zeroHintResults = self.getUniquePostCompositionPredictionCandidate(self.converter.converterCore.getZeroHintPredictionCandidates(preparts: [leftSideCandidate], N_best: 15))
         do {
             var joshiCount = 0
             zeroHintResults = zeroHintResults.reduce(into: []) { results, candidate in
@@ -104,7 +148,7 @@ import SwiftUtils
             }
         }
 
-        let predictionResults = self.converter.converter.getPredictionCandidates(prepart: leftSideCandidate, N_best: 15)
+        let predictionResults = self.converter.converterCore.getPredictionCandidates(prepart: leftSideCandidate, N_best: 15, state: self.state)
 
         let replacer = options.textReplacer
         var emojiCandidates: [PostCompositionPredictionCandidate] = []
@@ -258,7 +302,7 @@ import SwiftUtils
                 newUnit.merge(with: oldlastPart.clause)
                 let newValue = lastUnit.value + oldlastPart.value
                 let newlastPart: CandidateData.ClausesUnit = (clause: newUnit, value: newValue)
-                let predictions = self.converter.converter.getPredictionCandidates(composingText: composingText, prepart: prepart, lastClause: newlastPart.clause, N_best: 5)
+                let predictions = self.converter.converterCore.getPredictionCandidates(composingText: composingText, prepart: prepart, lastClause: newlastPart.clause, N_best: 5, state: self.state)
                 lastpart = newlastPart
                 if !predictions.isEmpty {
                     candidates += predictions
@@ -266,7 +310,7 @@ import SwiftUtils
                 }
             } else {
                 lastpart = prepart.clauses.popLast()
-                let predictions = self.converter.converter.getPredictionCandidates(composingText: composingText, prepart: prepart, lastClause: lastpart!.clause, N_best: 5)
+                let predictions = self.converter.converterCore.getPredictionCandidates(composingText: composingText, prepart: prepart, lastClause: lastpart!.clause, N_best: 5, state: self.state)
                 if !predictions.isEmpty {
                     candidates += predictions
                     count += 1
@@ -333,14 +377,15 @@ import SwiftUtils
         if inputData.convertTarget.isEmpty { return nil }
 
         if zenzaiMode.enabled, let model = self.converter.getModel(modelURL: zenzaiMode.weightURL) {
-            let (result, nodes, cache) = self.converter.converter.all_zenzai(
+            let (result, nodes, cache) = self.converter.converterCore.all_zenzai(
                 inputData,
                 zenz: model,
                 zenzaiCache: self.zenzaiCache,
                 inferenceLimit: zenzaiMode.inferenceLimit,
                 requestRichCandidates: zenzaiMode.requestRichCandidates,
                 personalizationMode: self.converter.getZenzaiPersonalization(mode: zenzaiMode.personalizationMode),
-                versionDependentConfig: zenzaiMode.versionDependentMode
+                versionDependentConfig: zenzaiMode.versionDependentMode,
+                state: self.state
             )
             self.zenzaiCache = cache
             self.previousInputData = inputData
@@ -348,26 +393,26 @@ import SwiftUtils
         }
 
         guard let previousInputData else {
-            let result = self.converter.converter.kana2lattice_all(inputData, N_best: N_best, needTypoCorrection: needTypoCorrection)
+            let result = self.converter.converterCore.kana2lattice_all(inputData, N_best: N_best, needTypoCorrection: needTypoCorrection, state: self.state)
             self.previousInputData = inputData
             return result
         }
 
         if previousInputData == inputData {
-            let result = self.converter.converter.kana2lattice_no_change(N_best: N_best, previousResult: (inputData: previousInputData, lattice: self.lattice))
+            let result = self.converter.converterCore.kana2lattice_no_change(N_best: N_best, previousResult: (inputData: previousInputData, lattice: self.lattice))
             self.previousInputData = inputData
             return result
         }
 
         if let completedData, previousInputData.inputHasSuffix(inputOf: inputData) {
-            let result = self.converter.converter.kana2lattice_afterComplete(inputData, completedData: completedData, N_best: N_best, previousResult: (inputData: previousInputData, lattice: self.lattice), needTypoCorrection: needTypoCorrection)
+            let result = self.converter.converterCore.kana2lattice_afterComplete(inputData, completedData: completedData, N_best: N_best, previousResult: (inputData: previousInputData, lattice: self.lattice), needTypoCorrection: needTypoCorrection, state: self.state)
             self.previousInputData = inputData
             self.completedData = nil
             return result
         }
 
         let diff = inputData.differenceSuffix(to: previousInputData)
-        let result = self.converter.converter.kana2lattice_changed(inputData, N_best: N_best, counts: diff, previousResult: (inputData: previousInputData, lattice: self.lattice), needTypoCorrection: needTypoCorrection)
+        let result = self.converter.converterCore.kana2lattice_changed(inputData, N_best: N_best, counts: diff, previousResult: (inputData: previousInputData, lattice: self.lattice), needTypoCorrection: needTypoCorrection, state: self.state)
         self.previousInputData = inputData
         return result
     }
@@ -399,7 +444,7 @@ import SwiftUtils
                 data: Array(candidateData.data[0...count])
             )
         }
-        let sums: [(CandidateData, Candidate)] = clauseResult.map { ($0, self.converter.converter.processClauseCandidate($0)) }
+        let sums: [(CandidateData, Candidate)] = clauseResult.map { ($0, self.converter.converterCore.processClauseCandidate($0)) }
 
         let whole_sentence_unique_candidates = self.getUniqueCandidate(sums.map { $0.1 })
         if case .完全一致 = options.requestQuery {

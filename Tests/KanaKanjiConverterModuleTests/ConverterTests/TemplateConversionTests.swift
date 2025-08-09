@@ -10,9 +10,9 @@ final class TemplateConversionTests: XCTestCase {
     func testTemplateConversion() async throws {
         let converter = await KanaKanjiConverter()
         let template = #"<date format="yyyy年MM月dd日" type="western" language="ja_JP" delta="0" deltaunit="1">"#
-        await converter.sendToDicdataStore(.importDynamicUserDict([
+        await converter.importDynamicUserDictionary([
             .init(word: template, ruby: "キョウ", cid: CIDData.一般名詞.cid, mid: MIDData.一般.mid, value: 5)
-        ]))
+        ])
         let formatter = DateFormatter()
         formatter.dateFormat = "yyyy年MM月dd日"
         formatter.calendar = Calendar(identifier: .gregorian)

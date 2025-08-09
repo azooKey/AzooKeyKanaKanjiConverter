@@ -7,21 +7,57 @@
 //
 
 import Algorithms
-import Foundation
+public import Foundation
 import SwiftUtils
 
 public final class DicdataStore {
+    public struct DicdataLocation: Sendable, Hashable, Equatable {
+        public init(dictionaryResourceURL: URL, memoryDirectoryURL: URL, userConfigurationDirectoryURL: URL) {
+            self.dictionaryResourceURL = dictionaryResourceURL
+            self.memoryDirectoryURL = memoryDirectoryURL
+            self.userConfigurationDirectoryURL = userConfigurationDirectoryURL
+        }
+
+        package init(from options: ConvertRequestOptions) {
+            self.dictionaryResourceURL = options.dictionaryResourceURL
+            self.memoryDirectoryURL = options.memoryDirectoryURL
+            self.userConfigurationDirectoryURL = options.sharedContainerURL
+        }
+
+        /// 辞書データのURL
+        let dictionaryResourceURL: URL
+        /// ユーザの学習データなどを保存するURL（書き込み権限が必要）
+        let memoryDirectoryURL: URL
+        /// ユーザ設定を保存するURL（書き込み権限は不要）
+        let userConfigurationDirectoryURL: URL
+    }
+
+    public init(dicdataLocation: DicdataLocation, preloadDictionary: Bool = false) {
+        self.dicdataLocation = dicdataLocation
+        self.setup(
+            dicdataLocation: dicdataLocation,
+            preloadDictionary: preloadDictionary
+        )
+    }
+
     public init(convertRequestOptions: ConvertRequestOptions) {
-        self.requestOptions = convertRequestOptions
-        self.setup()
+        self.dicdataLocation = .init(from: convertRequestOptions)
+        self.setup(
+            dicdataLocation: self.dicdataLocation,
+            preloadDictionary: convertRequestOptions.preloadDictionary
+        )
     }
 
     init(requestOptions: ConvertRequestOptions = .default) {
-        self.requestOptions = requestOptions
+        self.dicdataLocation = .init(from: requestOptions)
         debug("DicdataStoreが初期化されました")
-        self.setup()
+        self.setup(
+            dicdataLocation: self.dicdataLocation,
+            preloadDictionary: requestOptions.preloadDictionary
+        )
     }
 
+    // MARK: キャッシュ・辞書の読み込み状態の管理用途
     private var ccParsed: [Bool] = .init(repeating: false, count: 1319)
     private var ccLines: [[Int: PValue]] = []
     private var mmValue: [PValue] = []
@@ -30,10 +66,10 @@ public final class DicdataStore {
     private var loudstxts: [String: Data] = [:]
     private var importedLoudses: Set<String> = []
     private var charsID: [Character: UInt8] = [:]
-    private var learningManager = LearningManager()
-
+    // Test-only dynamic user dictionary bucket for legacy APIs
     private var dynamicUserDict: [DicdataElement] = []
 
+    // MARK: 辞書の設定
     /// 辞書のエントリの最大長さ
     ///  - TODO: make this value as an option
     public let maxlength: Int = 20
@@ -43,23 +79,27 @@ public final class DicdataStore {
     private let midCount = 502
     private let cidCount = 1319
 
-    private var requestOptions: ConvertRequestOptions = .default
+    private let dicdataLocation: DicdataLocation
 
     private let numberFormatter = NumberFormatter()
+
     /// 初期化時のセットアップ用の関数。プロパティリストを読み込み、連接確率リストを読み込んで行分割し保存しておく。
-    private func setup() {
-        numberFormatter.numberStyle = .spellOut
-        numberFormatter.locale = .init(identifier: "ja-JP")
+    private func setup(
+        dicdataLocation: DicdataLocation,
+        preloadDictionary: Bool
+    ) {
+        self.numberFormatter.numberStyle = .spellOut
+        self.numberFormatter.locale = .init(identifier: "ja-JP")
         self.ccLines = [[Int: PValue]].init(repeating: [:], count: CIDData.totalCount)
 
         do {
-            let string = try String(contentsOf: self.requestOptions.dictionaryResourceURL.appendingPathComponent("louds/charID.chid", isDirectory: false), encoding: String.Encoding.utf8)
-            charsID = [Character: UInt8].init(uniqueKeysWithValues: string.enumerated().map {($0.element, UInt8($0.offset))})
+            let string = try String(contentsOf: dicdataLocation.dictionaryResourceURL.appendingPathComponent("louds/charID.chid", isDirectory: false), encoding: String.Encoding.utf8)
+            self.charsID = [Character: UInt8].init(uniqueKeysWithValues: string.enumerated().map {($0.element, UInt8($0.offset))})
         } catch {
             debug("Error: louds/charID.chidが存在しません。このエラーは深刻ですが、テスト時には無視できる場合があります。Description: \(error)")
         }
         do {
-            let url = requestOptions.dictionaryResourceURL.appendingPathComponent("mm.binary", isDirectory: false)
+            let url = dicdataLocation.dictionaryResourceURL.appendingPathComponent("mm.binary", isDirectory: false)
             do {
                 let binaryData = try Data(contentsOf: url, options: [.uncached])
                 self.mmValue = binaryData.toArray(of: Float.self).map {PValue($0)}
@@ -73,15 +113,15 @@ public final class DicdataStore {
         self.reloadMemory()
         _ = self.loadLOUDS(query: "memory")
 
-        if requestOptions.preloadDictionary {
-            self.preloadDictionary()
+        if preloadDictionary {
+            self.preloadDictionary(dicdataLocation: dicdataLocation)
         }
     }
 
     /// ファイルI/Oの遅延を減らすために、辞書を事前に読み込む関数。
-    private func preloadDictionary() {
+    private func preloadDictionary(dicdataLocation: DicdataLocation) {
         guard let fileURLs = try? FileManager.default.contentsOfDirectory(
-            at: self.requestOptions.dictionaryResourceURL.appendingPathComponent("louds", isDirectory: true),
+            at: dicdataLocation.dictionaryResourceURL.appendingPathComponent("louds", isDirectory: true),
             includingPropertiesForKeys: nil
         ) else { return }
 
@@ -95,7 +135,7 @@ public final class DicdataStore {
                 if identifier == "user" || identifier == "memory" {
                     continue
                 }
-                loudses[identifier] = LOUDS.load(identifier, option: self.requestOptions)
+                loudses[identifier] = LOUDS.load(identifier, dicdataLocation: dicdataLocation)
             case "loudstxt3":
                 if let data = try? Data(contentsOf: url) {
                     loudstxts[identifier] = data
@@ -108,64 +148,18 @@ public final class DicdataStore {
         }
     }
 
-    public enum Notification {
-        /// use `importDynamicUserDict` for data that cannot be obtained statically.
-        /// - warning: Too many dynamic user dictionary will damage conversion performance, as dynamic user dictionary uses inefficent algorithms for looking up. If your entries can be listed up statically, then use normal user dictionaries.
-        case importDynamicUserDict([DicdataElement])
-        @available(*, deprecated, renamed: "importDynamicUserDict", message: "it will be removed in AzooKeyKanaKanjiConverter v1.0")
-        case importOSUserDict([DicdataElement])
-        case setRequestOptions(ConvertRequestOptions)
-        case forgetMemory(Candidate)
-        case closeKeyboard
-    }
-
-    func sendToDicdataStore(_ data: Notification) {
-        switch data {
-        case .closeKeyboard:
-            self.closeKeyboard()
-        case .importOSUserDict(let dicdata), .importDynamicUserDict(let dicdata):
-            self.dynamicUserDict = dicdata
-            self.dynamicUserDict.mutatingForEach {
-                $0.metadata = .isFromUserDictionary
-            }
-        case let .forgetMemory(candidate):
-            self.learningManager.forgetMemory(data: candidate.data)
-            // loudsの処理があるので、リセットを実施する
-            self.reloadMemory()
-        case let .setRequestOptions(value):
-            // bundleURLが変わる場合はsetupを再実行する
-            if value.dictionaryResourceURL != self.requestOptions.dictionaryResourceURL {
-                self.requestOptions = value
-                self.setup()
-            } else {
-                self.requestOptions = value
-            }
-            let shouldReset = self.learningManager.setRequestOptions(value)
-            if shouldReset {
-                self.reloadMemory()
-            }
-        }
-    }
-
     func character2charId(_ character: Character) -> UInt8 {
         self.charsID[character, default: .max]
     }
 
-    private func reloadMemory() {
+    func reloadMemory() {
         self.loudses.removeValue(forKey: "memory")
         self.importedLoudses.remove("memory")
     }
 
-    private func reloadUser() {
+    func reloadUser() {
         self.loudses.removeValue(forKey: "user")
         self.importedLoudses.remove("user")
-    }
-
-    private func closeKeyboard() {
-        self.learningManager.save()
-        // saveしたあとにmemoryのキャッシュされたLOUDSを使い続けないよう、キャッシュから削除する。
-        self.reloadMemory()
-        self.reloadUser()
     }
 
     /// ペナルティ関数。文字数で決める。
@@ -214,7 +208,7 @@ public final class DicdataStore {
             "\\": "[5C]",
             "|": "[7C]"
         ][query, default: query]
-        if let louds = LOUDS.load(identifier, option: self.requestOptions) {
+        if let louds = LOUDS.load(identifier, dicdataLocation: self.dicdataLocation) {
             self.loudses[query] = louds
             return louds
         } else {
@@ -304,8 +298,8 @@ public final class DicdataStore {
         composingText: ComposingText,
         inputProcessRange: TypoCorrectionGenerator.ProcessRange?,
         surfaceProcessRange: TypoCorrectionGenerator.ProcessRange?,
-        useMemory: Bool,
-        needTypoCorrection: Bool
+        needTypoCorrection: Bool,
+        state: DicdataStoreState?
     ) -> (
         stringToInfo: [[Character]: (endIndex: Lattice.LatticeIndex, penalty: PValue)],
         indices: [(key: String, indices: [Int])],
@@ -337,11 +331,7 @@ public final class DicdataStore {
                 continue
             }
             let charIDs = characters.map(self.character2charId(_:))
-            let keys: [String] = if useMemory {
-                [String(firstCharacter), "user", "memory"]
-            } else {
-                [String(firstCharacter), "user"]
-            }
+            let keys: [String] = [String(firstCharacter), "user"] + (state?.learningManager.enabled == true ? ["memory"] : [])
             var updated = false
             var availableMaxIndex = 0
             for key in keys {
@@ -357,28 +347,31 @@ public final class DicdataStore {
                     availableMaxIndex = max(availableMaxIndex, result.availableMaxIndex)
                 }
             }
-            // 短期記憶についてはこの位置で処理する
-            let result = self.learningManager.movingTowardPrefixSearchOnTemporaryMemory(charIDs: consume charIDs)
-            updated = updated || !(result.dicdata.isEmpty)
-            availableMaxIndex = max(availableMaxIndex, result.availableMaxIndex)
-            for (depth, dicdata) in result.dicdata {
-                for data in dicdata {
-                    if info.penalty.isZero {
-                        dynamicDicdata[depth, default: []].append(data)
+            // 短期記憶についてはこの位置で処理する（セッションのstateを使用）
+            if let lm = state?.learningManager, lm.enabled {
+                let result = lm.movingTowardPrefixSearchOnTemporaryMemory(charIDs: consume charIDs)
+                updated = updated || !(result.dicdata.isEmpty)
+                availableMaxIndex = max(availableMaxIndex, result.availableMaxIndex)
+                for (depth, dicdata) in result.dicdata {
+                    for data in dicdata {
+                        if info.penalty.isZero {
+                            dynamicDicdata[depth, default: []].append(data)
+                        }
+                        let ratio = Self.penaltyRatio[data.lcid]
+                        let pUnit: PValue = Self.getPenalty(data: data) / 2   // 負の値
+                        let adjust = pUnit * info.penalty * ratio
+                        if self.shouldBeRemoved(value: data.value() + adjust, wordCount: data.ruby.count) {
+                            continue
+                        }
+                        dynamicDicdata[depth, default: []].append(data.adjustedData(adjust))
                     }
-                    let ratio = Self.penaltyRatio[data.lcid]
-                    let pUnit: PValue = Self.getPenalty(data: data) / 2   // 負の値
-                    let adjust = pUnit * info.penalty * ratio
-                    if self.shouldBeRemoved(value: data.value() + adjust, wordCount: data.ruby.count) {
-                        continue
-                    }
-                    dynamicDicdata[depth, default: []].append(data.adjustedData(adjust))
                 }
             }
-            if !self.dynamicUserDict.isEmpty {
+            let sessionDynamicUserDict = state?.dynamicUserDict ?? self.dynamicUserDict
+            if !sessionDynamicUserDict.isEmpty {
                 // 動的ユーザ辞書にデータがある場合、この位置で処理する
                 let katakanaString = String(characters).toKatakana()
-                let dynamicUserDictResult = self.getMatchDynamicUserDict(katakanaString)
+                let dynamicUserDictResult = self.getMatchDynamicUserDict(katakanaString, dynamicUserDictOverride: sessionDynamicUserDict)
                 updated = updated || !dynamicUserDictResult.isEmpty
                 for data in dynamicUserDictResult {
                     let depth = characters.endIndex
@@ -451,7 +444,7 @@ public final class DicdataStore {
         let dict = [Int: [Int]].init(grouping: indices, by: {$0 >> 11})
         var data: [DicdataElement] = []
         for (key, value) in dict {
-            data.append(contentsOf: LOUDS.getDataForLoudstxt3(identifier + "\(key)", indices: value.map {$0 & 2047}, cache: self.loudstxts[identifier + "\(key)"], option: self.requestOptions))
+            data.append(contentsOf: LOUDS.getDataForLoudstxt3(identifier + "\(key)", indices: value.map {$0 & 2047}, cache: self.loudstxts[identifier + "\(key)"], dicdataLocation: self.dicdataLocation))
         }
         if identifier == "memory" {
             data.mutatingForEach {
@@ -473,11 +466,12 @@ public final class DicdataStore {
     ///   - surfaceRange: 検索に用いる`composingText.convertTarget`の範囲。
     ///   - needTypoCorrection: 誤り訂正を行うかどうか
     /// - Returns: 発見された辞書データを`LatticeNode`のインスタンスとしたもの。
-    public func lookupDicdata(
+    package func lookupDicdata(
         composingText: ComposingText,
         inputRange: (startIndex: Int, endIndexRange: Range<Int>?)? = nil,
         surfaceRange: (startIndex: Int, endIndexRange: Range<Int>?)? = nil,
-        needTypoCorrection: Bool = true
+        needTypoCorrection: Bool = true,
+        state: DicdataStoreState? = nil
     ) -> [LatticeNode] {
 
         let inputProcessRange: TypoCorrectionGenerator.ProcessRange?
@@ -520,8 +514,8 @@ public final class DicdataStore {
             composingText: composingText,
             inputProcessRange: inputProcessRange,
             surfaceProcessRange: surfaceProcessRange,
-            useMemory: self.learningManager.enabled,
-            needTypoCorrection: needTypoCorrection
+            needTypoCorrection: needTypoCorrection,
+            state: state
         )
         // MARK: 検索によって得たindicesから辞書データを実際に取り出していく
         for (identifier, value) in indices {
@@ -551,7 +545,8 @@ public final class DicdataStore {
                 let result = self.getWiseDicdata(
                     convertTarget: segment,
                     inputData: composingText,
-                    surfaceRange: surfaceProcessRange.leftIndex ..< i + 1
+                    surfaceRange: surfaceProcessRange.leftIndex ..< i + 1,
+                    keyboardLanguage: state?.keyboardLanguage ?? .ja_JP
                 )
                 for item in result {
                     stringToInfo[Array(item.ruby)] = (.surface(i), 0)
@@ -579,7 +574,7 @@ public final class DicdataStore {
 
     func getZeroHintPredictionDicdata(lastRcid: Int) -> [DicdataElement] {
         do {
-            let csvString = try String(contentsOf: requestOptions.dictionaryResourceURL.appendingPathComponent("p/pc_\(lastRcid).csv", isDirectory: false), encoding: .utf8)
+            let csvString = try String(contentsOf: self.dicdataLocation.dictionaryResourceURL.appendingPathComponent("p/pc_\(lastRcid).csv", isDirectory: false), encoding: .utf8)
             let csvLines = csvString.split(separator: "\n")
             let csvData = csvLines.map {$0.split(separator: ",", omittingEmptySubsequences: false)}
             let dicdata: [DicdataElement] = csvData.map {self.parseLoudstxt2FormattedEntry(from: $0)}
@@ -595,7 +590,7 @@ public final class DicdataStore {
     ///   - head: 辞書を引く文字列
     /// - Returns:
     ///   発見されたデータのリスト。
-    func getPredictionLOUDSDicdata(key: some StringProtocol) -> [DicdataElement] {
+    func getPredictionLOUDSDicdata(key: some StringProtocol, state: DicdataStoreState? = nil) -> [DicdataElement] {
         let count = key.count
         if count == .zero {
             return []
@@ -621,10 +616,10 @@ public final class DicdataStore {
         )
         let userDictIndices = self.startingFromPrefixSearch(query: "user", charIDs: charIDs, maxCount: maxCount)
         result.append(contentsOf: self.getDicdataFromLoudstxt3(identifier: "user", indices: Set(consume userDictIndices)))
-        if learningManager.enabled {
+        if state?.learningManager.enabled == true {
             let memoryDictIndices = self.startingFromPrefixSearch(query: "memory", charIDs: charIDs, maxCount: maxCount)
             result.append(contentsOf: self.getDicdataFromLoudstxt3(identifier: "memory", indices: Set(consume memoryDictIndices)))
-            result.append(contentsOf: self.learningManager.temporaryPrefixMatch(charIDs: charIDs))
+            result.append(contentsOf: state!.learningManager.temporaryPrefixMatch(charIDs: charIDs))
         }
         return result
     }
@@ -644,7 +639,7 @@ public final class DicdataStore {
     ///     - convertTarget: カタカナ変換済みの文字列
     /// - note
     ///     - 入力全体をカタカナとかひらがなに変換するやつは、Converter側でやっているので注意。
-    func getWiseDicdata(convertTarget: String, inputData: ComposingText, surfaceRange: Range<Int>) -> [DicdataElement] {
+    public func getWiseDicdata(convertTarget: String, inputData: ComposingText, surfaceRange: Range<Int>, keyboardLanguage: KeyboardLanguage) -> [DicdataElement] {
         debug(#function, convertTarget, inputData, surfaceRange)
         var result: [DicdataElement] = []
         result.append(contentsOf: self.getJapaneseNumberDicdata(head: convertTarget))
@@ -657,7 +652,7 @@ public final class DicdataStore {
             }
         }
         // convertTargetを英単語として候補に追加する
-        if requestOptions.keyboardLanguage == .en_US && convertTarget.onlyRomanAlphabet {
+        if keyboardLanguage == .en_US && convertTarget.onlyRomanAlphabet {
             result.append(DicdataElement(ruby: convertTarget, cid: CIDData.固有名詞.cid, mid: MIDData.英単語.mid, value: -14))
         }
         // convertTargetが1文字のケースでは、ひらがな・カタカナに変換したものを候補に追加する
@@ -705,6 +700,11 @@ public final class DicdataStore {
             }
         }
         return result
+    }
+
+    // Legacy overload used in tests
+    public func getWiseDicdata(convertTarget: String, inputData: ComposingText, surfaceRange: Range<Int>) -> [DicdataElement] {
+        self.getWiseDicdata(convertTarget: convertTarget, inputData: inputData, surfaceRange: surfaceRange, keyboardLanguage: .ja_JP)
     }
 
     // 記号に対する半角・全角変換
@@ -783,34 +783,24 @@ public final class DicdataStore {
     }
 
     /// 動的ユーザ辞書からrubyに等しい語を返す。
-    func getMatchDynamicUserDict(_ ruby: some StringProtocol) -> [DicdataElement] {
-        self.dynamicUserDict.filter {$0.ruby == ruby}
+    func getMatchDynamicUserDict(_ ruby: some StringProtocol, dynamicUserDictOverride: [DicdataElement]? = nil) -> [DicdataElement] {
+        let base = dynamicUserDictOverride ?? self.dynamicUserDict
+        return base.filter { $0.ruby == ruby }
+    }
+    public func getMatchDynamicUserDict(_ ruby: some StringProtocol) -> [DicdataElement] {
+        self.getMatchDynamicUserDict(ruby, dynamicUserDictOverride: nil)
     }
 
     /// 動的ユーザ辞書からrubyに先頭一致する語を返す。
-    func getPrefixMatchDynamicUserDict(_ ruby: some StringProtocol) -> [DicdataElement] {
-        self.dynamicUserDict.filter {$0.ruby.hasPrefix(ruby)}
+    func getPrefixMatchDynamicUserDict(_ ruby: some StringProtocol, dynamicUserDictOverride: [DicdataElement]? = nil) -> [DicdataElement] {
+        let base = dynamicUserDictOverride ?? self.dynamicUserDict
+        return base.filter { $0.ruby.hasPrefix(ruby) }
+    }
+    public func getPrefixMatchDynamicUserDict(_ ruby: some StringProtocol) -> [DicdataElement] {
+        self.getPrefixMatchDynamicUserDict(ruby, dynamicUserDictOverride: nil)
     }
 
-    // 学習を反映する
-    // TODO: previousの扱いを改善したい
-    func updateLearningData(_ candidate: Candidate, with previous: DicdataElement?) {
-        if let previous {
-            self.learningManager.update(data: [previous] + candidate.data)
-        } else {
-            self.learningManager.update(data: candidate.data)
-        }
-    }
-    // 予測変換に基づいて学習を反映する
-    // TODO: previousの扱いを改善したい
-    func updateLearningData(_ candidate: Candidate, with predictionCandidate: PostCompositionPredictionCandidate) {
-        switch predictionCandidate.type {
-        case .additional(data: let data):
-            self.learningManager.update(data: candidate.data, updatePart: data)
-        case .replacement(targetData: let targetData, replacementData: let replacementData):
-            self.learningManager.update(data: candidate.data.dropLast(targetData.count), updatePart: replacementData)
-        }
-    }
+    // Learning updates are session-scoped and handled via DicdataStoreState
     /// class idから連接確率を得る関数
     /// - Parameters:
     ///   - former: 左側の語のid
@@ -821,7 +811,7 @@ public final class DicdataStore {
     /// 速度: ⏱0.115224 : 変換_処理_連接コスト計算_CCValue
     public func getCCValue(_ former: Int, _ latter: Int) -> PValue {
         if !ccParsed[former] {
-            let url = requestOptions.dictionaryResourceURL.appendingPathComponent("cb/\(former).binary", isDirectory: false)
+            let url = self.dicdataLocation.dictionaryResourceURL.appendingPathComponent("cb/\(former).binary", isDirectory: false)
             let values = loadCCBinary(url: url)
             ccLines[former] = [Int: PValue].init(uniqueKeysWithValues: values.map {(Int($0.0), PValue($0.1))})
             ccParsed[former] = true
@@ -1026,5 +1016,34 @@ public final class DicdataStore {
         }
 
         return true
+    }
+
+    // Legacy adapter for tests/backward-compat (limited support)
+    public enum Notification {
+        case importDynamicUserDict([DicdataElement])
+    }
+
+    public func sendToDicdataStore(_ data: Notification) {
+        switch data {
+        case .importDynamicUserDict(let dicdata):
+            self.dynamicUserDict = dicdata
+            self.dynamicUserDict.mutatingForEach { $0.metadata = .isFromUserDictionary }
+        }
+    }
+
+    // Legacy overload for tests/backward-compat
+    public func lookupDicdata(
+        composingText: ComposingText,
+        inputRange: (startIndex: Int, endIndexRange: Range<Int>?)? = nil,
+        surfaceRange: (startIndex: Int, endIndexRange: Range<Int>?)? = nil,
+        needTypoCorrection: Bool = true
+    ) -> [LatticeNode] {
+        self.lookupDicdata(
+            composingText: composingText,
+            inputRange: inputRange,
+            surfaceRange: surfaceRange,
+            needTypoCorrection: needTypoCorrection,
+            state: nil
+        )
     }
 }

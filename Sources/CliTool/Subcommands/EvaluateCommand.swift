@@ -44,11 +44,11 @@ extension Subcommands {
             for item in inputItems {
                 let start = Date()
                 // セットアップ
-                await converter.sendToDicdataStore(.importDynamicUserDict(
+                await converter.importDynamicUserDictionary(
                     (item.user_dictionary ?? []).map {
                         DicdataElement(word: $0.word, ruby: $0.reading.toKatakana(), cid: CIDData.固有名詞.cid, mid: MIDData.一般.mid, value: -10)
                     }
-                ))
+                )
                 // 変換
                 var composingText = ComposingText()
                 composingText.insertAtCursorPosition(item.query, inputStyle: .direct)

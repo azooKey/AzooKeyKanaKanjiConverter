@@ -68,6 +68,30 @@ public extension ConvertRequestOptions {
     }
 }
 
+public extension KanaKanjiConverter {
+    static func withDefaultDictionary(
+        memoryDirectoryURL: URL? = nil,
+        userConfigurationDirectoryURL: URL? = nil,
+        preloadDictionary: Bool = false,
+    ) -> Self {
+        #if os(iOS) || os(watchOS) || os(tvOS) || os(visionOS)
+        let dictionaryDirectory = Bundle.module.bundleURL.appendingPathComponent("Dictionary", isDirectory: true)
+        #elseif os(macOS)
+        let dictionaryDirectory = Bundle.module.resourceURL!.appendingPathComponent("Dictionary", isDirectory: true)
+        #else
+        let dictionaryDirectory = Bundle.module.resourceURL!.appendingPathComponent("Dictionary", isDirectory: true)
+        #endif
+        return .init(
+            dicdataLocation: .init(
+                dictionaryResourceURL: dictionaryDirectory,
+                memoryDirectoryURL: memoryDirectoryURL ?? .temporaryDirectory,
+                userConfigurationDirectoryURL: userConfigurationDirectoryURL ?? .temporaryDirectory
+            ),
+            preloadDictionary: preloadDictionary
+        )
+    }
+}
+
 public extension TextReplacer {
     static func withDefaultEmojiDictionary() -> Self {
         self.init {

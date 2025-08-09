@@ -40,7 +40,7 @@ extension Subcommands.Dict {
             }
             let start = Date()
             let isMemory = self.target == "memory"
-            guard let louds = LOUDS.load(self.target, option: self.requestOptions()) else {
+            guard let louds = LOUDS.load(self.target, dicdataLocation: .init(from: self.requestOptions())) else {
                 print(
                     """
                     \(bold: "=== Summary for target \(self.target) ===")

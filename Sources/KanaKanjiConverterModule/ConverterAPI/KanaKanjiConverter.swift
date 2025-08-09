@@ -4,14 +4,19 @@ package import Foundation
 import SwiftUtils
 
 @MainActor public final class KanaKanjiConverter {
-    let converter: Kana2Kanji
+    let converterCore: Kana2Kanji
     private lazy var defaultSession: KanaKanjiConverterSession = self.makeSession()
 
     public init() {
-        self.converter = .init()
+        self.converterCore = .init()
     }
     public init(dicdataStore: DicdataStore) {
-        self.converter = .init(dicdataStore: dicdataStore)
+        self.converterCore = .init(dicdataStore: dicdataStore)
+    }
+
+    public init(dicdataLocation: DicdataStore.DicdataLocation, preloadDictionary: Bool) {
+        let dicdataStore = DicdataStore(dicdataLocation: dicdataLocation, preloadDictionary: preloadDictionary)
+        self.converterCore = .init(dicdataStore: dicdataStore)
     }
 
     nonisolated public static let defaultSpecialCandidateProviders: [any SpecialCandidateProvider] = [
@@ -85,6 +90,11 @@ import SwiftUtils
     }
 
     public func setKeyboardLanguage(_ language: KeyboardLanguage) {
+        self.defaultSession.setKeyboardLanguage(language)
+    }
+
+    /// SpellCheckerを先に呼び出しておくと、初回の実行が高速に行えることがある
+    func warmupSpellChecker(_ language: KeyboardLanguage) {
         if !checkerInitialized[language, default: false] {
             switch language {
             case .en_US:
@@ -103,8 +113,19 @@ import SwiftUtils
         }
     }
 
-    public func sendToDicdataStore(_ data: DicdataStore.Notification) {
-        self.converter.dicdataStore.sendToDicdataStore(data)
+    public func closeKeyboard() {
+        self.defaultSession.saveLearning()
+        self.converterCore.dicdataStore.reloadUser()
+        self.converterCore.dicdataStore.reloadMemory()
+    }
+
+    public func forgetMemory(candidate: Candidate) {
+        self.defaultSession.forgetMemory(candidate)
+        self.converterCore.dicdataStore.reloadMemory()
+    }
+
+    public func importDynamicUserDictionary(_ userDict: [DicdataElement]) {
+        self.defaultSession.importDynamicUserDictionary(userDict)
     }
 
     public func setCompletedData(_ candidate: Candidate) {
@@ -124,7 +145,7 @@ import SwiftUtils
     }
 
     public func mergeCandidates(_ left: Candidate, _ right: Candidate) -> Candidate {
-        converter.mergeCandidates(left, right)
+        converterCore.mergeCandidates(left, right)
     }
     public func requestCandidates(_ inputData: ComposingText, options: ConvertRequestOptions) -> ConversionResult {
         self.defaultSession.requestCandidates(inputData, options: options)
