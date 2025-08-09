@@ -11,7 +11,7 @@ final class CommaSeparatedNumberTests: XCTestCase {
     }
 
     func testCommaSeparatedNumberCandidates() async throws {
-        let converter = await KanaKanjiConverter()
+        let converter = await KanaKanjiConverter.withoutDictionary()
 
         func result(_ text: String) async -> [Candidate] {
             await converter.commaSeparatedNumberCandidates(makeDirectInput(direct: text))

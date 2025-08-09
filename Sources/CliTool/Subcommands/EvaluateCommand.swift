@@ -37,14 +37,14 @@ extension Subcommands {
 
         mutating func run() async throws {
             let inputItems = try parseInputFile()
-            let converter = await KanaKanjiConverter()
+            let converter = await KanaKanjiConverter.withDefaultDictionary()
             let session = await converter.makeSession()
             var executionTime: Double = 0
             var resultItems: [EvaluateItem] = []
             for item in inputItems {
                 let start = Date()
                 // セットアップ
-                await converter.importDynamicUserDictionary(
+                await session.importDynamicUserDictionary(
                     (item.user_dictionary ?? []).map {
                         DicdataElement(word: $0.word, ruby: $0.reading.toKatakana(), cid: CIDData.固有名詞.cid, mid: MIDData.一般.mid, value: -10)
                     }

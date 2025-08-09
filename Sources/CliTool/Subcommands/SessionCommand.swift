@@ -124,7 +124,7 @@ extension Subcommands {
                 preloadDictionary: false
             )
             let session = converter.makeSession()
-            converter.importDynamicUserDictionary(userDictionary)
+            session.importDynamicUserDictionary(userDictionary)
             var composingText = ComposingText()
             let inputStyle: InputStyle = self.roman2kana ? .roman2kana : .direct
             var lastCandidates: [Candidate] = []
@@ -182,7 +182,7 @@ extension Subcommands {
                 case ":s", ":save":
                     composingText.stopComposition()
                     session.stop()
-                    converter.closeKeyboard()
+                    session.saveLearning()
                     if learningType.needUpdateMemory {
                         print("saved")
                     } else {

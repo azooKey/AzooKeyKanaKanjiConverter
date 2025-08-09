@@ -34,10 +34,11 @@ final class ConverterTests: XCTestCase {
     func testMustNotCases() async throws {
         do {
             // 改行文字に対して本当に改行が入ってしまうケース
-            let converter = await KanaKanjiConverter()
+            let converter = await KanaKanjiConverter.withoutDictionary()
+            let session = await converter.makeSession()
             var c = ComposingText()
             c.insertAtCursorPosition("\\n", inputStyle: .direct)
-            let results = await converter.requestCandidates(c, options: requestOptions())
+            let results = await session.requestCandidates(c, options: requestOptions())
             XCTAssertFalse(results.mainResults.contains(where: {$0.text == "\n"}))
         }
     }

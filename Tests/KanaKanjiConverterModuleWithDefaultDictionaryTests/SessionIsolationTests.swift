@@ -33,7 +33,7 @@ final class SessionIsolationTests: XCTestCase {
     }
 
     func testTwoSessionsDoNotInterfere() {
-        let converter = KanaKanjiConverter()
+        let converter = KanaKanjiConverter.withDefaultDictionary()
         let sessionA = converter.makeSession()
         let sessionB = converter.makeSession()
         let opts = options()

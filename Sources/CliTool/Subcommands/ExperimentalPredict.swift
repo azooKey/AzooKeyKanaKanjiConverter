@@ -16,7 +16,7 @@ extension Subcommands {
         static let configuration = CommandConfiguration(commandName: "experimental_predict", abstract: "Show help for this utility.")
 
         @MainActor mutating func run() async {
-            let converter = KanaKanjiConverter()
+            let converter = KanaKanjiConverter.withDefaultDictionary()
             let result = converter.predictNextCharacter(leftSideContext: self.input, count: 10, options: requestOptions())
             for (i, res) in result.indexed() {
                 print("\(i). \(res.character): \(res.value)")

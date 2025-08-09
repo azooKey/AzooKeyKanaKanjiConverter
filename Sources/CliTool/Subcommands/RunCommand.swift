@@ -35,7 +35,7 @@ extension Subcommands {
         static let configuration = CommandConfiguration(commandName: "run", abstract: "Show help for this utility.")
 
         @MainActor mutating func run() async {
-            let converter = KanaKanjiConverter()
+            let converter = KanaKanjiConverter.withDefaultDictionary()
             let session = converter.makeSession()
             var composingText = ComposingText()
             composingText.insertAtCursorPosition(input, inputStyle: .direct)

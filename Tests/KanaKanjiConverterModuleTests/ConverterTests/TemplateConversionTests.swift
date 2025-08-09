@@ -8,9 +8,10 @@ final class TemplateConversionTests: XCTestCase {
     }
 
     func testTemplateConversion() async throws {
-        let converter = await KanaKanjiConverter()
+        let converter = await KanaKanjiConverter.withoutDictionary()
+        let session = await converter.makeSession()
         let template = #"<date format="yyyy年MM月dd日" type="western" language="ja_JP" delta="0" deltaunit="1">"#
-        await converter.importDynamicUserDictionary([
+        await session.importDynamicUserDictionary([
             .init(word: template, ruby: "キョウ", cid: CIDData.一般名詞.cid, mid: MIDData.一般.mid, value: 5)
         ])
         let formatter = DateFormatter()
@@ -21,7 +22,7 @@ final class TemplateConversionTests: XCTestCase {
         do {
             var c = ComposingText()
             c.insertAtCursorPosition("きょう", inputStyle: .direct)
-            let results = await converter.requestCandidates(c, options: requestOptions())
+            let results = await session.requestCandidates(c, options: requestOptions())
             XCTAssertTrue(results.mainResults.contains(where: { $0.text == todayString}))
             XCTAssertFalse(results.mainResults.contains(where: { $0.text == template}))
             XCTAssertFalse(results.firstClauseResults.contains(where: { $0.text == template}))
@@ -31,7 +32,7 @@ final class TemplateConversionTests: XCTestCase {
         do {
             var c = ComposingText()
             c.insertAtCursorPosition("kyou", inputStyle: .roman2kana)
-            let results = await converter.requestCandidates(c, options: requestOptions())
+            let results = await session.requestCandidates(c, options: requestOptions())
             XCTAssertTrue(results.mainResults.contains(where: { $0.text == todayString}))
             XCTAssertFalse(results.mainResults.contains(where: { $0.text == template}))
             XCTAssertFalse(results.firstClauseResults.contains(where: { $0.text == template}))

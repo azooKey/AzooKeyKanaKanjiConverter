@@ -7,9 +7,11 @@ import SwiftUtils
     let converterCore: Kana2Kanji
     private lazy var defaultSession: KanaKanjiConverterSession = self.makeSession()
 
+    @available(*, deprecated, message: "Using this API is deprecated. It no longer load any dictionary data. Use `init(dicdataLocation:preloadDictionary:)` or KanaKanjiConverter.withDefaultDictionary() in `KanaKanjiConverterModuleWithDefaultDictionary` instead. If you really want to initialize without any dictionary, use `KanaKanjiConverter.withoutDictionary()`.")
     public init() {
         self.converterCore = .init()
     }
+
     public init(dicdataStore: DicdataStore) {
         self.converterCore = .init(dicdataStore: dicdataStore)
     }
@@ -17,6 +19,14 @@ import SwiftUtils
     public init(dicdataLocation: DicdataStore.DicdataLocation, preloadDictionary: Bool) {
         let dicdataStore = DicdataStore(dicdataLocation: dicdataLocation, preloadDictionary: preloadDictionary)
         self.converterCore = .init(dicdataStore: dicdataStore)
+    }
+
+    static func withoutDictionary() -> KanaKanjiConverter {
+        let dicdataStore = DicdataStore(
+            dicdataLocation: .init(dictionaryResourceURL: URL(fileURLWithPath: "/dev/null"), memoryDirectoryURL: URL(fileURLWithPath: "/dev/null"), userConfigurationDirectoryURL: URL(fileURLWithPath: "/dev/null")),
+            preloadDictionary: false
+        )
+        return KanaKanjiConverter(dicdataStore: dicdataStore)
     }
 
     nonisolated public static let defaultSpecialCandidateProviders: [any SpecialCandidateProvider] = [
@@ -89,6 +99,7 @@ import SwiftUtils
         return zenz.predictNextCharacter(leftSideContext: leftSideContext, count: count)
     }
 
+    @available(*, deprecated, renamed: "KanaKanjiConverterSession.setKeyboardLanguage", message: "Using this API is deprecated. Create an instance of `KanaKanjiConverterSession` and call `setKeyboardLanguage().")
     public func setKeyboardLanguage(_ language: KeyboardLanguage) {
         self.defaultSession.setKeyboardLanguage(language)
     }
@@ -113,27 +124,32 @@ import SwiftUtils
         }
     }
 
+    @available(*, deprecated, renamed: "KanaKanjiConverterSession.closeKeyboard", message: "Using this API is deprecated. Create an instance of `KanaKanjiConverterSession` and call `saveLearning().")
     public func closeKeyboard() {
         self.defaultSession.saveLearning()
-        self.converterCore.dicdataStore.reloadUser()
-        self.converterCore.dicdataStore.reloadMemory()
     }
 
+    @available(*, deprecated, renamed: "KanaKanjiConverterSession.forgetMemory", message: "Using this API is deprecated. Create an instance of `KanaKanjiConverterSession` and call `forgetMemory().")
     public func forgetMemory(candidate: Candidate) {
         self.defaultSession.forgetMemory(candidate)
-        self.converterCore.dicdataStore.reloadMemory()
     }
 
+    @available(*, deprecated, renamed: "KanaKanjiConverterSession.importDynamicUserDictionary", message: "Using this API is deprecated. Create an instance of `KanaKanjiConverterSession` and call `importDynamicUserDictionary().")
     public func importDynamicUserDictionary(_ userDict: [DicdataElement]) {
         self.defaultSession.importDynamicUserDictionary(userDict)
     }
 
+    @available(*, deprecated, renamed: "KanaKanjiConverterSession.setCompletedData", message: "Using this API is deprecated. Create an instance of `KanaKanjiConverterSession` and call `setCompletedData().")
     public func setCompletedData(_ candidate: Candidate) {
         self.defaultSession.setCompletedData(candidate)
     }
+
+    @available(*, deprecated, renamed: "KanaKanjiConverterSession.updateLearningData", message: "Using this API is deprecated. Create an instance of `KanaKanjiConverterSession` and call `updateLearningData().")
     public func updateLearningData(_ candidate: Candidate) {
         self.defaultSession.updateLearningData(candidate)
     }
+
+    @available(*, deprecated, renamed: "KanaKanjiConverterSession.updateLearningData", message: "Using this API is deprecated. Create an instance of `KanaKanjiConverterSession` and call `updateLearningData().")
     public func updateLearningData(_ candidate: Candidate, with predictionCandidate: PostCompositionPredictionCandidate) {
         self.defaultSession.updateLearningData(candidate, with: predictionCandidate)
     }
@@ -147,9 +163,13 @@ import SwiftUtils
     public func mergeCandidates(_ left: Candidate, _ right: Candidate) -> Candidate {
         converterCore.mergeCandidates(left, right)
     }
+
+    @available(*, deprecated, renamed: "KanaKanjiConverterSession.requestCandidates", message: "Using this API is deprecated. Create an instance of `KanaKanjiConverterSession` and call `requestCandidates().")
     public func requestCandidates(_ inputData: ComposingText, options: ConvertRequestOptions) -> ConversionResult {
         self.defaultSession.requestCandidates(inputData, options: options)
     }
+
+    @available(*, deprecated, renamed: "KanaKanjiConverterSession.requestPostCompositionPredictionCandidates", message: "Using this API is deprecated. Create an instance of `KanaKanjiConverterSession` and call `requestPostCompositionPredictionCandidates().")
     public func requestPostCompositionPredictionCandidates(leftSideCandidate: Candidate, options: ConvertRequestOptions) -> [PostCompositionPredictionCandidate] {
         self.defaultSession.requestPostCompositionPredictionCandidates(leftSideCandidate: leftSideCandidate, options: options)
     }
