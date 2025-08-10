@@ -4,26 +4,51 @@ private indirect enum TrieNode {
         var resolvedAny1: InputPiece?
     }
 
-    case node(output: [InputTable.ValueElement]?, children: [InputTable.KeyElement: TrieNode] = [:])
+    case node(
+        output: [InputTable.ValueElement]?,
+        charChildren: [Character: TrieNode] = [:],
+        separatorChild: TrieNode? = nil,
+        any1Child: TrieNode? = nil
+    )
 
     // Recursively insert a reversed key path and set the output when the path ends.
     mutating func add(reversedKey: some Collection<InputTable.KeyElement>, output: [InputTable.ValueElement]) {
         guard let head = reversedKey.first else {
             // Reached the end of the key; store kana
             switch self {
-            case let .node(_, children):
-                self = .node(output: output, children: children)
+            case let .node(_, charChildren, separatorChild, any1Child):
+                self = .node(output: output, charChildren: charChildren, separatorChild: separatorChild, any1Child: any1Child)
             }
             return
         }
         let rest = reversedKey.dropFirst()
         switch self {
-        case .node(let currentOutput, var children):
-            var child = children[head] ?? .node(output: nil, children: [:])
-            child.add(reversedKey: rest, output: output)
-            children[head] = child
-            self = .node(output: currentOutput, children: children)
+        case .node(let currentOutput, var charChildren, var separatorChild, var any1Child):
+            var next: TrieNode
+            switch head {
+            case .any1:
+                next = any1Child ?? .node(output: nil)
+                next.add(reversedKey: rest, output: output)
+                any1Child = next
+            case .piece(let piece):
+                switch piece {
+                case .character(let c):
+                    next = charChildren[c] ?? .node(output: nil)
+                    next.add(reversedKey: rest, output: output)
+                    charChildren[c] = next
+                case .compositionSeparator:
+                    next = separatorChild ?? .node(output: nil)
+                    next.add(reversedKey: rest, output: output)
+                    separatorChild = next
+                }
+            }
+            self = .node(output: currentOutput, charChildren: charChildren, separatorChild: separatorChild, any1Child: any1Child)
         }
+    }
+
+    /// Fast check for whether this node has an output.
+    var hasOutput: Bool {
+        switch self { case .node(let output, _, _, _): return output != nil }
     }
 
     /// Returns the kana sequence stored at this node, resolving `.any1`
@@ -31,7 +56,7 @@ private indirect enum TrieNode {
     /// (which is set when a wildcard edge was taken during the lookup).
     func outputValue(state: State) -> [Character]? {
         switch self {
-        case .node(let output, _):
+        case .node(let output, _, _, _):
             output?.compactMap { elem in
                 switch elem {
                 case .character(let c): c
@@ -93,7 +118,7 @@ struct InputTable: Sendable {
             }
             return results
         }()
-        var root: TrieNode = .node(output: nil, children: [:])
+        var root: TrieNode = .node(output: nil, charChildren: [:], separatorChild: nil, any1Child: nil)
         for (key, value) in pieceHiraganaChanges {
             root.add(reversedKey: key.reversed().map { $0 }, output: value)
         }
@@ -108,66 +133,65 @@ struct InputTable: Sendable {
     private let trieRoot: TrieNode
 
     // Helper: return the child node for `elem`, if it exists.
-    private static func child(of node: TrieNode, _ elem: KeyElement) -> TrieNode? {
+    private static func childPiece(of node: TrieNode, _ piece: InputPiece) -> TrieNode? {
         switch node {
-        case .node(_, let children): children[elem]
+        case .node(_, let charChildren, let separatorChild, _):
+            switch piece {
+            case .character(let c):
+                return charChildren[c]
+            case .compositionSeparator:
+                return separatorChild
+            }
         }
     }
 
-    // Helper: breadth‑first search that explores both concrete and
-    // `.any1` edges at each depth.  It keeps the deepest match; when
-    // multiple matches share the same depth, the one that travelled
-    // through fewer `.any1` edges is preferred.
-    private static func match(root: TrieNode, pieces: [InputPiece], maxKeyCount: Int) -> ([Character], Int)? {
-        struct Candidate {
-            var node: TrieNode
-            var state: TrieNode.State
-            var any1Count: Int
+    private static func childAny1(of node: TrieNode) -> TrieNode? {
+        switch node { case .node(_, _, _, let any1Child): return any1Child }
+    }
+
+    // Tiny DFS: at each step try concrete edge first, then `.any1` fallback.
+    // Keeps the deepest match; for ties at same depth, prefers fewer `.any1` hops.
+    // Returns the best node and state to resolve the output only once later.
+    private static func matchGreedy(root: TrieNode, buffer: [Character], added: InputPiece, maxKeyCount: Int) -> (node: TrieNode, state: TrieNode.State, depth: Int)? {
+        var best: (node: TrieNode, state: TrieNode.State, depth: Int, any1: Int)?
+
+        func pieceAt(depth: Int) -> InputPiece? {
+            if depth == 0 { return added }
+            let idx = buffer.count - depth
+            guard idx >= 0, idx < buffer.count else { return nil }
+            return .character(buffer[idx])
         }
 
-        var frontier: [Candidate] = [.init(node: root, state: .init(), any1Count: 0)]
-        var best: (kana: [Character], depth: Int, any1Count: Int)?
-
-        /// Update the current `best` candidate if the new one is deeper,
-        /// or at the same depth but with fewer `.any1` hops.
-        func updateBest(_ kana: [Character], _ depth: Int, _ any1Count: Int) {
-            if best == nil ||
-                depth > best!.depth ||
-                (depth == best!.depth && any1Count < best!.any1Count) {
-                best = (kana, depth, any1Count)
-            }
-        }
-
-        for (i, piece) in pieces.enumerated() where !frontier.isEmpty && i < maxKeyCount {
-            var nextFrontier: [Candidate] = []
-            defer {
-                frontier = nextFrontier
+        func dfs(from node: TrieNode, state: TrieNode.State, depth: Int, any1Count: Int) {
+            guard depth < maxKeyCount, let piece = pieceAt(depth: depth) else {
+                return
             }
 
-            for cand in frontier {
-                // 1. Concrete edge
-                if let next = child(of: cand.node, .piece(piece)) {
-                    var c = cand
-                    c.node = next
-                    nextFrontier.append(c)
-                    if let kana = next.outputValue(state: c.state) {
-                        updateBest(kana, i + 1, c.any1Count)
+            // 1) Concrete edge
+            if let next = childPiece(of: node, piece) {
+                if next.hasOutput {
+                    if best == nil || depth + 1 > best!.depth || (depth + 1 == best!.depth && any1Count < best!.any1) {
+                        best = (next, state, depth + 1, any1Count)
                     }
                 }
+                dfs(from: next, state: state, depth: depth + 1, any1Count: any1Count)
+            }
 
-                // 2. `.any1` edge
-                if (cand.state.resolvedAny1 ?? piece) == piece,
-                   let next = child(of: cand.node, .any1) {
-                    let c = Candidate(node: next, state: .init(resolvedAny1: piece), any1Count: cand.any1Count + 1)
-                    nextFrontier.append(c)
-                    if let kana = next.outputValue(state: c.state) {
-                        updateBest(kana, i + 1, c.any1Count)
+            // 2) `.any1` fallback (only if compatible with previously resolved value)
+            if (state.resolvedAny1 ?? piece) == piece, let next = childAny1(of: node) {
+                var newState = state
+                if newState.resolvedAny1 == nil { newState.resolvedAny1 = piece }
+                if next.hasOutput {
+                    if best == nil || depth + 1 > best!.depth || (depth + 1 == best!.depth && any1Count + 1 < best!.any1) {
+                        best = (next, newState, depth + 1, any1Count + 1)
                     }
                 }
+                dfs(from: next, state: newState, depth: depth + 1, any1Count: any1Count + 1)
             }
         }
 
-        return best.map { ($0.kana, $0.depth) }
+        dfs(from: root, state: .init(), depth: 0, any1Count: 0)
+        return best.map { ($0.node, $0.state, $0.depth) }
     }
 
     /// Convert roman/katakana input pieces into hiragana.
@@ -179,15 +203,11 @@ struct InputTable: Sendable {
     /// backwards, examining at most `maxKeyCount` pieces, and keeps the
     /// longest match.
     func toHiragana(currentText: [Character], added: InputPiece) -> [Character] {
-        // Build the sequence to inspect: the newly‑added piece followed by up to
-        // `maxKeyCount‑1` characters from the tail of `currentText`, in reverse.
-        let pieces: [InputPiece] = [added] + currentText.suffix(max(0, self.maxKeyCount - 1)).reversed().map(InputPiece.character)
-
-        // Use the breadth‑first match.
-        let bestMatch = Self.match(root: self.trieRoot, pieces: pieces, maxKeyCount: self.maxKeyCount)
+        // Greedy match without temporary array allocation.
+        let bestMatch = Self.matchGreedy(root: self.trieRoot, buffer: currentText, added: added, maxKeyCount: self.maxKeyCount)
 
         // Apply the result or fall back to passthrough behaviour.
-        if let (kana, matchedDepth) = bestMatch {
+        if let (bestNode, bestState, matchedDepth) = bestMatch, let kana = bestNode.outputValue(state: bestState) {
             // `matchedDepth` includes `added`, so drop `matchedDepth - 1` chars.
             return Array(currentText.dropLast(matchedDepth - 1)) + kana
         }
@@ -198,6 +218,33 @@ struct InputTable: Sendable {
             return currentText + [ch]
         case .compositionSeparator:
             return currentText
+        }
+    }
+
+    /// In‑place variant: mutates `buffer` and returns (deleted, added) counts.
+    /// Semantics match `toHiragana(currentText:added:)` but avoids new allocations
+    /// when possible by editing the tail of `buffer` directly.
+    func apply(to buffer: inout [Character], added: InputPiece) -> (deleted: Int, added: Int) {
+        // Greedy match without temporary array allocation.
+        let bestMatch = Self.matchGreedy(root: self.trieRoot, buffer: buffer, added: added, maxKeyCount: self.maxKeyCount)
+
+        if let (bestNode, bestState, matchedDepth) = bestMatch, let kana = bestNode.outputValue(state: bestState) {
+            let deleteCount = max(0, matchedDepth - 1)
+            if deleteCount > 0 {
+                buffer.removeLast(deleteCount)
+            }
+            if !kana.isEmpty {
+                buffer.append(contentsOf: kana)
+            }
+            return (deleteCount, kana.count)
+        }
+
+        switch added {
+        case .character(let ch):
+            buffer.append(ch)
+            return (0, 1)
+        case .compositionSeparator:
+            return (0, 0)
         }
     }
 }

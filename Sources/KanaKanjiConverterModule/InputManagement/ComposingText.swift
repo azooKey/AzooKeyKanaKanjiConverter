@@ -440,27 +440,53 @@ extension ComposingText {
     struct ConvertTargetElement {
         var string: [Character]
         var inputStyle: InputStyle
+        // Cache the resolved table for non-direct styles to avoid repeated lookups
+        var cachedTable: InputTable?
     }
 
+    @inline(__always)
     static func updateConvertTargetElements(currentElements: inout [ConvertTargetElement], newElement: InputElement) {
         switch newElement.piece {
         case .character(let ch):
-            if currentElements.last?.inputStyle != newElement.inputStyle {
+            if currentElements.isEmpty {
+                let table: InputTable? = {
+                    switch newElement.inputStyle {
+                    case .direct: return nil
+                    case .roman2kana: return InputStyleManager.shared.table(for: .defaultRomanToKana)
+                    case .mapped(let id): return InputStyleManager.shared.table(for: id)
+                    }
+                }()
+                let s = updateConvertTarget(current: [], cachedTable: table, newCharacter: ch)
                 currentElements.append(
-                    ConvertTargetElement(
-                        string: updateConvertTarget(current: [], inputStyle: newElement.inputStyle, newCharacter: ch),
-                        inputStyle: newElement.inputStyle
-                    )
+                    ConvertTargetElement(string: s, inputStyle: newElement.inputStyle, cachedTable: table)
                 )
                 return
             }
-            updateConvertTarget(&currentElements[currentElements.endIndex - 1].string, inputStyle: newElement.inputStyle, newCharacter: ch)
+            let lastIndex = currentElements.count - 1
+            if currentElements[lastIndex].inputStyle == newElement.inputStyle {
+                let table = currentElements[lastIndex].cachedTable
+                updateConvertTarget(&currentElements[lastIndex].string, cachedTable: table, newCharacter: ch)
+            } else {
+                let table: InputTable? = {
+                    switch newElement.inputStyle {
+                    case .direct: return nil
+                    case .roman2kana: return InputStyleManager.shared.table(for: .defaultRomanToKana)
+                    case .mapped(let id): return InputStyleManager.shared.table(for: id)
+                    }
+                }()
+                let s = updateConvertTarget(current: [], cachedTable: table, newCharacter: ch)
+                currentElements.append(
+                    ConvertTargetElement(string: s, inputStyle: newElement.inputStyle, cachedTable: table)
+                )
+            }
         case .compositionSeparator:
-            guard let lastIndex = currentElements.indices.last,
-                  currentElements[lastIndex].inputStyle == newElement.inputStyle else {
+            if currentElements.isEmpty {
                 return
             }
-            updateConvertTarget(&currentElements[lastIndex].string, inputStyle: newElement.inputStyle, piece: .compositionSeparator)
+            let lastIndex = currentElements.count - 1
+            guard currentElements[lastIndex].inputStyle == newElement.inputStyle else { return }
+            let table = currentElements[lastIndex].cachedTable
+            updateConvertTarget(&currentElements[lastIndex].string, cachedTable: table, piece: .compositionSeparator)
         }
     }
 
@@ -469,61 +495,71 @@ extension ComposingText {
         case .direct:
             return current + [newCharacter]
         case .roman2kana:
-            return InputStyleManager.shared.table(for: .defaultRomanToKana).toHiragana(currentText: current, added: .character(newCharacter))
+            var buf = current
+            _ = InputStyleManager.shared.table(for: .defaultRomanToKana).apply(to: &buf, added: .character(newCharacter))
+            return buf
         case .mapped(let id):
-            return InputStyleManager.shared.table(for: id).toHiragana(currentText: current, added: .character(newCharacter))
+            var buf = current
+            _ = InputStyleManager.shared.table(for: id).apply(to: &buf, added: .character(newCharacter))
+            return buf
         }
     }
 
-    static func updateConvertTarget(_ convertTarget: inout [Character], inputStyle: InputStyle, newCharacter: Character) {
+    // Cached-table variants to reduce table lookup overhead in hot paths
+    static func updateConvertTarget(current: [Character], inputStyle: InputStyle, cachedTable: InputTable?, newCharacter: Character) -> [Character] {
         switch inputStyle {
         case .direct:
+            return current + [newCharacter]
+        case .roman2kana, .mapped:
+            var buf = current
+            if let cachedTable {
+                _ = cachedTable.apply(to: &buf, added: .character(newCharacter))
+            } else {
+                return updateConvertTarget(current: current, inputStyle: inputStyle, newCharacter: newCharacter)
+            }
+            return buf
+        }
+    }
+
+    static func updateConvertTarget(_ convertTarget: inout [Character], cachedTable: InputTable?, newCharacter: Character) {
+        if let table = cachedTable {
+            _ = table.apply(to: &convertTarget, added: .character(newCharacter))
+        } else {
             convertTarget.append(newCharacter)
-        case .roman2kana:
-            convertTarget = InputStyleManager.shared.table(for: .defaultRomanToKana).toHiragana(currentText: convertTarget, added: .character(newCharacter))
-        case .mapped(let id):
-            convertTarget = InputStyleManager.shared.table(for: id).toHiragana(currentText: convertTarget, added: .character(newCharacter))
         }
     }
 
-    static func updateConvertTarget(current: [Character], inputStyle: InputStyle, piece: InputPiece) -> [Character] {
+    // Cached-table variant for value-returning form
+    static func updateConvertTarget(current: [Character], cachedTable: InputTable?, newCharacter: Character) -> [Character] {
+        if let table = cachedTable {
+            var buf = current
+            _ = table.apply(to: &buf, added: .character(newCharacter))
+            return buf
+        } else {
+            return current + [newCharacter]
+        }
+    }
+
+    static func updateConvertTarget(_ convertTarget: inout [Character], cachedTable: InputTable?, piece: InputPiece) {
         switch piece {
         case .character(let ch):
-            return updateConvertTarget(current: current, inputStyle: inputStyle, newCharacter: ch)
+            updateConvertTarget(&convertTarget, cachedTable: cachedTable, newCharacter: ch)
         case .compositionSeparator:
-            switch inputStyle {
-            case .direct:
-                return current
-            case .roman2kana:
-                return InputStyleManager.shared.table(for: .defaultRomanToKana).toHiragana(currentText: current, added: .compositionSeparator)
-            case .mapped(let id):
-                return InputStyleManager.shared.table(for: id).toHiragana(currentText: current, added: .compositionSeparator)
+            if let table = cachedTable {
+                _ = table.apply(to: &convertTarget, added: .compositionSeparator)
             }
         }
     }
-
-    static func updateConvertTarget(_ convertTarget: inout [Character], inputStyle: InputStyle, piece: InputPiece) {
-        switch piece {
-        case .character(let ch):
-            updateConvertTarget(&convertTarget, inputStyle: inputStyle, newCharacter: ch)
-        case .compositionSeparator:
-            switch inputStyle {
-            case .direct:
-                break
-            case .roman2kana:
-                convertTarget = InputStyleManager.shared.table(for: .defaultRomanToKana).toHiragana(currentText: convertTarget, added: .compositionSeparator)
-            case .mapped(let id):
-                convertTarget = InputStyleManager.shared.table(for: id).toHiragana(currentText: convertTarget, added: .compositionSeparator)
-            }
-        }
-    }
-
 }
 
 // Equatableにしておく
 extension ComposingText: Equatable {}
 extension ComposingText.InputElement: Equatable {}
-extension ComposingText.ConvertTargetElement: Equatable {}
+extension ComposingText.ConvertTargetElement: Equatable {
+    static func == (lhs: ComposingText.ConvertTargetElement, rhs: ComposingText.ConvertTargetElement) -> Bool {
+        lhs.inputStyle == rhs.inputStyle && lhs.string == rhs.string
+    }
+}
 
 // MARK: 差分計算用のAPI
 extension ComposingText {
