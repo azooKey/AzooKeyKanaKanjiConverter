@@ -170,7 +170,7 @@ struct InputTable: Sendable {
         return best.map { ($0.kana, $0.depth) }
     }
 
-    /// Convert roman/katakana input pieces into hiragana.
+    /// Convert roman/katakana input pieces into hiragana with match depth infomation.
     /// `any1` edges serve strictly as fall‑backs: a concrete `.piece`
     /// transition always has priority and we only follow `.any1`
     /// when no direct edge exists at the same depth.
@@ -178,7 +178,7 @@ struct InputTable: Sendable {
     /// The algorithm walks the suffix‑trie from the newly added piece
     /// backwards, examining at most `maxKeyCount` pieces, and keeps the
     /// longest match.
-    func toHiragana(currentText: [Character], added: InputPiece) -> [Character] {
+    func toHiraganaWithMatchDepth(currentText: [Character], added: InputPiece) -> ([Character], Int) {
         // Build the sequence to inspect: the newly‑added piece followed by up to
         // `maxKeyCount‑1` characters from the tail of `currentText`, in reverse.
         let pieces: [InputPiece] = [added] + currentText.suffix(max(0, self.maxKeyCount - 1)).reversed().map(InputPiece.character)
@@ -189,15 +189,24 @@ struct InputTable: Sendable {
         // Apply the result or fall back to passthrough behaviour.
         if let (kana, matchedDepth) = bestMatch {
             // `matchedDepth` includes `added`, so drop `matchedDepth - 1` chars.
-            return Array(currentText.dropLast(matchedDepth - 1)) + kana
+            return (Array(currentText.dropLast(matchedDepth - 1)) + kana, matchedDepth)
         }
 
         // In case where no match found
         switch added {
         case .character(let ch):
-            return currentText + [ch]
+            return (currentText + [ch], 1)
         case .compositionSeparator:
-            return currentText
+            return (currentText, 1)
         }
+    }
+
+    /// Convert roman/katakana input pieces into hiragana.
+    /// This is a wrapper around `toHiraganaWithMatchDepth` that returns
+    /// only the converted hiragana characters.
+    func toHiragana(currentText: [Character], added: InputPiece) -> [Character] {
+        let hiraganaChars: [Character]
+        (hiraganaChars, _) = toHiraganaWithMatchDepth(currentText: currentText, added: added)
+        return hiraganaChars
     }
 }
