@@ -160,10 +160,11 @@ extension Kana2Kanji {
                         self.computeMatchedAndTotalLength(prev: node.prevs[idx], currentWord: node.data.word, constraintBytes: constraintBytes)
                     }
                     let cLen = constraintBytes.count
+                    let ccLatter = self.dicdataStore.getCCLatter(node.data.rcid)
                     // nodeの繋がる次にあり得る全てのnextnodeに対して
                     for nextnode in lattice[index: nextIndex] {
                         // クラスの連続確率を計算する。
-                        let ccValue: PValue = self.dicdataStore.getCCValue(node.data.rcid, nextnode.data.lcid)
+                        let ccValue: PValue = ccLatter.get(nextnode.data.lcid)
                         // nodeの持っている全てのprevnodeに対して
                         for (index, value) in node.values.enumerated() {
                             let newValue: PValue = ccValue + value

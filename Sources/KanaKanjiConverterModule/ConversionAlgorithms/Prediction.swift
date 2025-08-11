@@ -87,10 +87,11 @@ extension Kana2Kanji {
         var result: [Candidate] = []
 
         result.reserveCapacity(N_best &+ 1)
+        let ccLatter = self.dicdataStore.getCCLatter(lastRcid)
         for data in (dicdata + osuserdict) {
             let includeMMValueCalculation = DicdataStore.includeMMValueCalculation(data)
             let mmValue: PValue = includeMMValueCalculation ? self.dicdataStore.getMMValue(lastMid, data.mid) : .zero
-            let ccValue: PValue = self.dicdataStore.getCCValue(lastRcid, data.lcid)
+            let ccValue: PValue = ccLatter.get(data.lcid)
             let penalty: PValue = -PValue(data.ruby.count &- lastRuby.count) * 3.0   // 文字数差をペナルティとする
             let wValue: PValue = data.value()
             let newValue: PValue = lastCandidate.value + mmValue + ccValue + wValue + penalty - ignoreCCValue

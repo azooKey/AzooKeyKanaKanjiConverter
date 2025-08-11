@@ -23,7 +23,7 @@ public final class DicdataStore {
     }
 
     private var ccParsed: [Bool] = .init(repeating: false, count: 1319)
-    private var ccLines: [[Int: PValue]] = []
+    private var ccLines1D: [Int: PValue] = [:]
     private var mmValue: [PValue] = []
 
     private var loudses: [String: LOUDS] = [:]
@@ -50,7 +50,6 @@ public final class DicdataStore {
     private func setup() {
         numberFormatter.numberStyle = .spellOut
         numberFormatter.locale = .init(identifier: "ja-JP")
-        self.ccLines = [[Int: PValue]].init(repeating: [:], count: CIDData.totalCount)
 
         do {
             let string = try String(contentsOf: self.requestOptions.dictionaryResourceURL.appendingPathComponent("louds/charID.chid", isDirectory: false), encoding: String.Encoding.utf8)
@@ -816,16 +815,49 @@ public final class DicdataStore {
     ///   - latter: 右側の語のid
     /// - Returns:
     ///   連接確率の対数。
-    /// - 要求があった場合ごとにファイルを読み込む
+    /// - note:
+    /// 特定の`former`に対して繰り返し`getCCValue`を実行する場合、`getCCLatter`を用いた方がアクセス効率が良い
     public func getCCValue(_ former: Int, _ latter: Int) -> PValue {
-        if !ccParsed[former] {
-            let url = requestOptions.dictionaryResourceURL.appendingPathComponent("cb/\(former).binary", isDirectory: false)
-            let values = loadCCBinary(url: url)
-            ccLines[former] = [Int: PValue].init(uniqueKeysWithValues: values.map {(Int($0.0), PValue($0.1))})
-            ccParsed[former] = true
+        if !self.ccParsed[former] {
+            let url = self.requestOptions.dictionaryResourceURL.appending(path: "cb/\(former).binary", directoryHint: .notDirectory)
+            let values = self.loadCCBinary(url: url)
+            for (k, v) in values {
+                if k == -1 {
+                    self.ccLines1D[-former - 1] = PValue(v)
+                } else {
+                    self.ccLines1D[former * self.cidCount + Int(k)] = PValue(v)
+                }
+            }
+            self.ccParsed[former] = true
         }
-        let defaultValue = ccLines[former][-1, default: -25]
-        return ccLines[former][latter, default: defaultValue]
+        return self.ccLines1D[former * self.cidCount + latter, default: self.ccLines1D[-former - 1, default: -25]]
+    }
+
+    struct CCLatter {
+        let cidCount: Int
+        let former: Int
+        let ccLines1D: [Int: PValue]
+
+        func get(_ latter: Int) -> PValue {
+            self.ccLines1D[self.cidCount * former + latter, default: self.ccLines1D[-former - 1, default: -25]]
+        }
+    }
+
+    /// 特定の`former`に対して繰り返し`getCCValue`を実行する場合、`getCCLatter`を用いた方がアクセス効率が良い
+    func getCCLatter(_ former: Int) -> CCLatter {
+        if !self.ccParsed[former] {
+            let url = self.requestOptions.dictionaryResourceURL.appending(path: "cb/\(former).binary", directoryHint: .notDirectory)
+            let values = self.loadCCBinary(url: url)
+            for (k, v) in values {
+                if k == -1 {
+                    self.ccLines1D[-former - 1] = PValue(v)
+                } else {
+                    self.ccLines1D[former * self.cidCount + Int(k)] = PValue(v)
+                }
+            }
+            self.ccParsed[former] = true
+        }
+        return CCLatter(cidCount: self.cidCount, former: former, ccLines1D: self.ccLines1D)
     }
 
     /// meaning idから意味連接尤度を得る関数

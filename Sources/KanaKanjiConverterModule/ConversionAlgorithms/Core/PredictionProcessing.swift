@@ -67,8 +67,9 @@ extension Kana2Kanji {
                 DicdataStore.predictionUsable[$0.rcid] && $0.word.hasPrefix(totalWord)
             }
 
+            let ccLatter = self.dicdataStore.getCCLatter(prefixCandidateData.last?.rcid ?? CIDData.BOS.cid)
             for data in dicdata {
-                let ccValue = self.dicdataStore.getCCValue(prefixCandidateData.last?.rcid ?? CIDData.BOS.cid, data.lcid)
+                let ccValue = ccLatter.get(data.lcid)
                 let includeMMValueCalculation = DicdataStore.includeMMValueCalculation(data)
                 let mmValue = includeMMValueCalculation ? self.dicdataStore.getMMValue(prefixCandidate.lastMid, data.mid) : .zero
                 let wValue = data.value()
@@ -103,8 +104,9 @@ extension Kana2Kanji {
         for candidate in preparts {
             if let last = candidate.data.last {
                 let dicdata = self.dicdataStore.getZeroHintPredictionDicdata(lastRcid: last.rcid)
+                let ccLatter = self.dicdataStore.getCCLatter(last.rcid)
                 for data in dicdata {
-                    let ccValue = self.dicdataStore.getCCValue(last.rcid, data.lcid)
+                    let ccValue = ccLatter.get(data.lcid)
                     let includeMMValueCalculation = DicdataStore.includeMMValueCalculation(data)
                     let mmValue = includeMMValueCalculation ? self.dicdataStore.getMMValue(candidate.lastMid, data.mid) : .zero
                     let wValue = data.value()
