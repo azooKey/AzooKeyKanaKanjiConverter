@@ -121,12 +121,12 @@ public struct ComposingText: Sendable {
 
         // 独立なセグメントの境界リストを作成する
         for (currentInputIndex, element) in input.enumerated() {
-            let matchDepth = Self.updateConvertTargetElementsWithMatchDepth(currentElements: &converting, newElement: element)
+            let deletedCount = Self.updateConvertTargetElementsWithDeletedCount(currentElements: &converting, newElement: element)
             // 今回の文字入力による変換が、前の暫定独立セグメントの文字を含むテーブルエントリによって行われた場合
             // 新セグメントは前のセグメントに依存しているので、ここで前のセグメントとの境界を消すことで、新しい独立セグメントをつくる
             while let lastIndependentSegment =  independentSegmentBoundaries.popLast() {
                 // matchDepthは、現在の文字を入力する際に使われた、ローマ字かな変換テーブルのエントリの1列目の長さ
-                if lastIndependentSegment.surfaceIndex <= convertedLength + 1 - matchDepth {
+                if lastIndependentSegment.surfaceIndex <= convertedLength - deletedCount {
                     // これ以上前のセグメントには依存していないので一度消した境界を戻す
                     independentSegmentBoundaries.append(lastIndependentSegment)
                     break
@@ -385,50 +385,101 @@ extension ComposingText {
     struct ConvertTargetElement {
         var string: [Character]
         var inputStyle: InputStyle
+        // Cache the resolved table for non-direct styles to avoid repeated lookups
+        var cachedTable: InputTable?
     }
 
+    @inline(__always)
     static func updateConvertTargetElements(currentElements: inout [ConvertTargetElement], newElement: InputElement) {
         switch newElement.piece {
         case .character(let ch):
-            if currentElements.last?.inputStyle != newElement.inputStyle {
+            if currentElements.isEmpty {
+                let table: InputTable? = {
+                    switch newElement.inputStyle {
+                    case .direct: return nil
+                    case .roman2kana: return InputStyleManager.shared.table(for: .defaultRomanToKana)
+                    case .mapped(let id): return InputStyleManager.shared.table(for: id)
+                    }
+                }()
+                let s = initializeConvertTarget(cachedTable: table, newCharacter: ch)
                 currentElements.append(
-                    ConvertTargetElement(
-                        string: updateConvertTarget(current: [], inputStyle: newElement.inputStyle, newCharacter: ch),
-                        inputStyle: newElement.inputStyle
-                    )
+                    ConvertTargetElement(string: s, inputStyle: newElement.inputStyle, cachedTable: table)
                 )
                 return
             }
-            updateConvertTarget(&currentElements[currentElements.endIndex - 1].string, inputStyle: newElement.inputStyle, newCharacter: ch)
+            let lastIndex = currentElements.count - 1
+            if currentElements[lastIndex].inputStyle == newElement.inputStyle {
+                let table = currentElements[lastIndex].cachedTable
+                updateConvertTarget(&currentElements[lastIndex].string, cachedTable: table, newCharacter: ch)
+            } else {
+                let table: InputTable? = {
+                    switch newElement.inputStyle {
+                    case .direct: return nil
+                    case .roman2kana: return InputStyleManager.shared.table(for: .defaultRomanToKana)
+                    case .mapped(let id): return InputStyleManager.shared.table(for: id)
+                    }
+                }()
+                let s = initializeConvertTarget(cachedTable: table, newCharacter: ch)
+                currentElements.append(
+                    ConvertTargetElement(string: s, inputStyle: newElement.inputStyle, cachedTable: table)
+                )
+            }
         case .compositionSeparator:
-            guard let lastIndex = currentElements.indices.last,
-                  currentElements[lastIndex].inputStyle == newElement.inputStyle else {
+            if currentElements.isEmpty {
                 return
             }
-            updateConvertTarget(&currentElements[lastIndex].string, inputStyle: newElement.inputStyle, piece: .compositionSeparator)
+            let lastIndex = currentElements.count - 1
+            guard currentElements[lastIndex].inputStyle == newElement.inputStyle else { return }
+            let table = currentElements[lastIndex].cachedTable
+            updateConvertTarget(&currentElements[lastIndex].string, cachedTable: table, piece: .compositionSeparator)
         }
     }
 
-    // convertTargetElementの更新時に書き換えられたテキストの長さ(使われた変換テーブルエントリの一列目の長さ)を返す
-    static func updateConvertTargetElementsWithMatchDepth(currentElements: inout [ConvertTargetElement], newElement: InputElement) -> Int {
+    // convertTargetの更新するために削除された文字数を返す
+    @inline(__always)
+    static func updateConvertTargetElementsWithDeletedCount(currentElements: inout [ConvertTargetElement], newElement: InputElement) -> Int {
         switch newElement.piece {
         case .character(let ch):
-            if currentElements.last?.inputStyle != newElement.inputStyle {
+            if currentElements.isEmpty {
+                let table: InputTable? = {
+                    switch newElement.inputStyle {
+                    case .direct: return nil
+                    case .roman2kana: return InputStyleManager.shared.table(for: .defaultRomanToKana)
+                    case .mapped(let id): return InputStyleManager.shared.table(for: id)
+                    }
+                }()
+                let s = initializeConvertTarget(cachedTable: table, newCharacter: ch)
                 currentElements.append(
-                    ConvertTargetElement(
-                        string: updateConvertTarget(current: [], inputStyle: newElement.inputStyle, newCharacter: ch),
-                        inputStyle: newElement.inputStyle
-                    )
+                    ConvertTargetElement(string: s, inputStyle: newElement.inputStyle, cachedTable: table)
                 )
-                return 1
-            }
-            return updateConvertTargetWithMatchDepth(&currentElements[currentElements.endIndex - 1].string, inputStyle: newElement.inputStyle, newCharacter: ch)
-        case .compositionSeparator:
-            guard let lastIndex = currentElements.indices.last,
-                  currentElements[lastIndex].inputStyle == newElement.inputStyle else {
                 return 0
             }
-            updateConvertTarget(&currentElements[lastIndex].string, inputStyle: newElement.inputStyle, piece: .compositionSeparator)
+            let lastIndex = currentElements.count - 1
+            if currentElements[lastIndex].inputStyle == newElement.inputStyle {
+                let table = currentElements[lastIndex].cachedTable
+                return updateConvertTargetWithDeletedCount(&currentElements[lastIndex].string, cachedTable: table, newCharacter: ch)
+            } else {
+                let table: InputTable? = {
+                    switch newElement.inputStyle {
+                    case .direct: return nil
+                    case .roman2kana: return InputStyleManager.shared.table(for: .defaultRomanToKana)
+                    case .mapped(let id): return InputStyleManager.shared.table(for: id)
+                    }
+                }()
+                let s = initializeConvertTarget(cachedTable: table, newCharacter: ch)
+                currentElements.append(
+                    ConvertTargetElement(string: s, inputStyle: newElement.inputStyle, cachedTable: table)
+                )
+                return 0
+            }
+        case .compositionSeparator:
+            if currentElements.isEmpty {
+                return 0
+            }
+            let lastIndex = currentElements.count - 1
+            guard currentElements[lastIndex].inputStyle == newElement.inputStyle else { return 0 }
+            let table = currentElements[lastIndex].cachedTable
+            updateConvertTarget(&currentElements[lastIndex].string, cachedTable: table, piece: .compositionSeparator)
             return 0
         }
     }
@@ -444,70 +495,51 @@ extension ComposingText {
         }
     }
 
-    static func updateConvertTarget(_ convertTarget: inout [Character], inputStyle: InputStyle, newCharacter: Character) {
-        switch inputStyle {
-        case .direct:
-            convertTarget.append(newCharacter)
-        case .roman2kana:
-            convertTarget = InputStyleManager.shared.table(for: .defaultRomanToKana).toHiragana(currentText: convertTarget, added: .character(newCharacter))
-        case .mapped(let id):
-            convertTarget = InputStyleManager.shared.table(for: id).toHiragana(currentText: convertTarget, added: .character(newCharacter))
+    static func initializeConvertTarget(cachedTable: borrowing InputTable?, newCharacter: Character) -> [Character] {
+        if cachedTable != nil {
+            var buf: [Character] = []
+            cachedTable!.apply(to: &buf, added: .character(newCharacter))
+            return buf
+        } else {
+            return [newCharacter]
         }
     }
 
-    // convertTargetの更新時に書き換えられたテキストの長さ(使われた変換テーブルエントリの一列目の長さ)を返す
-    static func updateConvertTargetWithMatchDepth(_ convertTarget: inout [Character], inputStyle: InputStyle, newCharacter: Character) -> Int {
-        let matchDepth: Int
-        switch inputStyle {
-        case .direct:
+    static func updateConvertTarget(_ convertTarget: inout [Character], cachedTable: borrowing InputTable?, newCharacter: Character) {
+        if cachedTable != nil {
+            cachedTable!.apply(to: &convertTarget, added: .character(newCharacter))
+        } else {
             convertTarget.append(newCharacter)
-            matchDepth = 1
-        case .roman2kana:
-            (convertTarget, matchDepth) = InputStyleManager.shared.table(for: .defaultRomanToKana).toHiraganaWithMatchDepth(currentText: convertTarget, added: .character(newCharacter))
-        case .mapped(let id):
-            (convertTarget, matchDepth) = InputStyleManager.shared.table(for: id).toHiraganaWithMatchDepth(currentText: convertTarget, added: .character(newCharacter))
         }
-        return matchDepth
     }
 
-    static func updateConvertTarget(current: [Character], inputStyle: InputStyle, piece: InputPiece) -> [Character] {
+    static func updateConvertTargetWithDeletedCount(_ convertTarget: inout [Character], cachedTable: borrowing InputTable?, newCharacter: Character) -> Int {
+        if cachedTable != nil {
+            return cachedTable!.applyWithDeletedCount(to: &convertTarget, added: .character(newCharacter))
+        } else {
+            convertTarget.append(newCharacter)
+            return 0
+        }
+    }
+
+    static func updateConvertTarget(_ convertTarget: inout [Character], cachedTable: borrowing InputTable?, piece: InputPiece) {
         switch piece {
         case .character(let ch):
-            return updateConvertTarget(current: current, inputStyle: inputStyle, newCharacter: ch)
+            updateConvertTarget(&convertTarget, cachedTable: cachedTable, newCharacter: ch)
         case .compositionSeparator:
-            switch inputStyle {
-            case .direct:
-                return current
-            case .roman2kana:
-                return InputStyleManager.shared.table(for: .defaultRomanToKana).toHiragana(currentText: current, added: .compositionSeparator)
-            case .mapped(let id):
-                return InputStyleManager.shared.table(for: id).toHiragana(currentText: current, added: .compositionSeparator)
-            }
+            cachedTable?.apply(to: &convertTarget, added: .compositionSeparator)
         }
     }
-
-    static func updateConvertTarget(_ convertTarget: inout [Character], inputStyle: InputStyle, piece: InputPiece) {
-        switch piece {
-        case .character(let ch):
-            updateConvertTarget(&convertTarget, inputStyle: inputStyle, newCharacter: ch)
-        case .compositionSeparator:
-            switch inputStyle {
-            case .direct:
-                break
-            case .roman2kana:
-                convertTarget = InputStyleManager.shared.table(for: .defaultRomanToKana).toHiragana(currentText: convertTarget, added: .compositionSeparator)
-            case .mapped(let id):
-                convertTarget = InputStyleManager.shared.table(for: id).toHiragana(currentText: convertTarget, added: .compositionSeparator)
-            }
-        }
-    }
-
 }
 
 // Equatableにしておく
 extension ComposingText: Equatable {}
 extension ComposingText.InputElement: Equatable {}
-extension ComposingText.ConvertTargetElement: Equatable {}
+extension ComposingText.ConvertTargetElement: Equatable {
+    static func == (lhs: ComposingText.ConvertTargetElement, rhs: ComposingText.ConvertTargetElement) -> Bool {
+        lhs.inputStyle == rhs.inputStyle && lhs.string == rhs.string
+    }
+}
 
 // MARK: 差分計算用のAPI
 extension ComposingText {
