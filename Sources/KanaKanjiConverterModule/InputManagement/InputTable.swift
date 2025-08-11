@@ -4,12 +4,7 @@ private indirect enum TrieNode {
         var resolvedAny1: InputPiece?
     }
 
-    case node(
-        output: [InputTable.ValueElement]?,
-        charChildren: [Character: TrieNode] = [:],
-        separatorChild: TrieNode? = nil,
-        any1Child: TrieNode? = nil
-    )
+    case node(output: [InputTable.ValueElement]?, charChildren: [Character: TrieNode] = [:], separatorChild: TrieNode? = nil, any1Child: TrieNode? = nil)
 
     // Recursively insert a reversed key path and set the output when the path ends.
     mutating func add(reversedKey: some Collection<InputTable.KeyElement>, output: [InputTable.ValueElement]) {
@@ -137,16 +132,16 @@ struct InputTable: Sendable {
         switch node {
         case .node(_, let charChildren, let separatorChild, _):
             switch piece {
-            case .character(let c):
-                return charChildren[c]
-            case .compositionSeparator:
-                return separatorChild
+            case .character(let c): charChildren[c]
+            case .compositionSeparator: separatorChild
             }
         }
     }
 
     private static func childAny1(of node: TrieNode) -> TrieNode? {
-        switch node { case .node(_, _, _, let any1Child): return any1Child }
+        switch node {
+        case .node(_, _, _, let any1Child): any1Child
+        }
     }
 
     // Non-recursive DFS: prefer concrete edge; then try `.any1` fallback.
