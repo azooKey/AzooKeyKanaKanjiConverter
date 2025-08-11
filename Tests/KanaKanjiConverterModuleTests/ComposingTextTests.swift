@@ -145,6 +145,38 @@ final class ComposingTextTests: XCTestCase {
             XCTAssertEqual(c.convertTarget, "あかふ")
             XCTAssertEqual(c.convertTargetCursorPosition, 3)
         }
+        // カスタム (危険なケース)
+        do {
+            let url = FileManager.default.temporaryDirectory.appendingPathComponent("custom_delete1.tsv")
+            try "o\tおは\nおはy\tおはよう".write(to: url, atomically: true, encoding: .utf8) // カスタムテーブルを保存
+            var c = ComposingText()
+            sequentialInput(&c, sequence: "oy", inputStyle: .mapped(id: .custom(url))) // おはよう|
+            _ = c.moveCursorFromCursorPosition(count: -3) // お|はよう
+            // 「お」を消す
+            c.deleteForwardFromCursorPosition(count: 1)   // お|よう
+            XCTAssertEqual(c.input, [
+                ComposingText.InputElement(character: "お", inputStyle: .frozen),
+                ComposingText.InputElement(character: "よ", inputStyle: .frozen),
+                ComposingText.InputElement(character: "う", inputStyle: .frozen),
+            ])
+            XCTAssertEqual(c.convertTarget, "およう")
+            XCTAssertEqual(c.convertTargetCursorPosition, 1)
+        }
+        // カスタム (循環を含むケース)
+        do {
+            let url = FileManager.default.temporaryDirectory.appendingPathComponent("custom_delete2.tsv")
+            try "a\tあ\ne\tえ\nあi\tい\nいu\tあ".write(to: url, atomically: true, encoding: .utf8) // カスタムテーブルを保存
+            var c = ComposingText()
+            sequentialInput(&c, sequence: "eaiu", inputStyle: .mapped(id: .custom(url))) // えあ|
+            _ = c.moveCursorFromCursorPosition(count: -1) // え|あ
+            // 「あ」を消す
+            c.deleteForwardFromCursorPosition(count: 1) // え|
+            XCTAssertEqual(c.input, [
+                ComposingText.InputElement(character: "e", inputStyle: .mapped(id: .custom(url))),
+            ])
+            XCTAssertEqual(c.convertTarget, "え")
+            XCTAssertEqual(c.convertTargetCursorPosition, 1)
+        }
 
     }
 
