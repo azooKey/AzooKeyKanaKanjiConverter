@@ -88,13 +88,14 @@ public struct ComposingText: Sendable {
         // 2. character = "a"
         //    roman2kana = "か"
         //    independentSegment = [ka]
-        //    target.hasPrefix(roman2kana)がtrueなので、lastPrefixIndex = 2, lastPrefix = "か"
+        //    `a`が`k`とセットになることで`か`が入力される
         // 3. character = "n"
         //    roman2kana = "かn"
         //    independentSegment = [ka, n]
         // 4. character = "s"
         //    roman2kana = "かんs"
         //    independentSegment = [ka, ns]
+        //    `ん`は`n`に続いて文字が入力されることで変換されるので、`n`と`s`は互いに独立でない
         // 5. character = "h"
         //    roman2kana = "かんsh"
         //    independentSegment = [ka, ns, h]
@@ -225,11 +226,11 @@ public struct ComposingText: Sendable {
         // input: [k, a, n, s, h, a]
         // count = 1
         // currentPrefix = かんしゃ
-        // これから行く位置
-        //  targetCursorPosition = forceGetInputCursorPosition(かんし) = 4
+        // これから行く位置: 3文字目
+        //  targetCursorPosition = forceGetInputCursorPosition(3) = 4
         //  副作用でinputは[k, a, ん, し, ゃ]
-        // 現在の位置
-        //  inputCursorPosition = forceGetInputCursorPosition(かんしゃ) = 5
+        // 現在の位置: 4文字目
+        //  inputCursorPosition = forceGetInputCursorPosition(4) = 5
         //  副作用でinputは[k, a, ん, し, ゃ]
         // inputを更新する
         //  input =   (input.prefix(targetCursorPosition) = [k, a, ん, し])
@@ -241,19 +242,16 @@ public struct ComposingText: Sendable {
         // input: [k, a, n, s, h, a]
         // count = 2
         // currentPrefix = かんしゃ
-        // これから行く位置
-        //  targetCursorPosition = forceGetInputCursorPosition(かん) = 3
+        // これから行く位置: 2文字目
+        //  targetCursorPosition = forceGetInputCursorPosition(2) = 3
         //  副作用でinputは[k, a, ん, s, h, a]
-        // 現在の位置
-        //  inputCursorPosition = forceGetInputCursorPosition(かんしゃ) = 6
+        // 現在の位置: 4文字目
+        //  inputCursorPosition = forceGetInputCursorPosition(4) = 6
         //  副作用でinputは[k, a, ん, s, h, a]
         // inputを更新する
         //  input =   (input.prefix(targetCursorPosition) = [k, a, ん])
         //          + (input.suffix(input.count - inputCursorPosition) = [])
         //        =   [k, a, ん]
-
-        // 今いる位置
-        // let currentSurfaceCursorPosition = self.convertTargetBeforeCursor
 
         // この2つの値はこの順で計算する。
         // これから行く位置
