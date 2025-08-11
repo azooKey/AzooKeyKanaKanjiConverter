@@ -484,17 +484,6 @@ extension ComposingText {
         }
     }
 
-    static func updateConvertTarget(current: [Character], inputStyle: InputStyle, newCharacter: Character) -> [Character] {
-        switch inputStyle {
-        case .direct:
-            return current + [newCharacter]
-        case .roman2kana:
-            return InputStyleManager.shared.table(for: .defaultRomanToKana).toHiragana(currentText: current, added: .character(newCharacter))
-        case .mapped(let id):
-            return InputStyleManager.shared.table(for: id).toHiragana(currentText: current, added: .character(newCharacter))
-        }
-    }
-
     static func initializeConvertTarget(cachedTable: borrowing InputTable?, newCharacter: Character) -> [Character] {
         if cachedTable != nil {
             var buf: [Character] = []
