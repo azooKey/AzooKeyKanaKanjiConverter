@@ -204,7 +204,7 @@ struct InputTable: Sendable {
         return best.map { ($0.node, $0.state, $0.depth) }
     }
 
-    /// Convert roman/katakana input pieces into hiragana with match depth infomation.
+    /// Convert roman/katakana input pieces into hiragana.
     /// `any1` edges serve strictly as fall‑backs: a concrete `.piece`
     /// transition always has priority and we only follow `.any1`
     /// when no direct edge exists at the same depth.
@@ -212,30 +212,23 @@ struct InputTable: Sendable {
     /// The algorithm walks the suffix‑trie from the newly added piece
     /// backwards, examining at most `maxKeyCount` pieces, and keeps the
     /// longest match.
-    func toHiraganaWithMatchDepth(currentText: [Character], added: InputPiece) -> ([Character], Int) {
+    func toHiragana(currentText: [Character], added: InputPiece) -> [Character] {
         // Greedy match without temporary array allocation.
         let bestMatch = Self.matchGreedy(root: self.trieRoot, buffer: currentText, added: added, maxKeyCount: self.maxKeyCount)
 
         // Apply the result or fall back to passthrough behaviour.
         if let (bestNode, bestState, matchedDepth) = bestMatch, let kana = bestNode.outputValue(state: bestState) {
             // `matchedDepth` includes `added`, so drop `matchedDepth - 1` chars.
-            return (Array(currentText.dropLast(matchedDepth - 1)) + kana, matchedDepth)
+            return Array(currentText.dropLast(matchedDepth - 1)) + kana
         }
 
         // In case where no match found
         switch added {
         case .character(let ch):
-            return (currentText + [ch], 1)
+            return currentText + [ch]
         case .compositionSeparator:
-            return (currentText, 1)
+            return currentText
         }
-    }
-
-    /// Convert roman/katakana input pieces into hiragana.
-    /// This is a wrapper around `toHiraganaWithMatchDepth` that returns
-    /// only the converted hiragana characters.
-    func toHiragana(currentText: [Character], added: InputPiece) -> [Character] {
-        return toHiraganaWithMatchDepth(currentText: currentText, added: added).0
     }
 
     /// In‑place variant: mutates `buffer` and returns (deleted, added) counts.

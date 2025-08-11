@@ -125,7 +125,7 @@ public struct ComposingText: Sendable {
             // 今回の文字入力による変換が、前の暫定独立セグメントの文字を含むテーブルエントリによって行われた場合
             // 新セグメントは前のセグメントに依存しているので、ここで前のセグメントとの境界を消すことで、新しい独立セグメントをつくる
             while let lastIndependentSegment =  independentSegmentBoundaries.popLast() {
-                // matchDepthは、現在の文字を入力する際に使われた、ローマ字かな変換テーブルのエントリの1列目の長さ
+                // deletedCountは、現在の文字を入力した際に関連(依存)した文字列の長さ
                 if lastIndependentSegment.surfaceIndex <= convertedLength - deletedCount {
                     // これ以上前のセグメントには依存していないので一度消した境界を戻す
                     independentSegmentBoundaries.append(lastIndependentSegment)
