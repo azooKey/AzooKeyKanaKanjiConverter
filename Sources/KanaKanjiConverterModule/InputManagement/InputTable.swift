@@ -234,33 +234,8 @@ struct InputTable: Sendable {
     /// In‑place variant: mutates `buffer` and returns (deleted, added) counts.
     /// Semantics match `toHiragana(currentText:added:)` but avoids new allocations
     /// when possible by editing the tail of `buffer` directly.
-    borrowing func apply(to buffer: inout [Character], added: InputPiece) {
-        // Greedy match without temporary array allocation.
-        let bestMatch = Self.matchGreedy(root: self.trieRoot, buffer: buffer, added: added, maxKeyCount: self.maxKeyCount)
-
-        if let (bestNode, bestState, matchedDepth) = bestMatch, let kana = bestNode.outputValue(state: bestState) {
-            let deleteCount = max(0, matchedDepth - 1)
-            if deleteCount > 0 {
-                buffer.removeLast(deleteCount)
-            }
-            if !kana.isEmpty {
-                buffer.append(contentsOf: kana)
-            }
-            return
-        }
-
-        switch added {
-        case .character(let ch):
-            buffer.append(ch)
-        case .compositionSeparator:
-            break
-        }
-    }
-
-    /// Same as apply(to:added:) but returns deletedCount.
-    /// Semantics match `toHiragana(currentText:added:)` but avoids new allocations
-    /// when possible by editing the tail of `buffer` directly.
-    borrowing func applyWithDeletedCount(to buffer: inout [Character], added: InputPiece) -> Int {
+    @discardableResult
+    borrowing func apply(to buffer: inout [Character], added: InputPiece) -> Int {
         // Greedy match without temporary array allocation.
         let bestMatch = Self.matchGreedy(root: self.trieRoot, buffer: buffer, added: added, maxKeyCount: self.maxKeyCount)
 

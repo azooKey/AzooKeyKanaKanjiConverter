@@ -121,7 +121,7 @@ public struct ComposingText: Sendable {
 
         // 独立なセグメントの境界リストを作成する
         for (currentInputIndex, element) in input.enumerated() {
-            let deletedCount = Self.updateConvertTargetElementsWithDeletedCount(currentElements: &converting, newElement: element)
+            let deletedCount = Self.updateConvertTargetElements(currentElements: &converting, newElement: element)
             // 今回の文字入力による変換が、前の暫定独立セグメントの文字を含むテーブルエントリによって行われた場合
             // 新セグメントは前のセグメントに依存しているので、ここで前のセグメントとの境界を消すことで、新しい独立セグメントをつくる
             while let lastIndependentSegment =  independentSegmentBoundaries.popLast() {
@@ -390,54 +390,8 @@ extension ComposingText {
     }
 
     @inline(__always)
-    static func updateConvertTargetElements(currentElements: inout [ConvertTargetElement], newElement: InputElement) {
-        switch newElement.piece {
-        case .character(let ch):
-            if currentElements.isEmpty {
-                let table: InputTable? = {
-                    switch newElement.inputStyle {
-                    case .direct: return nil
-                    case .roman2kana: return InputStyleManager.shared.table(for: .defaultRomanToKana)
-                    case .mapped(let id): return InputStyleManager.shared.table(for: id)
-                    }
-                }()
-                let s = initializeConvertTarget(cachedTable: table, newCharacter: ch)
-                currentElements.append(
-                    ConvertTargetElement(string: s, inputStyle: newElement.inputStyle, cachedTable: table)
-                )
-                return
-            }
-            let lastIndex = currentElements.count - 1
-            if currentElements[lastIndex].inputStyle == newElement.inputStyle {
-                let table = currentElements[lastIndex].cachedTable
-                updateConvertTarget(&currentElements[lastIndex].string, cachedTable: table, newCharacter: ch)
-            } else {
-                let table: InputTable? = {
-                    switch newElement.inputStyle {
-                    case .direct: return nil
-                    case .roman2kana: return InputStyleManager.shared.table(for: .defaultRomanToKana)
-                    case .mapped(let id): return InputStyleManager.shared.table(for: id)
-                    }
-                }()
-                let s = initializeConvertTarget(cachedTable: table, newCharacter: ch)
-                currentElements.append(
-                    ConvertTargetElement(string: s, inputStyle: newElement.inputStyle, cachedTable: table)
-                )
-            }
-        case .compositionSeparator:
-            if currentElements.isEmpty {
-                return
-            }
-            let lastIndex = currentElements.count - 1
-            guard currentElements[lastIndex].inputStyle == newElement.inputStyle else { return }
-            let table = currentElements[lastIndex].cachedTable
-            updateConvertTarget(&currentElements[lastIndex].string, cachedTable: table, piece: .compositionSeparator)
-        }
-    }
-
-    // convertTargetの更新するために削除された文字数を返す
-    @inline(__always)
-    static func updateConvertTargetElementsWithDeletedCount(currentElements: inout [ConvertTargetElement], newElement: InputElement) -> Int {
+    @discardableResult
+    static func updateConvertTargetElements(currentElements: inout [ConvertTargetElement], newElement: InputElement) -> Int {
         switch newElement.piece {
         case .character(let ch):
             if currentElements.isEmpty {
@@ -457,7 +411,7 @@ extension ComposingText {
             let lastIndex = currentElements.count - 1
             if currentElements[lastIndex].inputStyle == newElement.inputStyle {
                 let table = currentElements[lastIndex].cachedTable
-                return updateConvertTargetWithDeletedCount(&currentElements[lastIndex].string, cachedTable: table, newCharacter: ch)
+                return updateConvertTarget(&currentElements[lastIndex].string, cachedTable: table, newCharacter: ch)
             } else {
                 let table: InputTable? = {
                     switch newElement.inputStyle {
@@ -494,17 +448,11 @@ extension ComposingText {
         }
     }
 
-    static func updateConvertTarget(_ convertTarget: inout [Character], cachedTable: borrowing InputTable?, newCharacter: Character) {
+    ///- Returns: deletedCount
+    @discardableResult
+    static func updateConvertTarget(_ convertTarget: inout [Character], cachedTable: borrowing InputTable?, newCharacter: Character) -> Int {
         if cachedTable != nil {
-            cachedTable!.apply(to: &convertTarget, added: .character(newCharacter))
-        } else {
-            convertTarget.append(newCharacter)
-        }
-    }
-
-    static func updateConvertTargetWithDeletedCount(_ convertTarget: inout [Character], cachedTable: borrowing InputTable?, newCharacter: Character) -> Int {
-        if cachedTable != nil {
-            return cachedTable!.applyWithDeletedCount(to: &convertTarget, added: .character(newCharacter))
+            return cachedTable!.apply(to: &convertTarget, added: .character(newCharacter))
         } else {
             convertTarget.append(newCharacter)
             return 0
