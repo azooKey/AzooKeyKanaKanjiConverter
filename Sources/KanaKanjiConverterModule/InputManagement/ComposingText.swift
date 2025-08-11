@@ -456,7 +456,7 @@ extension ComposingText {
                     case .mapped(let id): return InputStyleManager.shared.table(for: id)
                     }
                 }()
-                let s = updateConvertTarget(current: [], cachedTable: table, newCharacter: ch)
+                let s = initializeConvertTarget(cachedTable: table, newCharacter: ch)
                 currentElements.append(
                     ConvertTargetElement(string: s, inputStyle: newElement.inputStyle, cachedTable: table)
                 )
@@ -474,7 +474,7 @@ extension ComposingText {
                     case .mapped(let id): return InputStyleManager.shared.table(for: id)
                     }
                 }()
-                let s = updateConvertTarget(current: [], cachedTable: table, newCharacter: ch)
+                let s = initializeConvertTarget(cachedTable: table, newCharacter: ch)
                 currentElements.append(
                     ConvertTargetElement(string: s, inputStyle: newElement.inputStyle, cachedTable: table)
                 )
@@ -490,64 +490,30 @@ extension ComposingText {
         }
     }
 
-    static func updateConvertTarget(current: [Character], inputStyle: InputStyle, newCharacter: Character) -> [Character] {
-        switch inputStyle {
-        case .direct:
-            return current + [newCharacter]
-        case .roman2kana:
-            var buf = current
-            _ = InputStyleManager.shared.table(for: .defaultRomanToKana).apply(to: &buf, added: .character(newCharacter))
+    static func initializeConvertTarget(cachedTable: borrowing InputTable?, newCharacter: Character) -> [Character] {
+        if cachedTable != nil {
+            var buf: [Character] = []
+            cachedTable!.apply(to: &buf, added: .character(newCharacter))
             return buf
-        case .mapped(let id):
-            var buf = current
-            _ = InputStyleManager.shared.table(for: id).apply(to: &buf, added: .character(newCharacter))
-            return buf
+        } else {
+            return [newCharacter]
         }
     }
 
-    // Cached-table variants to reduce table lookup overhead in hot paths
-    static func updateConvertTarget(current: [Character], inputStyle: InputStyle, cachedTable: InputTable?, newCharacter: Character) -> [Character] {
-        switch inputStyle {
-        case .direct:
-            return current + [newCharacter]
-        case .roman2kana, .mapped:
-            var buf = current
-            if let cachedTable {
-                _ = cachedTable.apply(to: &buf, added: .character(newCharacter))
-            } else {
-                return updateConvertTarget(current: current, inputStyle: inputStyle, newCharacter: newCharacter)
-            }
-            return buf
-        }
-    }
-
-    static func updateConvertTarget(_ convertTarget: inout [Character], cachedTable: InputTable?, newCharacter: Character) {
-        if let table = cachedTable {
-            _ = table.apply(to: &convertTarget, added: .character(newCharacter))
+    static func updateConvertTarget(_ convertTarget: inout [Character], cachedTable: borrowing InputTable?, newCharacter: Character) {
+        if cachedTable != nil {
+            cachedTable!.apply(to: &convertTarget, added: .character(newCharacter))
         } else {
             convertTarget.append(newCharacter)
         }
     }
 
-    // Cached-table variant for value-returning form
-    static func updateConvertTarget(current: [Character], cachedTable: InputTable?, newCharacter: Character) -> [Character] {
-        if let table = cachedTable {
-            var buf = current
-            _ = table.apply(to: &buf, added: .character(newCharacter))
-            return buf
-        } else {
-            return current + [newCharacter]
-        }
-    }
-
-    static func updateConvertTarget(_ convertTarget: inout [Character], cachedTable: InputTable?, piece: InputPiece) {
+    static func updateConvertTarget(_ convertTarget: inout [Character], cachedTable: borrowing InputTable?, piece: InputPiece) {
         switch piece {
         case .character(let ch):
             updateConvertTarget(&convertTarget, cachedTable: cachedTable, newCharacter: ch)
         case .compositionSeparator:
-            if let table = cachedTable {
-                _ = table.apply(to: &convertTarget, added: .compositionSeparator)
-            }
+            cachedTable?.apply(to: &convertTarget, added: .compositionSeparator)
         }
     }
 }

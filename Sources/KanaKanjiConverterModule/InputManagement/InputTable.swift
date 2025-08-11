@@ -149,48 +149,63 @@ struct InputTable: Sendable {
         switch node { case .node(_, _, _, let any1Child): return any1Child }
     }
 
-    // Tiny DFS: at each step try concrete edge first, then `.any1` fallback.
+    // Non-recursive DFS: prefer concrete edge; then try `.any1` fallback.
     // Keeps the deepest match; for ties at same depth, prefers fewer `.any1` hops.
-    // Returns the best node and state to resolve the output only once later.
+    // Returns the best node/state so the caller resolves the output once.
     private static func matchGreedy(root: TrieNode, buffer: [Character], added: InputPiece, maxKeyCount: Int) -> (node: TrieNode, state: TrieNode.State, depth: Int)? {
+        struct Frame {
+            var node: TrieNode
+            var state: TrieNode.State
+            var depth: Int
+            var any1: Int
+        }
         var best: (node: TrieNode, state: TrieNode.State, depth: Int, any1: Int)?
 
-        func pieceAt(depth: Int) -> InputPiece? {
-            if depth == 0 { return added }
+        @inline(__always)
+        func pieceAt(_ depth: Int) -> InputPiece? {
+            if depth == 0 {
+                return added
+            }
             let idx = buffer.count - depth
-            guard idx >= 0, idx < buffer.count else { return nil }
+            if idx < 0 || idx >= buffer.count {
+                return nil
+            }
             return .character(buffer[idx])
         }
 
-        func dfs(from node: TrieNode, state: TrieNode.State, depth: Int, any1Count: Int) {
-            guard depth < maxKeyCount, let piece = pieceAt(depth: depth) else {
-                return
+        var stack: [Frame] = [Frame(node: root, state: .init(), depth: 0, any1: 0)]
+        stack.reserveCapacity(max(2, maxKeyCount))
+
+        while let top = stack.popLast() {
+            guard top.depth < maxKeyCount, let piece = pieceAt(top.depth) else {
+                continue
             }
 
-            // 1) Concrete edge
-            if let next = childPiece(of: node, piece) {
+            // 1) Concrete edge (preferred)
+            if let next = childPiece(of: top.node, piece) {
                 if next.hasOutput {
-                    if best == nil || depth + 1 > best!.depth || (depth + 1 == best!.depth && any1Count < best!.any1) {
-                        best = (next, state, depth + 1, any1Count)
+                    if best == nil || top.depth + 1 > best!.depth || (top.depth + 1 == best!.depth && top.any1 < best!.any1) {
+                        best = (next, top.state, top.depth + 1, top.any1)
                     }
                 }
-                dfs(from: next, state: state, depth: depth + 1, any1Count: any1Count)
+                stack.append(Frame(node: next, state: top.state, depth: top.depth + 1, any1: top.any1))
             }
 
-            // 2) `.any1` fallback (only if compatible with previously resolved value)
-            if (state.resolvedAny1 ?? piece) == piece, let next = childAny1(of: node) {
-                var newState = state
-                if newState.resolvedAny1 == nil { newState.resolvedAny1 = piece }
-                if next.hasOutput {
-                    if best == nil || depth + 1 > best!.depth || (depth + 1 == best!.depth && any1Count + 1 < best!.any1) {
-                        best = (next, newState, depth + 1, any1Count + 1)
+            // 2) `.any1` fallback (only if compatible)
+            if (top.state.resolvedAny1 ?? piece) == piece, let nextAny = childAny1(of: top.node) {
+                var newState = top.state
+                if newState.resolvedAny1 == nil {
+                    newState.resolvedAny1 = piece
+                }
+                if nextAny.hasOutput {
+                    if best == nil || top.depth + 1 > best!.depth || (top.depth + 1 == best!.depth && top.any1 + 1 < best!.any1) {
+                        best = (nextAny, newState, top.depth + 1, top.any1 + 1)
                     }
                 }
-                dfs(from: next, state: newState, depth: depth + 1, any1Count: any1Count + 1)
+                stack.append(Frame(node: nextAny, state: newState, depth: top.depth + 1, any1: top.any1 + 1))
             }
         }
 
-        dfs(from: root, state: .init(), depth: 0, any1Count: 0)
         return best.map { ($0.node, $0.state, $0.depth) }
     }
 
@@ -224,7 +239,7 @@ struct InputTable: Sendable {
     /// In‑place variant: mutates `buffer` and returns (deleted, added) counts.
     /// Semantics match `toHiragana(currentText:added:)` but avoids new allocations
     /// when possible by editing the tail of `buffer` directly.
-    func apply(to buffer: inout [Character], added: InputPiece) -> (deleted: Int, added: Int) {
+    borrowing func apply(to buffer: inout [Character], added: InputPiece) {
         // Greedy match without temporary array allocation.
         let bestMatch = Self.matchGreedy(root: self.trieRoot, buffer: buffer, added: added, maxKeyCount: self.maxKeyCount)
 
@@ -236,15 +251,14 @@ struct InputTable: Sendable {
             if !kana.isEmpty {
                 buffer.append(contentsOf: kana)
             }
-            return (deleteCount, kana.count)
+            return
         }
 
         switch added {
         case .character(let ch):
             buffer.append(ch)
-            return (0, 1)
         case .compositionSeparator:
-            return (0, 0)
+            break
         }
     }
 }

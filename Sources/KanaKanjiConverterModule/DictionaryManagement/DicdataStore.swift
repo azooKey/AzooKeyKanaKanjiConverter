@@ -816,8 +816,7 @@ public final class DicdataStore {
     ///   - latter: 右側の語のid
     /// - Returns:
     ///   連接確率の対数。
-    /// - 要求があった場合ごとにファイルを読み込んで
-    /// 速度: ⏱0.115224 : 変換_処理_連接コスト計算_CCValue
+    /// - 要求があった場合ごとにファイルを読み込む
     public func getCCValue(_ former: Int, _ latter: Int) -> PValue {
         if !ccParsed[former] {
             let url = requestOptions.dictionaryResourceURL.appendingPathComponent("cb/\(former).binary", isDirectory: false)
