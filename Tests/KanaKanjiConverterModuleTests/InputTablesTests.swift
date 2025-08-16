@@ -54,4 +54,11 @@ final class Roman2KanaTests: XCTestCase {
         XCTAssertEqual(table.toHiragana(currentText: Array("n"), added: .character("t")), Array("んt"))
         XCTAssertEqual(table.toHiragana(currentText: Array("n"), added: .character("n")), Array("んn"))
     }
+
+    func testKanaJIS() throws {
+        let table = InputStyleManager.shared.table(for: .defaultKanaJIS)
+        XCTAssertEqual(table.toHiragana(currentText: Array(""), added: .character("q")), Array("た"))
+        XCTAssertEqual(table.toHiragana(currentText: Array("た"), added: .character("＠")), Array("だ"))
+        XCTAssertEqual(table.toHiragana(currentText: Array(""), added: .key(intention: "0", modifiers: [.shift])), Array("を"))
+    }
 }

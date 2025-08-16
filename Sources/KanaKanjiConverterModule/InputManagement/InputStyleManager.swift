@@ -10,10 +10,14 @@ public final class InputStyleManager {
         // デフォルトのテーブルは最初から追加しておく
         let defaultRomanToKana = InputTable(pieceHiraganaChanges: InputTables.defaultRomanToKanaPieceMap)
         let defaultAZIK = InputTable(pieceHiraganaChanges: InputTables.defaultAzikPieceMap)
+        let defaultKanaJIS = InputTable(pieceHiraganaChanges: InputTables.defaultKanaJISPieceMap)
+        let defaultKanaUS = InputTable(pieceHiraganaChanges: InputTables.defaultKanaUSPieceMap)
         self.tables = [
             .empty: .empty,
             .defaultRomanToKana: defaultRomanToKana,
-            .defaultAZIK: defaultAZIK
+            .defaultAZIK: defaultAZIK,
+            .defaultKanaJIS: defaultKanaJIS,
+            .defaultKanaUS: defaultKanaUS
         ]
     }
 
