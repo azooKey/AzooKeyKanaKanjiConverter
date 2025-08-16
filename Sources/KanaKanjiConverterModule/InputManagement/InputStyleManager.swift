@@ -8,8 +8,8 @@ public final class InputStyleManager {
 
     private init() {
         // デフォルトのテーブルは最初から追加しておく
-        let defaultRomanToKana = InputTable(pieceHiraganaChanges: Roman2KanaMaps.defaultRomanToKanaPieceMap)
-        let defaultAZIK = InputTable(pieceHiraganaChanges: Roman2KanaMaps.defaultAzikPieceMap)
+        let defaultRomanToKana = InputTable(pieceHiraganaChanges: InputTables.defaultRomanToKanaPieceMap)
+        let defaultAZIK = InputTable(pieceHiraganaChanges: InputTables.defaultAzikPieceMap)
         self.tables = [
             .empty: .empty,
             .defaultRomanToKana: defaultRomanToKana,
@@ -19,7 +19,7 @@ public final class InputStyleManager {
 
     func table(for id: InputTableID) -> InputTable {
         switch id {
-        case .defaultRomanToKana, .defaultAZIK, .empty:
+        case .defaultRomanToKana, .defaultAZIK, .defaultKanaUS, .defaultKanaJIS, .empty:
             return self.tables[id]!
         case .custom(let url):
             if let table = self.tables[id] {
