@@ -603,11 +603,34 @@ public final class KanaKanjiConverter {
                 }
             // その他辞書データに追加する候補
             let additionalCandidates: [Candidate] = self.getAdditionalCandidate(inputData, options: options)
+            // Zenzai next-char ranking map (if Zenzai is enabled and evaluated in this request)
+            let zenzFirstCharRanking: [Character: Float]? = {
+                if options.zenzaiMode.enabled, let zenz = self.zenz, let ranking = zenz.getLastFirstCharRanking() {
+                    return Dictionary(uniqueKeysWithValues: ranking)
+                } else {
+                    return nil
+                }
+            }()
             var candidates = self.getUniqueCandidate((consume dicCandidates).chained(consume additionalCandidates), seenCandidates: seenCandidate)
                 .sorted {
                     let count0 = $0.rubyCount
                     let count1 = $1.rubyCount
-                    return count0 == count1 ? $0.value > $1.value : count0 > count1
+                    // 長い順
+                    if count0 != count1 {
+                        return count0 > count1
+                    }
+                    // If both are single-character candidates and Zenz ranking is available, use it as a tie-breaker
+                    if let zenzFirstCharRanking, $0.text.count == 1 && $1.text.count == 1 {
+                        let p0 = zenzFirstCharRanking[$0.text.first!]
+                        let p1 = zenzFirstCharRanking[$1.text.first!]
+                        return switch (p0, p1) {
+                        case (nil, nil): $0.value > $1.value
+                        case (_?, nil): true
+                        case (nil, _?): false
+                        case (let p0?, let p1?): p0 > p1
+                        }
+                    }
+                    return $0.value > $1.value
                 }
             for c in candidates {
                 seenCandidate.insert(c.text)

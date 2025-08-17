@@ -71,11 +71,18 @@ enum ZenzError: LocalizedError {
 }
 
 final class ZenzContext {
+    private static let maxStoredFirstCharCount = 100
+    // Keep only top-M tokens at the first step; decode only a subset afterwards
+    private static let maxFirstStepTokenHeapSize = 100
+    private static let firstStepTokenDecodeLimit = 100
     private var model: OpaquePointer
     private var context: OpaquePointer
     private var vocab: OpaquePointer
     private var prevInput: [llama_token] = []
     private var prevPrompt: [llama_token] = []
+    // The latest distribution for the first output character (as probability per Character)
+    private(set) var lastFirstCharRanking: [(character: Character, probability: Float)] = []
+    
 
     private let n_len: Int32 = 512
 
@@ -151,6 +158,7 @@ final class ZenzContext {
         self.context = context
         self.prevInput = []
         self.prevPrompt = []
+        self.lastFirstCharRanking = []
     }
 
     private func get_logits(tokens: [llama_token], logits_start_index: Int = 0) -> UnsafeMutablePointer<Float>? {
@@ -437,6 +445,8 @@ final class ZenzContext {
             // addressedTokensについてはそのまま扱えばよい
             addressed_tokens = self.tokenize(text: self.preprocessText(text: string), add_bos: false, add_eos: false)
         } else {
+            // Reset per-evaluation to avoid leaking a stale ranking on errors or early-returns
+            self.lastFirstCharRanking = []
             // rich candidatesのため、logit全体を得る必要がある
             addressed_tokens = []
         }
@@ -469,6 +479,42 @@ final class ZenzContext {
         }
 
         var altTokens = FixedSizeHeap<AlternativeHighProbToken>(size: requestRichCandidates ? 5 : 0)
+        // First-step: keep only top-M tokens by logprob, then aggregate to characters (log-sum-exp)
+        struct FirstStepTokenLog: Comparable {
+            static func < (l: Self, r: Self) -> Bool {
+                l.logprob < r.logprob
+            }
+            var token: llama_token
+            var logprob: Float
+        }
+        var firstStepTopTokens = FixedSizeHeap<FirstStepTokenLog>(size: Self.maxFirstStepTokenHeapSize)
+        // Ensure we finalize the first-char ranking even if we early-return inside the loop
+        defer {
+            if !firstStepTopTokens.isEmpty {
+                let selected = firstStepTopTokens.unordered
+                    .sorted { $0.logprob > $1.logprob }
+                    .prefix(Self.firstStepTokenDecodeLimit)
+                var items: [(character: Character, logprob: Float)] = []
+                items.reserveCapacity(selected.count)
+                for item in selected {
+                    let bytes = token_to_piece(token: item.token)
+                    let data = Data(bytes.map { UInt8(bitPattern: $0) })
+                    if let s = String(data: data, encoding: .utf8), let c = s.first {
+                        items.append((c, item.logprob))
+                    }
+                }
+                if !items.isEmpty {
+                    let m = items.map { $0.logprob }.max() ?? 0
+                    var sumExp: Float = 0
+                    let shifted = items.map { (c: $0.character, v: expf($0.logprob - m)) }
+                    for x in shifted { sumExp += x.v }
+                    self.lastFirstCharRanking = shifted
+                        .map { (character: $0.c, probability: $0.v / sumExp) }
+                        .sorted { $0.probability > $1.probability }
+                }
+            }
+        }
+
         for (i, token_id) in tokens.indexed().dropFirst(startOffset + 1) {
             // それぞれのトークンが、一つ前の予測において最も確率の高いトークンであるかをチェックする
             // softmaxはmaxなので、単にlogitsの中で最も大きいものを選べば良い
@@ -489,6 +535,13 @@ final class ZenzContext {
             }
             let logsumexp = logf(sumexp)
 
+            let isFirstStep = (i - 1 - startOffset) == 0
+            func updateFirstStepInfo(token: llama_token, logprob: Float) {
+                if isFirstStep {
+                    firstStepTopTokens.insertIfPossible(.init(token: token, logprob: logprob))
+                }
+            }
+
             if let (mode, baseLM, personalLM) = personalizationMode, mode.alpha > 0 {
                 let prefix = tokens[..<i].dropFirst(prompt_tokens.count).map(Int.init)
                 let baseProb: [Float]
@@ -506,13 +559,17 @@ final class ZenzContext {
                 for (i, (lpb, lpp)) in zip(0 ..< Int(n_vocab), zip(baseProb, personalProb)) {
                     let logp = logits[startIndex + i] - logsumexp
                     let logp_ = logp + mode.alpha * (lpp - lpb) // personalized probability
-                    tokenHeap.insertIfPossible(TokenAndLogprob(token: llama_token(i), logprob: logp_))
+                    let tok = llama_token(i)
+                    tokenHeap.insertIfPossible(TokenAndLogprob(token: tok, logprob: logp_))
+                    updateFirstStepInfo(token: tok, logprob: logp_)
                 }
             } else {
                 // p = probabilityBuffer / exp_sum
                 for i in startIndex ..< endIndex {
                     let logp = logits[i] - logsumexp
-                    tokenHeap.insertIfPossible(TokenAndLogprob(token: llama_token(i - startIndex), logprob: logp))
+                    let tok = llama_token(i - startIndex)
+                    tokenHeap.insertIfPossible(TokenAndLogprob(token: tok, logprob: logp))
+                    updateFirstStepInfo(token: tok, logprob: logp)
                 }
             }
 

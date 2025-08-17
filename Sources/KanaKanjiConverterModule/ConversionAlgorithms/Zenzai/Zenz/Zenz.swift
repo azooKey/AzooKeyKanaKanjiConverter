@@ -63,4 +63,9 @@ package final class Zenz {
     package func pureGreedyDecoding(pureInput: String, maxCount: Int = .max) -> String {
         self.zenzContext?.pure_greedy_decoding(leftSideContext: pureInput, maxCount: maxCount) ?? ""
     }
+
+    // Retrieve the last first-character ranking computed during the latest candidate evaluation
+    package func getLastFirstCharRanking() -> [(character: Character, probability: Float)]? {
+        self.zenzContext?.lastFirstCharRanking
+    }
 }
