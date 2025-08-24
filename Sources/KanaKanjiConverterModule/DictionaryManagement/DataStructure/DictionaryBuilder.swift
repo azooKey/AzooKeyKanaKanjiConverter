@@ -154,7 +154,8 @@ public enum DictionaryBuilder {
     }
 
     /// Escape a shard identifier string into filesystem-safe fixed-width hex chunks.
-    /// - Encoding: UTF-16 code units represented as 4-hex uppercase, joined by underscores.
+    /// - Encoding: UTF-16 code units represented as 4-hex uppercase, joined by underscores, wrapped in brackets.
+    ///   Example: "あ" -> "[3042]", "AB" -> "[0041_0042]", "🇯🇵" -> "[D83C_DDEF_D83C_DDF5]"
     ///   - BMP scalars: single 4-hex chunk
     ///   - Non-BMP scalars: surrogate pair (two chunks)
     /// - Special cases: "user", "memory", and "user_shortcuts" are returned as-is
@@ -177,7 +178,7 @@ public enum DictionaryBuilder {
                 }
             }
         }
-        return chunks.joined(separator: "_")
+        return "[" + chunks.joined(separator: "_") + "]"
     }
 
     /// High-level: write LOUDS and loudschars2 files atomically to given URLs.
@@ -215,7 +216,7 @@ public enum DictionaryBuilder {
             shards[shard, default: []].append((local: local, ruby: ruby, rows: rows))
         }
         for (shard, items) in shards.sorted(by: { $0.key < $1.key }) {
-            let url = directoryURL.appendingPathComponent("\(id)-\(shard).loudstxt3")
+            let url = directoryURL.appendingPathComponent("\(id)\(shard).loudstxt3")
             try Loudstxt3Builder.writeAligned(items: items, to: url, entriesPerShard: entriesPerShard)
         }
     }

@@ -154,7 +154,7 @@ final class DictionaryBuilderTests: XCTestCase {
             return
         }
         let (shard, local) = shardComponents(nodeIndex)
-        let dic = LOUDS.getDataForLoudstxt3("\(escapedA)-\(shard)", indices: [local], dictionaryURL: parent)
+        let dic = LOUDS.getDataForLoudstxt3("\(escapedA)\(shard)", indices: [local], dictionaryURL: parent)
         let words = dic.filter { $0.ruby == "あい" }.map { $0.word }
         XCTAssertTrue(Set(words).isSuperset(of: ["愛", "藍"]))
     }
@@ -253,8 +253,8 @@ final class DictionaryBuilderTests: XCTestCase {
         )
 
         // Files exist with escaped identifiers
-        let escapedSpace = DictionaryBuilder.escapedIdentifier(" ") // 0020
-        let escapedSlash = DictionaryBuilder.escapedIdentifier("/") // 002F
+        let escapedSpace = DictionaryBuilder.escapedIdentifier(" ") // [0020]
+        let escapedSlash = DictionaryBuilder.escapedIdentifier("/") // [002F]
         assertExists(loudsDir.appendingPathComponent("\(escapedSpace).louds"))
         assertExists(loudsDir.appendingPathComponent("\(escapedSlash).louds"))
         // At least shard 0 should exist for both
@@ -274,14 +274,14 @@ final class DictionaryBuilderTests: XCTestCase {
         // Search both entries
         if let idx = loudsSpace.searchNodeIndex(chars: toIDs(" ", cmap)) {
             let (shard, local) = shardComponents(idx)
-            let dic = LOUDS.getDataForLoudstxt3("\(escapedSpace)-\(shard)", indices: [local], dictionaryURL: parent)
+            let dic = LOUDS.getDataForLoudstxt3("\(escapedSpace)\(shard)", indices: [local], dictionaryURL: parent)
             XCTAssertTrue(dic.contains { $0.word == "スペース" && $0.ruby == " " })
         } else {
             XCTFail("space ruby not found in LOUDS")
         }
         if let idx = loudsSlash.searchNodeIndex(chars: toIDs("/", cmap)) {
             let (shard, local) = shardComponents(idx)
-            let dic = LOUDS.getDataForLoudstxt3("\(escapedSlash)-\(shard)", indices: [local], dictionaryURL: parent)
+            let dic = LOUDS.getDataForLoudstxt3("\(escapedSlash)\(shard)", indices: [local], dictionaryURL: parent)
             XCTAssertTrue(dic.contains { $0.word == "スラッシュ" && $0.ruby == "/" })
         } else {
             XCTFail("slash ruby not found in LOUDS")
