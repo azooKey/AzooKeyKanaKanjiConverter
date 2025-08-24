@@ -53,9 +53,9 @@ struct LongTermLearningMemory {
     }
     private static func loudsTxt3FileURL(_ value: String, asTemporaryFile: Bool, directoryURL: URL) -> URL {
         if asTemporaryFile {
-            return directoryURL.appendingPathComponent("memory\(value).loudstxt3.2", isDirectory: false)
+            return directoryURL.appendingPathComponent("memory-\(value).loudstxt3.2", isDirectory: false)
         } else {
-            return directoryURL.appendingPathComponent("memory\(value).loudstxt3", isDirectory: false)
+            return directoryURL.appendingPathComponent("memory-\(value).loudstxt3", isDirectory: false)
         }
     }
     private static func fileExist(_ url: URL) -> Bool {

@@ -441,10 +441,11 @@ public final class DicdataStore {
         var data: [DicdataElement] = []
         if identifier == "user", let userDictionaryURL = state.userDictionaryURL {
             for (key, value) in dict {
+                let fileID = "\(identifier)-\(key)"
                 data.append(contentsOf: LOUDS.getUserDictionaryDataForLoudstxt3(
-                    identifier + "\(key)",
+                    fileID,
                     indices: value.map { $0 & DictionaryBuilder.localMask },
-                    cache: self.loudstxts[identifier + "\(key)"],
+                    cache: self.loudstxts[fileID],
                     userDictionaryURL: userDictionaryURL
                 ))
             }
@@ -454,10 +455,11 @@ public final class DicdataStore {
         }
         if identifier == "user_shortcuts", let userDictionaryURL = state.userDictionaryURL {
             for (key, value) in dict {
+                let fileID = "\(identifier)-\(key)"
                 data.append(contentsOf: LOUDS.getUserShortcutsDataForLoudstxt3(
-                    identifier + "\(key)",
+                    fileID,
                     indices: value.map { $0 & DictionaryBuilder.localMask },
-                    cache: self.loudstxts[identifier + "\(key)"],
+                    cache: self.loudstxts[fileID],
                     userDictionaryURL: userDictionaryURL
                 ))
             }
@@ -467,10 +469,11 @@ public final class DicdataStore {
         }
         if identifier == "memory", let memoryURL = state.memoryURL {
             for (key, value) in dict {
+                let fileID = "\(identifier)-\(key)"
                 data.append(contentsOf: LOUDS.getMemoryDataForLoudstxt3(
-                    identifier + "\(key)",
+                    fileID,
                     indices: value.map { $0 & DictionaryBuilder.localMask },
-                    cache: self.loudstxts[identifier + "\(key)"],
+                    cache: self.loudstxts[fileID],
                     memoryURL: memoryURL
                 ))
             }
@@ -479,10 +482,13 @@ public final class DicdataStore {
             }
         }
         for (key, value) in dict {
+            // Default dictionary shards are stored under escaped identifiers with hyphenated shard suffix
+            let escaped = DictionaryBuilder.escapedIdentifier(identifier)
+            let fileID = "\(escaped)-\(key)"
             data.append(contentsOf: LOUDS.getDataForLoudstxt3(
-                identifier + "\(key)",
+                fileID,
                 indices: value.map { $0 & DictionaryBuilder.localMask },
-                cache: self.loudstxts[identifier + "\(key)"],
+                cache: self.loudstxts[fileID],
                 dictionaryURL: self.dictionaryURL
             ))
         }
