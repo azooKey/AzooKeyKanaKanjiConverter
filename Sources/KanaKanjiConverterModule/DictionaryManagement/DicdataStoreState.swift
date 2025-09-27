@@ -30,6 +30,8 @@ package final class DicdataStoreState {
             self.userDictionaryURL = newURL
             self.userDictionaryLOUDS = nil
             self.userDictionaryHasLoaded = false
+            self.userShortcutsLOUDS = nil
+            self.userShortcutsHasLoaded = false
         }
     }
 
