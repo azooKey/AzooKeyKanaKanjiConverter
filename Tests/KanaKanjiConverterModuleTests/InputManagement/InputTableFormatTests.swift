@@ -65,13 +65,14 @@ final class InputTableFormatTests: XCTestCase {
         XCTAssertTrue(errs.contains(.init(line: 0, error: .shiftTokenNotAtTail(token: "shift 0"))))
     }
 
-    func testLineNumberWithComment() throws {
+    func testLineNumberWithFormerComment() throws {
         let content = "#comment\na{shift 0}b\tX"
         let rep = InputStyleManager.checkFormat(content: content)
         guard case .invalidLines(let errs) = rep else {
             XCTFail("Expected invalidLines")
             return
         }
+        XCTAssertTrue(errs.contains(.init(line: 0, error: .invalidTabCount(found: 0))))
         XCTAssertTrue(errs.contains(.init(line: 1, error: .shiftTokenNotAtTail(token: "shift 0"))))
     }
 
