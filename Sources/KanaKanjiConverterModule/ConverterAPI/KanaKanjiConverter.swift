@@ -120,8 +120,12 @@ public final class KanaKanjiConverter {
         }
     }
 
-    public func importDynamicUserDictionary(_ dicdata: [DicdataElement]) {
-        self.dicdataStoreState.importDynamicUserDictionary(dicdata)
+    /// 動的ユーザ辞書を引数に与えたデータで上書きします。
+    /// - Parameters:
+    ///   - dicdata: ユーザ辞書エントリです。動的ユーザ辞書エントリは検索効率が悪いため、現実的な件数に抑えてください。
+    ///   - shortcuts: ユーザショートカットエントリです。Rubyに完全一致する場合のみ利用されます。こちらも現実的な件数に抑えてください。
+    public func importDynamicUserDictionary(_ dicdata: [DicdataElement], shortcuts: [DicdataElement] = []) {
+        self.dicdataStoreState.importDynamicUserDictionary(dicdata, shortcuts: shortcuts)
     }
 
     public func updateUserDictionaryURL(_ newURL: URL, forceReload: Bool = false) {

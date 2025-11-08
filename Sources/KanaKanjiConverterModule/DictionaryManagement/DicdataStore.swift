@@ -213,10 +213,13 @@ public final class DicdataStore {
     ///   - state: ストア状態
     /// - Returns: 完全一致の`DicdataElement`配列
     func getPerfectMatchedUserShortcutsDicdata(ruby: some StringProtocol, state: DicdataStoreState) -> [DicdataElement] {
-        let charIDs = ruby.map(self.character2charId(_:))
+        let rubyString = String(ruby)
+        var results = state.dynamicUserShortcuts.filter { $0.ruby == rubyString }
+        let charIDs = rubyString.map(self.character2charId(_:))
         let indices = self.perfectMatchingSearch(query: "user_shortcuts", charIDs: charIDs, state: state)
-        guard !indices.isEmpty else { return [] }
-        return self.getDicdataFromLoudstxt3(identifier: "user_shortcuts", indices: indices, state: state)
+        guard !indices.isEmpty else { return results }
+        results.append(contentsOf: self.getDicdataFromLoudstxt3(identifier: "user_shortcuts", indices: indices, state: state))
+        return results
     }
 
     private struct UnifiedGenerator {

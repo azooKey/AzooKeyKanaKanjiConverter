@@ -14,15 +14,20 @@ let converter = KanaKanjiConverter.withDefaultDictionary()
 
 ## 辞書・学習関連のAPI
 
-### `importDynamicUserDictionary(_:)`
-動的ユーザ辞書を登録します。`DicdataElement` の配列を直接渡します。
+### `importDynamicUserDictionary(_:shortcuts:)`
+動的ユーザ辞書と動的ショートカットを登録します。`DicdataElement` の配列を直接渡します。
 
 ```swift
-converter.importDynamicUserDictionary([
-    DicdataElement(word: "anco", ruby: "アンコ", cid: 1288, mid: 501, value: -5),
-])
+converter.importDynamicUserDictionary(
+    [
+        DicdataElement(word: "anco", ruby: "アンコ", cid: 1288, mid: 501, value: -5),
+    ],
+    shortcuts: [
+        DicdataElement(word: "ありがとうございます", ruby: "アザス", cid: 1288, mid: 501, value: -5),
+    ]
+)
 ```
-`ruby` はカタカナで指定してください。`value` は `-5`〜`-10` 程度が目安です。
+`ruby` はカタカナで指定してください。`value` は `-5`〜`-10` 程度が目安です。`shortcuts` は全文一致ショートカット用の語彙を登録します（省略可能）。
 
 ### `updateUserDictionaryURL(_:)`
 ユーザ辞書（`user.louds*` 等）が置かれているディレクトリURLを更新します。
