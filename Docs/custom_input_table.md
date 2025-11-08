@@ -21,14 +21,11 @@ ka\tか
 ga\tが
 ```
 
-\tの含まれない行は無視されるので、これを利用すればコメントを書くことができます。ただし、`# `で開始することを推奨します。
-
-```tsv
-# これはコメント
-a\tあ
-```
+\tの含まれない行は無視されます。
 
 特殊な入力を処理するため、`{composition-separator}`および`{any character}`という特殊記号が用意されています。また`{}`のエスケープ文字として`{lbracket}`と`{rbracket}`が用意されています。
+
+例えば次のように書くことで、任意の文字を含むパターンや末尾の区切りに対応できます。
 
 ```tsv
 # nのあとに任意の入力Aがあれば、それを「んA」で置き換える
@@ -107,7 +104,7 @@ yrsk\tよろしく
 - 結果: `FormatReport.fullyValid` または `FormatReport.invalidLines([(line: Int, error: FormatError)])`
 
 チェック項目
-- タブ数: 空行とコメント行（先頭が `#`）以外は「タブちょうど1個（キー/値の2フィールド）」
+- タブ数: 空行以外は「タブちょうど1個（キー/値の2フィールド）」
 - 波括弧 `{...}` 内のトークン: 以下以外はエラー
   - キー側: `composition-separator`, `any character`, `lbracket`, `rbracket`, `shift 0`, `shift _`
   - 値側: `any character`, `lbracket`, `rbracket`
