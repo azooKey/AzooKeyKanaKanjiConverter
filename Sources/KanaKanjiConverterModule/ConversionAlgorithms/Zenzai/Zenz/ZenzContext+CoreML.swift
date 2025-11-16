@@ -17,8 +17,9 @@ final class ZenzContext {
 
     private init(generator: ZenzStateful8BitGenerator) {
         self.generator = generator
-    }
+}
 
+#endif
     static func createContext(path _: String) throws -> ZenzContext {
         let generator = try Self.runBlocking {
             try await ZenzStateful8BitGenerator()
@@ -320,5 +321,3 @@ final class ZenzContext {
         }
     }
 }
-
-#endif
