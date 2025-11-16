@@ -17,7 +17,7 @@ var dependencies: [Package.Dependency] = [
     .package(url: "https://github.com/apple/swift-algorithms", from: "1.0.0"),
     .package(url: "https://github.com/apple/swift-collections", from: "1.0.0"),
     .package(url: "https://github.com/apple/swift-argument-parser", .upToNextMajor(from: "1.0.0")),
-    .package(url: "https://github.com/Skyline-23/swift-transformers.git", branch: "feature/remove-combine")
+    .package(url: "https://github.com/Skyline-23/swift-transformers.git", branch: "feature/increase-compatibility")
 ]
 
 var efficientNGramDependencies: [Target.Dependency] = [
