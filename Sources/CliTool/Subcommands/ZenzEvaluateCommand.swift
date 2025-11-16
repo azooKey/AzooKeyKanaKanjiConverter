@@ -36,6 +36,7 @@ extension Subcommands {
             return await zenz.pureGreedyDecoding(pureInput: leftContext, maxCount: maxCount)
         }
 
+        @MainActor
         mutating func run() async throws {
             #if ZenzaiCoreML && canImport(CoreML)
             guard #available(iOS 18, macOS 15, *) else {

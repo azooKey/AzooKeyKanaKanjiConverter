@@ -1,9 +1,11 @@
 public protocol SpecialCandidateProvider: Sendable {
+    @MainActor
     func provideCandidates(converter: KanaKanjiConverter, inputData: ComposingText, options: ConvertRequestOptions) -> [Candidate]
 }
 
 public struct CalendarSpecialCandidateProvider: SpecialCandidateProvider {
     public init() {}
+    @MainActor
     public func provideCandidates(converter: KanaKanjiConverter, inputData: ComposingText, options _: ConvertRequestOptions) -> [Candidate] {
         converter.toWarekiCandidates(inputData) + converter.toSeirekiCandidates(inputData)
     }
@@ -11,6 +13,7 @@ public struct CalendarSpecialCandidateProvider: SpecialCandidateProvider {
 
 public struct EmailAddressSpecialCandidateProvider: SpecialCandidateProvider {
     public init() {}
+    @MainActor
     public func provideCandidates(converter: KanaKanjiConverter, inputData: ComposingText, options _: ConvertRequestOptions) -> [Candidate] {
         converter.toEmailAddressCandidates(inputData)
     }
@@ -18,6 +21,7 @@ public struct EmailAddressSpecialCandidateProvider: SpecialCandidateProvider {
 
 public struct TypographySpecialCandidateProvider: SpecialCandidateProvider {
     public init() {}
+    @MainActor
     public func provideCandidates(converter: KanaKanjiConverter, inputData: ComposingText, options _: ConvertRequestOptions) -> [Candidate] {
         converter.typographicalCandidates(inputData)
     }
@@ -25,6 +29,7 @@ public struct TypographySpecialCandidateProvider: SpecialCandidateProvider {
 
 public struct UnicodeSpecialCandidateProvider: SpecialCandidateProvider {
     public init() {}
+    @MainActor
     public func provideCandidates(converter: KanaKanjiConverter, inputData: ComposingText, options _: ConvertRequestOptions) -> [Candidate] {
         converter.unicodeCandidates(inputData)
     }
@@ -32,6 +37,7 @@ public struct UnicodeSpecialCandidateProvider: SpecialCandidateProvider {
 
 public struct VersionSpecialCandidateProvider: SpecialCandidateProvider {
     public init() {}
+    @MainActor
     public func provideCandidates(converter: KanaKanjiConverter, inputData: ComposingText, options: ConvertRequestOptions) -> [Candidate] {
         converter.toVersionCandidate(inputData, options: options)
     }
@@ -39,6 +45,7 @@ public struct VersionSpecialCandidateProvider: SpecialCandidateProvider {
 
 public struct TimeExpressionSpecialCandidateProvider: SpecialCandidateProvider {
     public init() {}
+    @MainActor
     public func provideCandidates(converter: KanaKanjiConverter, inputData: ComposingText, options _: ConvertRequestOptions) -> [Candidate] {
         converter.convertToTimeExpression(inputData)
     }
@@ -46,6 +53,7 @@ public struct TimeExpressionSpecialCandidateProvider: SpecialCandidateProvider {
 
 public struct CommaSeparatedNumberSpecialCandidateProvider: SpecialCandidateProvider {
     public init() {}
+    @MainActor
     public func provideCandidates(converter: KanaKanjiConverter, inputData: ComposingText, options _: ConvertRequestOptions) -> [Candidate] {
         converter.commaSeparatedNumberCandidates(inputData)
     }

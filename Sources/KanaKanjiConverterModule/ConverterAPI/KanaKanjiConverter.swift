@@ -12,6 +12,7 @@ import EfficientNGram
 public import Foundation
 import SwiftUtils
 
+@MainActor
 /// かな漢字変換の管理を受け持つクラス
 public final class KanaKanjiConverter {
     private struct ConversionCache {
@@ -72,6 +73,7 @@ public final class KanaKanjiConverter {
 #if ZenzaiCoreML && canImport(CoreML)
     private var coreMLServiceStorage: Any?
 
+    @available(iOS 18, macOS 15, *)
     private func resolvedCoreMLService() -> ZenzCoreMLService {
         if let service = self.coreMLServiceStorage as? ZenzCoreMLService {
             return service
@@ -82,7 +84,10 @@ public final class KanaKanjiConverter {
     }
 #endif
 
-    private func executeZenzRequest(
+#if ZenzaiCoreML && canImport(CoreML)
+    @available(iOS 18, macOS 15, *)
+#endif
+    func executeZenzRequest(
         _ request: ZenzCoreMLExecutionRequest,
         evaluator: @escaping @Sendable (ZenzEvaluationRequest) async -> ZenzCandidateEvaluationResult
     ) async -> (result: LatticeNode, lattice: Lattice, cache: Kana2Kanji.ZenzaiCache, snapshot: ZenzCoreMLResultSnapshot) {

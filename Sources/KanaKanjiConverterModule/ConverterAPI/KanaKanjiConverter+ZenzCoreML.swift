@@ -19,18 +19,18 @@ extension KanaKanjiConverter {
             self.zenz = nil
         }
 
-        private func getOrLoadModel(modelURL: URL) async -> Zenz? {
+        func getOrLoadModel(modelURL: URL) async -> Zenz? {
             if let cached = self.zenz, cached.resourceURL == modelURL {
-                self.owner.updateZenzStatus("load \(modelURL.absoluteString)")
+                await self.owner.updateZenzStatus("load \(modelURL.absoluteString)")
                 return cached
             }
             do {
                 let model = try await Zenz(resourceURL: modelURL)
                 self.zenz = model
-                self.owner.updateZenzStatus("load \(modelURL.absoluteString)")
+                await self.owner.updateZenzStatus("load \(modelURL.absoluteString)")
                 return model
             } catch {
-                self.owner.updateZenzStatus("load \(modelURL.absoluteString)    " + error.localizedDescription)
+                await self.owner.updateZenzStatus("load \(modelURL.absoluteString)    " + error.localizedDescription)
                 return nil
             }
         }

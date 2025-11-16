@@ -5,7 +5,7 @@ import SwiftUtils
 #if ZenzaiCoreML && canImport(CoreML)
 @available(iOS 18, macOS 15, *)
 #endif
-package final class Zenz {
+package final class Zenz: @unchecked Sendable {
     package var resourceURL: URL
     private var zenzContext: (any ZenzContextProtocol)?
     init(resourceURL: URL) async throws {

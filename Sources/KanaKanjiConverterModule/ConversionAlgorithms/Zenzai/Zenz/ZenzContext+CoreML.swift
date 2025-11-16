@@ -30,13 +30,14 @@ final class ZenzContext: ZenzContextProtocol {
     }
 
     deinit {
+        let generator = self.generator
         Task {
-            await self.generator.resetState()
+            await generator.resetState()
         }
     }
 
     func reset_context() async throws {
-        try await self.generator.resetState()
+        await self.generator.resetState()
         self.prevInput = []
         self.prevPrompt = []
     }

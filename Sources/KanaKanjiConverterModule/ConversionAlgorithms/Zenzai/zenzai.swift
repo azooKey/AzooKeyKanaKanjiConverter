@@ -88,6 +88,7 @@ extension Kana2Kanji {
     #if ZenzaiCoreML && canImport(CoreML)
     @available(iOS 18, macOS 15, *)
     #endif
+    @MainActor
     func all_zenzai(
         _ inputData: ComposingText,
         evaluateCandidate: @escaping @Sendable (ZenzEvaluationRequest) async -> ZenzCandidateEvaluationResult,

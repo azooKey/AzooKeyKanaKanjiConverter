@@ -35,6 +35,7 @@ extension Subcommands {
             return try JSONDecoder().decode([EvaluationInputItem].self, from: data)
         }
 
+        @MainActor
         mutating func run() async throws {
             let inputItems = try parseInputFile()
             let converter = KanaKanjiConverter.withDefaultDictionary()
