@@ -124,7 +124,8 @@ Tasks:
 Tasks:
 
 1. **Centralise conversion cache**  
-   - Extract `previousInputData`, `lattice`, `ZenzaiCache` etc. into a dedicated cache manager that is `Sendable`/actor-aware.
+   - Extract `previousInputData`, `lattice`, `ZenzaiCache` etc. into a dedicated cache manager that is `Sendable`/actor-aware.  
+   > Status: `KanaKanjiConverter` now stores all mutating state inside `ConversionCache` (previous input, lattice, completed/last data, CoreML cache snapshots), so the CPU/CoreML paths share one value-type cache entry point.
 2. **Unified lifecycle hooks**  
    - Ensure `stopComposition`, `resetMemory`, and prediction APIs notify both CPU and CoreML caches consistently.
 3. **Performance verification**  
