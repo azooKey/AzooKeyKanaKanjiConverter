@@ -217,7 +217,7 @@ extension Kana2Kanji {
     @available(iOS 18, macOS 15, *)
     #endif
     private enum NextAction {
-        case `return`(constraint: PrefixConstraint, alternativeConstraints: [ZenzContext.CandidateEvaluationResult.AlternativeConstraint], satisfied: Bool)
+        case `return`(constraint: PrefixConstraint, alternativeConstraints: [ZenzCandidateEvaluationResult.AlternativeConstraint], satisfied: Bool)
         case `continue`
         case `retry`(candidateIndex: Int)
     }
@@ -228,7 +228,7 @@ extension Kana2Kanji {
     private func review(
         candidateIndex: Int,
         candidates: [Candidate],
-        reviewResult: consuming ZenzContext.CandidateEvaluationResult,
+        reviewResult: consuming ZenzCandidateEvaluationResult,
         constraint: inout PrefixConstraint
     ) -> NextAction {
         switch reviewResult {

@@ -13,7 +13,7 @@ import SwiftUtils
 
 /// かな漢字変換の管理を受け持つクラス
 public final class KanaKanjiConverter {
-    private let converter: Kana2Kanji
+    fileprivate let converter: Kana2Kanji
 
     public init(dicdataStore: DicdataStore) {
         self.converter = .init(dicdataStore: dicdataStore)
@@ -39,45 +39,22 @@ public final class KanaKanjiConverter {
     private var checkerInitialized: [KeyboardLanguage: Bool] = [.none: true, .ja_JP: true]
 
     // 前回の変換や確定の情報を取っておく部分。
-    private var previousInputData: ComposingText?
+    fileprivate var previousInputData: ComposingText?
     private var lattice: Lattice = Lattice()
     private var completedData: Candidate?
     private var lastData: DicdataElement?
-    /// Zenzaiのためのzenzモデル
-    #if ZenzaiCoreML && canImport(CoreML)
-    private var zenzStorage: Any?
-    private var zenzaiCacheStorage: Any?
-
-    @available(iOS 18, macOS 15, *)
-    private var zenz: Zenz? {
-        get { self.zenzStorage as? Zenz }
-        set { self.zenzStorage = newValue }
-    }
-
-    @available(iOS 18, macOS 15, *)
-    private var zenzaiCache: Kana2Kanji.ZenzaiCache? {
-        get { self.zenzaiCacheStorage as? Kana2Kanji.ZenzaiCache }
-        set { self.zenzaiCacheStorage = newValue }
-    }
-    #else
-    private var zenz: Zenz?
-    private var zenzaiCache: Kana2Kanji.ZenzaiCache?
-    #endif
     private var zenzaiPersonalization: (mode: ConvertRequestOptions.ZenzaiMode.PersonalizationMode, base: EfficientNGram, personal: EfficientNGram)?
     public private(set) var zenzStatus: String = ""
-    private var dicdataStoreState: DicdataStoreState
+    fileprivate var dicdataStoreState: DicdataStoreState
+#if ZenzaiCoreML && canImport(CoreML)
+    private lazy var coreMLBridge = ZenzCoreMLBridge(owner: self)
+#endif
 
     /// リセットする関数
     public func stopComposition() {
-        #if ZenzaiCoreML && canImport(CoreML)
-        if #available(iOS 18, macOS 15, *) {
-            self.zenz?.endSession()
-            self.zenzaiCache = nil
-        }
-        #else
-        self.zenz?.endSession()
-        self.zenzaiCache = nil
-        #endif
+#if ZenzaiCoreML && canImport(CoreML)
+        self.coreMLBridge.stopComposition()
+#endif
         self.zenzaiPersonalization = nil
         self.previousInputData = nil
         self.lattice = .init()
@@ -85,7 +62,7 @@ public final class KanaKanjiConverter {
         self.lastData = nil
     }
 
-    private func getZenzaiPersonalization(mode: ConvertRequestOptions.ZenzaiMode.PersonalizationMode?) -> (mode: ConvertRequestOptions.ZenzaiMode.PersonalizationMode, base: EfficientNGram, personal: EfficientNGram)? {
+    fileprivate func getZenzaiPersonalization(mode: ConvertRequestOptions.ZenzaiMode.PersonalizationMode?) -> (mode: ConvertRequestOptions.ZenzaiMode.PersonalizationMode, base: EfficientNGram, personal: EfficientNGram)? {
         guard let mode else {
             return nil
         }
@@ -99,48 +76,28 @@ public final class KanaKanjiConverter {
         return (mode, baseModel, personalModel)
     }
 
-    #if ZenzaiCoreML && canImport(CoreML)
+#if ZenzaiCoreML && canImport(CoreML)
     @available(iOS 18, macOS 15, *)
-    #endif
     package func getModel(modelURL: URL) -> Zenz? {
-        #if ZenzaiCoreML && canImport(CoreML)
-        guard #available(iOS 18, macOS 15, *) else {
-            self.zenzStatus = "zenz model requires iOS 18 / macOS 15"
-            return nil
-        }
-        #endif
-        if let model = self.zenz, model.resourceURL == modelURL {
-            self.zenzStatus = "load \(modelURL.absoluteString)"
-            return model
-        } else {
-            do {
-                self.zenz = try Zenz(resourceURL: modelURL)
-                self.zenzStatus = "load \(modelURL.absoluteString)"
-                return self.zenz
-            } catch {
-                self.zenzStatus = "load \(modelURL.absoluteString)    " + error.localizedDescription
-                return nil
-            }
-        }
+        self.coreMLBridge.getOrLoadModel(modelURL: modelURL)
     }
+#else
+    package func getModel(modelURL: URL) -> Zenz? {
+        self.zenzStatus = "zenz-v2 model unavailable on this platform"
+        return nil
+    }
+#endif
 
+#if ZenzaiCoreML && canImport(CoreML)
     public func predictNextCharacter(leftSideContext: String, count: Int, options: ConvertRequestOptions) -> [(character: Character, value: Float)] {
-        #if ZenzaiCoreML && canImport(CoreML)
-        guard #available(iOS 18, macOS 15, *) else {
-            print("zenz-v2 model unavailable")
-            return []
-        }
-        #endif
-        guard let zenz = self.getModel(modelURL: options.zenzaiMode.weightURL) else {
-            print("zenz-v2 model unavailable")
-            return []
-        }
-        guard options.zenzaiMode.versionDependentMode.version == .v2 else {
-            print("next character prediction requires zenz-v2 models, not zenz-v1 nor zenz-v3 and later")
-            return []
-        }
-        return zenz.predictNextCharacter(leftSideContext: leftSideContext, count: count)
+        self.coreMLBridge.predictNextCharacters(leftSideContext: leftSideContext, count: count, options: options)
     }
+#else
+    public func predictNextCharacter(leftSideContext: String, count: Int, options: ConvertRequestOptions) -> [(character: Character, value: Float)] {
+        print("zenz-v2 model unavailable")
+        return []
+    }
+#endif
 
     /// 入力する言語が分かったらこの関数をなるべく早い段階で呼ぶことで、SpellCheckerの初期化が行われ、変換がスムーズになる
     public func setKeyboardLanguage(_ language: KeyboardLanguage) {
@@ -748,42 +705,11 @@ public final class KanaKanjiConverter {
         }
 
         // FIXME: enable cache based zenzai
-        #if ZenzaiCoreML && canImport(CoreML)
-        if zenzaiMode.enabled,
-           #available(iOS 18, macOS 15, *),
-           let model = self.getModel(modelURL: zenzaiMode.weightURL) {
-            let (result, nodes, cache) = self.converter.all_zenzai(
-                inputData,
-                zenz: model,
-                zenzaiCache: self.zenzaiCache,
-                inferenceLimit: zenzaiMode.inferenceLimit,
-                requestRichCandidates: zenzaiMode.requestRichCandidates,
-                personalizationMode: self.getZenzaiPersonalization(mode: zenzaiMode.personalizationMode),
-                versionDependentConfig: zenzaiMode.versionDependentMode,
-                dicdataStoreState: self.dicdataStoreState
-            )
-            self.zenzaiCache = cache
-            self.previousInputData = inputData
-            return (result, nodes)
+#if ZenzaiCoreML && canImport(CoreML)
+        if let coreMLResult = self.coreMLBridge.convertIfPossible(inputData: inputData, N_best: N_best, zenzaiMode: zenzaiMode, needTypoCorrection: needTypoCorrection) {
+            return coreMLResult
         }
-        #else
-        if zenzaiMode.enabled,
-           let model = self.getModel(modelURL: zenzaiMode.weightURL) {
-            let (result, nodes, cache) = self.converter.all_zenzai(
-                inputData,
-                zenz: model,
-                zenzaiCache: self.zenzaiCache,
-                inferenceLimit: zenzaiMode.inferenceLimit,
-                requestRichCandidates: zenzaiMode.requestRichCandidates,
-                personalizationMode: self.getZenzaiPersonalization(mode: zenzaiMode.personalizationMode),
-                versionDependentConfig: zenzaiMode.versionDependentMode,
-                dicdataStoreState: self.dicdataStoreState
-            )
-            self.zenzaiCache = cache
-            self.previousInputData = inputData
-            return (result, nodes)
-        }
-        #endif
+#endif
 
         guard let previousInputData else {
             debug("\(#function): 新規計算用の関数を呼びますA")
