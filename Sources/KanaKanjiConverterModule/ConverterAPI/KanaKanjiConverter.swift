@@ -7,13 +7,14 @@
 //
 
 import Algorithms
+import Dispatch
 import EfficientNGram
 public import Foundation
 import SwiftUtils
 
 /// かな漢字変換の管理を受け持つクラス
 public final class KanaKanjiConverter {
-    fileprivate let converter: Kana2Kanji
+    let converter: Kana2Kanji
 
     public init(dicdataStore: DicdataStore) {
         self.converter = .init(dicdataStore: dicdataStore)
@@ -39,22 +40,50 @@ public final class KanaKanjiConverter {
     private var checkerInitialized: [KeyboardLanguage: Bool] = [.none: true, .ja_JP: true]
 
     // 前回の変換や確定の情報を取っておく部分。
-    fileprivate var previousInputData: ComposingText?
+    var previousInputData: ComposingText?
     private var lattice: Lattice = Lattice()
     private var completedData: Candidate?
     private var lastData: DicdataElement?
     private var zenzaiPersonalization: (mode: ConvertRequestOptions.ZenzaiMode.PersonalizationMode, base: EfficientNGram, personal: EfficientNGram)?
     public private(set) var zenzStatus: String = ""
-    fileprivate var dicdataStoreState: DicdataStoreState
+    var dicdataStoreState: DicdataStoreState
 #if ZenzaiCoreML && canImport(CoreML)
+    private var coreMLServiceStorage: Any?
+    private var zenzaiCoreMLCache: Kana2Kanji.ZenzaiCache?
+
     @available(iOS 18, macOS 15, *)
-    private lazy var coreMLBridge = ZenzCoreMLBridge(owner: self)
+    private func resolvedCoreMLService() -> ZenzCoreMLService {
+        if let service = self.coreMLServiceStorage as? ZenzCoreMLService {
+            return service
+        }
+        let service = ZenzCoreMLService(owner: self)
+        self.coreMLServiceStorage = service
+        return service
+    }
+
+    @available(iOS 18, macOS 15, *)
+    private func blockingAsync<T>(_ operation: @escaping () async -> T) -> T {
+        let semaphore = DispatchSemaphore(value: 0)
+        var result: T?
+        Task {
+            result = await operation()
+            semaphore.signal()
+        }
+        semaphore.wait()
+        return result!
+    }
 #endif
 
     /// リセットする関数
     public func stopComposition() {
 #if ZenzaiCoreML && canImport(CoreML)
-        self.coreMLBridge.stopComposition()
+        if #available(iOS 18, macOS 15, *), let service = self.coreMLServiceStorage as? ZenzCoreMLService {
+            self.blockingAsync {
+                await service.stopComposition()
+            }
+            self.coreMLServiceStorage = nil
+        }
+        self.zenzaiCoreMLCache = nil
 #endif
         self.zenzaiPersonalization = nil
         self.previousInputData = nil
@@ -63,7 +92,7 @@ public final class KanaKanjiConverter {
         self.lastData = nil
     }
 
-    fileprivate func getZenzaiPersonalization(mode: ConvertRequestOptions.ZenzaiMode.PersonalizationMode?) -> (mode: ConvertRequestOptions.ZenzaiMode.PersonalizationMode, base: EfficientNGram, personal: EfficientNGram)? {
+    func getZenzaiPersonalization(mode: ConvertRequestOptions.ZenzaiMode.PersonalizationMode?) -> (mode: ConvertRequestOptions.ZenzaiMode.PersonalizationMode, base: EfficientNGram, personal: EfficientNGram)? {
         guard let mode else {
             return nil
         }
@@ -77,10 +106,16 @@ public final class KanaKanjiConverter {
         return (mode, baseModel, personalModel)
     }
 
+    func updateZenzStatus(_ text: String) {
+        self.zenzStatus = text
+    }
+
 #if ZenzaiCoreML && canImport(CoreML)
     @available(iOS 18, macOS 15, *)
     package func getModel(modelURL: URL) -> Zenz? {
-        self.coreMLBridge.getOrLoadModel(modelURL: modelURL)
+        self.blockingAsync {
+            await self.resolvedCoreMLService().getOrLoadModel(modelURL: modelURL)
+        }
     }
 #else
     package func getModel(modelURL: URL) -> Zenz? {
@@ -91,7 +126,13 @@ public final class KanaKanjiConverter {
 
 #if ZenzaiCoreML && canImport(CoreML)
     public func predictNextCharacter(leftSideContext: String, count: Int, options: ConvertRequestOptions) -> [(character: Character, value: Float)] {
-        self.coreMLBridge.predictNextCharacters(leftSideContext: leftSideContext, count: count, options: options)
+        guard #available(iOS 18, macOS 15, *) else {
+            print("zenz-v2 model unavailable")
+            return []
+        }
+        return self.blockingAsync {
+            await self.resolvedCoreMLService().predictNextCharacters(leftSideContext: leftSideContext, count: count, options: options)
+        }
     }
 #else
     public func predictNextCharacter(leftSideContext: String, count: Int, options: ConvertRequestOptions) -> [(character: Character, value: Float)] {
@@ -707,8 +748,28 @@ public final class KanaKanjiConverter {
 
         // FIXME: enable cache based zenzai
 #if ZenzaiCoreML && canImport(CoreML)
-        if let coreMLResult = self.coreMLBridge.convertIfPossible(inputData: inputData, N_best: N_best, zenzaiMode: zenzaiMode, needTypoCorrection: needTypoCorrection) {
-            return coreMLResult
+        if #available(iOS 18, macOS 15, *), zenzaiMode.enabled, !needTypoCorrection {
+            let personalizationHandle = self.getZenzaiPersonalization(mode: zenzaiMode.personalizationMode).map {
+                ZenzPersonalizationHandle(mode: $0.mode, base: $0.base, personal: $0.personal)
+            }
+            if let zenz = self.blockingAsync({
+                await self.resolvedCoreMLService().getOrLoadModel(modelURL: zenzaiMode.weightURL)
+            }) {
+                let coreMLResult = self.blockingAsync {
+                    await self.converter.all_zenzai(
+                        inputData,
+                        zenz: zenz,
+                        zenzaiCache: self.zenzaiCoreMLCache,
+                        inferenceLimit: zenzaiMode.inferenceLimit,
+                        requestRichCandidates: zenzaiMode.requestRichCandidates,
+                        personalizationMode: personalizationHandle?.tuple,
+                        versionDependentConfig: zenzaiMode.versionDependentMode,
+                        dicdataStoreState: self.dicdataStoreState
+                    )
+                }
+                self.zenzaiCoreMLCache = coreMLResult.cache
+                return (coreMLResult.result, coreMLResult.lattice)
+            }
         }
 #endif
 

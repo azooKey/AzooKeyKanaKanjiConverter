@@ -60,7 +60,7 @@ final class ZenzContext: ZenzContextProtocol {
         return ctx_params
     }
 
-    static func createContext(path: String) throws -> ZenzContext {
+    static func createContext(path: String) async throws -> ZenzContext {
         llama_backend_init()
         var model_params = llama_model_default_params()
         model_params.use_mmap = true
@@ -95,7 +95,7 @@ final class ZenzContext: ZenzContextProtocol {
         return ZenzContext(model: model, context: context, vocab: vocab)
     }
 
-    func reset_context() throws {
+    func reset_context() async throws {
         llama_free(self.context)
         var params = Self.ctx_params
         #if ZenzaiCPU
@@ -181,7 +181,7 @@ final class ZenzContext: ZenzContextProtocol {
     }
 
     /// ピュアな貪欲法による生成を行って返す
-    func pure_greedy_decoding(leftSideContext: String, maxCount: Int = .max) -> String {
+    func pure_greedy_decoding(leftSideContext: String, maxCount: Int = .max) async -> String {
         var prompt_tokens = self.tokenize(text: leftSideContext, add_bos: false)
         let initial_count = prompt_tokens.count
         let eos_token = llama_vocab_eos(vocab)
@@ -217,7 +217,7 @@ final class ZenzContext: ZenzContextProtocol {
         return String(data: data, encoding: .utf8) ?? "" as String
     }
 
-    func predict_next_character(leftSideContext: String, count: Int) -> [(character: Character, value: Float)] {
+    func predict_next_character(leftSideContext: String, count: Int) async -> [(character: Character, value: Float)] {
         struct NextCharacterCandidate: Comparable {
             static func < (lhs: NextCharacterCandidate, rhs: NextCharacterCandidate) -> Bool {
                 lhs.value < rhs.value
@@ -276,7 +276,7 @@ final class ZenzContext: ZenzContextProtocol {
         prefixConstraint: Kana2Kanji.PrefixConstraint,
         personalizationMode: (mode: ConvertRequestOptions.ZenzaiMode.PersonalizationMode, base: EfficientNGram, personal: EfficientNGram)?,
         versionDependentConfig: ConvertRequestOptions.ZenzaiVersionDependentMode
-    ) -> ZenzCandidateEvaluationResult {
+    ) async -> ZenzCandidateEvaluationResult {
         debug("Evaluate", candidate)
         // For zenz-v1 model, \u{EE00} is a token used for 'start query', and \u{EE01} is a token used for 'start answer'
         // We assume \u{EE01}\(candidate) is always splitted into \u{EE01}_\(candidate) by zenz-v1 tokenizer
