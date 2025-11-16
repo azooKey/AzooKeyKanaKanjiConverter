@@ -4,7 +4,3 @@
 [submodule "Sources/KanaKanjiConverterModuleWithDefaultDictionary/azooKey_emoji_dictionary_storage"]
 	path = Sources/KanaKanjiConverterModuleWithDefaultDictionary/azooKey_emoji_dictionary_storage
 	url = https://github.com/ensan-hcl/azooKey_emoji_dictionary_storage
-[submodule "Sources/ZenzCoreMLBackend/zenz-CoreML"]
-	path = Sources/ZenzCoreMLBackend/zenz-CoreML
-	url = https://github.com/Skyline-23/zenz-CoreML.git
-	fetchRecurseSubmodules = false
