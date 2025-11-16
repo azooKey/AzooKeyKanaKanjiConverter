@@ -71,7 +71,7 @@ public actor ZenzStateful8BitGenerator {
         }
         let configuration = MLModelConfiguration()
         configuration.computeUnits = computeUnits.coreMLValue
-        let model = try MLModel(contentsOf: modelURL, configuration: configuration)
+        let model = try await MLModel.load(contentsOf: modelURL, configuration: configuration)
         self.modelBox = MLModelBox(model: model)
         self.evalState = model.makeState()
         self.tokenizer = try await Self.loadTokenizer()
