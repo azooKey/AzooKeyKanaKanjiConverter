@@ -27,11 +27,29 @@ public enum ZenzCoreMLError: Error {
     case multiArrayCreationFailed
 }
 
+@available(iOS 18.0, macOS 15.0, *)
+public enum ZenzCoreMLComputeUnits {
+    case cpuOnly
+    case cpuAndGPU
+    case all
+
+    fileprivate var coreMLValue: MLComputeUnits {
+        switch self {
+        case .cpuOnly:
+            return .cpuOnly
+        case .cpuAndGPU:
+            return .cpuAndGPU
+        case .all:
+            return .all
+        }
+    }
+}
+
 /// Actor wrapping the zenz-v3.1 stateful 8-bit Core ML model.
 /// The actor serializes access to the internal `MLState` so repeated predictions
 /// advance the cached KV state safely across await suspension points.
 @available(iOS 18.0, macOS 15.0, *)
-public struct ZenzCoreMLLogits {
+public struct ZenzCoreMLLogits: Sendable {
     public let values: [Float]
     public let vocabSize: Int
     public let timeSteps: Int
@@ -47,12 +65,12 @@ public actor ZenzStateful8BitGenerator {
     private var cachedVocabSize: Int = 0
 
     private static let modelName = "zenz_v3.1_stateful-8bit"
-    public init(computeUnits: MLComputeUnits = .cpuAndGPU) async throws {
+    public init(computeUnits: ZenzCoreMLComputeUnits = .cpuAndGPU) async throws {
         guard let modelURL = ZenzCoreMLResources.statefulModelURL(named: Self.modelName) else {
             throw ZenzCoreMLError.modelNotFound
         }
-        var configuration = MLModelConfiguration()
-        configuration.computeUnits = computeUnits
+        let configuration = MLModelConfiguration()
+        configuration.computeUnits = computeUnits.coreMLValue
         let model = try MLModel(contentsOf: modelURL, configuration: configuration)
         self.modelBox = MLModelBox(model: model)
         self.evalState = model.makeState()
@@ -141,7 +159,7 @@ public actor ZenzStateful8BitGenerator {
         case .float32:
             let ptr = logits.dataPointer.assumingMemoryBound(to: Float.self)
             buffer.withUnsafeMutableBufferPointer {
-                $0.baseAddress?.assign(from: ptr, count: count)
+                $0.baseAddress?.update(from: ptr, count: count)
             }
         case .float16:
             let ptr = logits.dataPointer.assumingMemoryBound(to: Float16.self)

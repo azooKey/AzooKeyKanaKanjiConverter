@@ -2,6 +2,9 @@ import EfficientNGram
 package import Foundation
 import SwiftUtils
 
+#if ZenzaiCoreML && canImport(CoreML)
+@available(iOS 18, macOS 15, *)
+#endif
 package final class Zenz {
     package var resourceURL: URL
     private var zenzContext: ZenzContext?

@@ -49,17 +49,6 @@ var targets: [Target] = [
         resources: [.copy("tokenizer")],
         swiftSettings: swiftSettings
     ),
-.target(
-    name: "ZenzCoreMLBackend",
-    dependencies: [
-        .product(name: "Tokenizers", package: "swift-transformers")
-    ],
-    resources: [
-        .copy("zenz-CoreML/Stateful"),
-        .copy("zenz-CoreML/tokenizer")
-    ],
-    swiftSettings: swiftSettings
-),
     .target(
         name: "KanaKanjiConverterModuleWithDefaultDictionary",
         dependencies: [
@@ -117,6 +106,22 @@ var targets: [Target] = [
     )
 ]
 
+#if os(macOS) || os(iOS)
+targets.append(
+    .target(
+        name: "ZenzCoreMLBackend",
+        dependencies: [
+            .product(name: "Tokenizers", package: "swift-transformers")
+        ],
+        resources: [
+            .copy("zenz-CoreML/Stateful"),
+            .copy("zenz-CoreML/tokenizer")
+        ],
+        swiftSettings: swiftSettings
+    )
+)
+#endif
+
 #if os(Linux) && !canImport(Android)
 func checkObjcAvailability() -> Bool {
     do {
@@ -162,19 +167,39 @@ let llamaCppTarget: Target = .binaryTarget(
 )
 #endif
 targets.append(llamaCppTarget)
+var kanaKanjiDependencies: [Target.Dependency] = [
+    "SwiftUtils",
+    .target(name: "EfficientNGram"),
+    .target(name: "llama.cpp", condition: .when(traits: ["Zenzai", "ZenzaiCPU"])),
+    .product(name: "Collections", package: "swift-collections")
+]
+
+#if os(macOS) || os(iOS)
+kanaKanjiDependencies.append(.target(name: "ZenzCoreMLBackend", condition: .when(traits: ["ZenzaiCoreML"])))
+#endif
+
 targets.append(
     .target(
         name: "KanaKanjiConverterModule",
-        dependencies: [
-            "SwiftUtils",
-            .target(name: "EfficientNGram"),
-            .target(name: "llama.cpp", condition: .when(traits: ["Zenzai", "ZenzaiCPU"])),
-            .target(name: "ZenzCoreMLBackend", condition: .when(traits: ["ZenzaiCoreML"])),
-            .product(name: "Collections", package: "swift-collections"),
-        ],
+        dependencies: kanaKanjiDependencies,
         swiftSettings: swiftSettings
     )
 )
+
+#if os(macOS) || os(iOS)
+let packageTraits: Set<PackageDescription.Trait> = [
+    .trait(name: "Zenzai"),
+    .trait(name: "ZenzaiCPU"),
+    .trait(name: "ZenzaiCoreML"),
+    .default(enabledTraits: [])
+]
+#else
+let packageTraits: Set<PackageDescription.Trait> = [
+    .trait(name: "Zenzai"),
+    .trait(name: "ZenzaiCPU"),
+    .default(enabledTraits: [])
+]
+#endif
 
 let package = Package(
     name: "AzooKeyKanaKanjiConverter",
@@ -196,12 +221,7 @@ let package = Package(
             targets: ["KanaKanjiConverterModule"]
         ),
     ],
-    traits: [
-        .trait(name: "Zenzai"),
-        .trait(name: "ZenzaiCPU"),
-        .trait(name: "ZenzaiCoreML"),
-        .default(enabledTraits: [])
-    ],
+    traits: packageTraits,
     dependencies: dependencies,
     targets: targets
 )

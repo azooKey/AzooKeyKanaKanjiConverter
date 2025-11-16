@@ -1,4 +1,4 @@
-#if ZenzaiCoreML
+#if ZenzaiCoreML && canImport(CoreML)
 
 import Algorithms
 import Dispatch
@@ -7,7 +7,13 @@ import Foundation
 import HeapModule
 import SwiftUtils
 import ZenzCoreMLBackend
+#if canImport(Darwin)
+import Darwin
+#elseif canImport(Glibc)
+import Glibc
+#endif
 
+@available(iOS 18.0, macOS 15.0, *)
 final class ZenzContext {
     private let generator: ZenzStateful8BitGenerator
     private let tokenizer = ZenzTokenizer()
@@ -17,9 +23,8 @@ final class ZenzContext {
 
     private init(generator: ZenzStateful8BitGenerator) {
         self.generator = generator
-}
+    }
 
-#endif
     static func createContext(path _: String) throws -> ZenzContext {
         let generator = try Self.runBlocking {
             try await ZenzStateful8BitGenerator()
@@ -28,13 +33,13 @@ final class ZenzContext {
     }
 
     deinit {
-        try? Self.runBlocking {
+        try? Self.runBlocking { [generator] in
             await generator.resetState()
         }
     }
 
     func reset_context() throws {
-        try Self.runBlocking {
+        try Self.runBlocking { [generator] in
             await generator.resetState()
         }
         self.prevInput = []
@@ -61,12 +66,13 @@ final class ZenzContext {
         personalizationMode: (mode: ConvertRequestOptions.ZenzaiMode.PersonalizationMode, base: EfficientNGram, personal: EfficientNGram)?,
         versionDependentConfig: ConvertRequestOptions.ZenzaiVersionDependentMode
     ) -> CandidateEvaluationResult {
-        let promptString = ZenzPromptBuilder.buildPrompt(
+        debug("Evaluate", candidate)
+        let prompt = ZenzPromptBuilder.buildPrompt(
             convertTarget: input,
             candidate: candidate,
             versionDependentConfig: versionDependentConfig
         )
-        let prompt_tokens = self.tokenize(text: promptString, add_bos: true, add_eos: false)
+        let prompt_tokens = self.tokenize(text: prompt, add_bos: true, add_eos: false)
         defer {
             self.prevPrompt = prompt_tokens
         }
@@ -94,7 +100,7 @@ final class ZenzContext {
             debug("logits unavailable")
             return .error
         }
-        var logits = logitsResult.values
+        let logits = logitsResult.values
         let n_vocab = logitsResult.vocabSize
 
         let is_learned_token: [(isLearned: Bool, priority: Float)] = Array(repeating: (false, 0), count: prompt_tokens.count) + candidate.data.flatMap {
@@ -126,52 +132,73 @@ final class ZenzContext {
             let startIndex = (i - 1 - startOffset) * n_vocab
             let endIndex = (i - startOffset) * n_vocab
             var tokenHeap = FixedSizeHeap<TokenAndLogprob>(size: requestRichCandidates ? 3 : 1)
-            for index in startIndex ..< endIndex {
+            for index in startIndex..<endIndex {
                 sumexp += expf(logits[index])
             }
             let logsumexp = logf(sumexp)
 
-            if let (mode, baseLM, personalLM) = personalizationMode, mode.alpha > 0 {
-                let prefix = tokens[..<i].dropFirst(prompt_tokens.count).map(Int.init)
+            if let personalization = personalizationMode, personalization.mode.alpha > 0 {
+                let prefix = Array(tokens[..<i].dropFirst(prompt_tokens.count))
                 let baseProb: [Float]
                 let personalProb: [Float]
-                switch requestRichCandidates {
-                case true:
-                    baseProb = baseLM.getProbabilityMass(on: prefix, candidateCount: 1_000)
-                    personalProb = personalLM.getProbabilityMass(on: prefix, candidateCount: 1_000)
-                case false:
-                    baseProb = baseLM.getProbabilityMass(at: prefix, stateful: true)
-                    personalProb = personalLM.getProbabilityMass(at: prefix, stateful: true)
+                if !prefix.isEmpty {
+                    baseProb = personalization.base.bulkPredict(prefix).map { logf(Float($0) + 1e-7) }
+                    personalProb = personalization.personal.bulkPredict(prefix).map { logf(Float($0) + 1e-7) }
+                } else {
+                    baseProb = Array(repeating: 0, count: n_vocab)
+                    personalProb = baseProb
                 }
-                let alpha = max(0, min(1, Double(mode.alpha)))
-                zip(baseProb, personalProb).enumerated().forEach { offset, value in
-                    let (bp, pp) = value
-                    let mix = Float(alpha * Double(pp) + (1 - alpha) * Double(bp))
-                    let idx = startIndex + offset
-                    logits[idx] = logf(expf(logits[idx]) * mix)
+                for offset in 0..<n_vocab {
+                    let logp = logits[startIndex + offset] - logsumexp
+                    let logp_ = logp + personalization.mode.alpha * (personalProb[offset] - baseProb[offset])
+                    tokenHeap.insertIfPossible(TokenAndLogprob(token: offset, logprob: logp_))
                 }
-            }
-
-            for index in startIndex..<endIndex {
-                let logp = logits[index] - logsumexp
-                tokenHeap.insertIfPossible(TokenAndLogprob(token: index - startIndex, logprob: logp))
+            } else {
+                for offset in 0..<n_vocab {
+                    let logp = logits[startIndex + offset] - logsumexp
+                    tokenHeap.insertIfPossible(TokenAndLogprob(token: offset, logprob: logp))
+                }
             }
 
             guard let maxItem = tokenHeap.max else {
-                continue
+                debug("Max Item could not be found for unknown reason")
+                return .error
             }
 
-            if requestRichCandidates {
-                for item in tokenHeap.unordered {
-                    guard !is_learned_token.indices.contains(i - prompt_tokens.count) || !is_learned_token[i - prompt_tokens.count].isLearned else {
-                        continue
+            if maxItem.token != token_id {
+                if maxItem.token == tokenizer.endTokenID {
+                    let cchars: [CChar] = tokens[..<i].reduce(into: []) {
+                        $0.append(contentsOf: token_to_cchars(token: $1))
                     }
+                    let data = Data(cchars.map { UInt8(bitPattern: $0) })
+                    let string: String = String(data: data, encoding: .utf8) ?? ""
+                    let wholeResult = String(string.dropFirst(prompt.count))
+                    return .wholeResult(wholeResult)
+                } else {
+                    let actual_logp: Float = logits[startIndex + token_id] - logsumexp
+                    let candidateIndex = i - prompt_tokens.count
+                    let preferLearnedToken = is_learned_token.indices.contains(candidateIndex) &&
+                        is_learned_token[candidateIndex].isLearned &&
+                        actual_logp + is_learned_token[candidateIndex].priority > maxItem.logprob
+                    if !preferLearnedToken {
+                        let cchars = tokens[..<i].reduce(into: []) {
+                            $0.append(contentsOf: token_to_cchars(token: $1))
+                        } + token_to_cchars(token: maxItem.token)
+                        let constraint = cchars.dropFirst(prompt.utf8.count).map { UInt8(bitPattern: $0) }
+                        return .fixRequired(prefixConstraint: constraint)
+                    }
+                }
+            } else if !tokenHeap.isEmpty {
+                tokenHeap.removeMax()
+                let prefixBytes = tokens[..<i].reduce(into: [UInt8]()) {
+                    $0.append(contentsOf: token_to_piece(token: $1))
+                }.dropFirst(prompt.utf8.count)
+
+                for item in tokenHeap.unordered {
                     altTokens.insertIfPossible(
                         AlternativeHighProbToken(
                             token: item.token,
-                            constraint: tokens[..<i].reduce(into: []) { partialResult, token in
-                                partialResult.append(contentsOf: token_to_piece(token: token))
-                            } + token_to_piece(token: item.token),
+                            constraint: Array(prefixBytes) + token_to_piece(token: item.token),
                             probabilityRatioToMaxProb: expf(item.logprob - maxItem.logprob)
                         )
                     )
@@ -180,7 +207,10 @@ final class ZenzContext {
             score += maxItem.logprob
         }
         return .pass(score: score, alternativeConstraints: altTokens.unordered.sorted(by: >).map {
-            AlternativeConstraint(probabilityRatio: $0.probabilityRatioToMaxProb, prefixConstraint: $0.constraint)
+            CandidateEvaluationResult.AlternativeConstraint(
+                probabilityRatio: $0.probabilityRatioToMaxProb,
+                prefixConstraint: $0.constraint
+            )
         })
     }
 
@@ -219,7 +249,7 @@ final class ZenzContext {
             let v = expf(logits[index] / repeat_penalty)
             exp_sum += v
 
-            let tokenPieceData = Data(token_to_piece(token: token).map(UInt8.init))
+            let tokenPieceData = Data(token_to_piece(token: token))
             guard let validCharacter = String(data: tokenPieceData, encoding: .utf8), let c = validCharacter.first else {
                 continue
             }
@@ -235,12 +265,12 @@ final class ZenzContext {
         let eos_token = tokenizer.endTokenID
         while prompt_tokens.count - initial_count < maxCount {
             let startOffset = prompt_tokens.count - 1
-        guard let logitsResult = self.get_logits(tokens: prompt_tokens) else {
-            debug("logits unavailable")
-            return ""
-        }
-        let logits = logitsResult.values
-        let n_vocab = logitsResult.vocabSize
+            guard let logitsResult = self.get_logits(tokens: prompt_tokens) else {
+                debug("logits unavailable")
+                return ""
+            }
+            let logits = logitsResult.values
+            let n_vocab = logitsResult.vocabSize
             let startIndex = (prompt_tokens.count - 1 - startOffset) * n_vocab
             let endIndex = (prompt_tokens.count - startOffset) * n_vocab
             var max_token: Int = -1
@@ -259,14 +289,14 @@ final class ZenzContext {
             }
         }
 
-        let cchars: [CChar] = prompt_tokens.dropFirst(initial_count).flatMap(self.token_to_piece)
+        let cchars: [CChar] = prompt_tokens.dropFirst(initial_count).flatMap(self.token_to_cchars)
         let data = Data(cchars.map { UInt8(bitPattern: $0) })
         return String(data: data, encoding: .utf8) ?? ""
     }
 
     private func get_logits(tokens: [Int]) -> ZenzCoreMLLogits? {
         do {
-            let result = try Self.runBlocking {
+            let result = try Self.runBlocking { [generator] in
                 try await generator.logits(for: tokens)
             }
             self.prevInput = tokens
@@ -289,15 +319,23 @@ final class ZenzContext {
         return tokens
     }
 
-    private func token_to_piece(token: Int) -> [CChar] {
+    private func tokenScalars(token: Int) -> [CChar] {
         var scalars = tokenizer.decode(tokens: [token]).utf8CString
         scalars.removeLast()
-        return scalars
+        return Array(scalars)
     }
 
-    private static func runBlocking<T>(_ operation: @escaping () async throws -> T) rethrows -> T {
+    private func token_to_piece(token: Int) -> [UInt8] {
+        tokenScalars(token: token).map { UInt8(bitPattern: $0) }
+    }
+
+    private func token_to_cchars(token: Int) -> [CChar] {
+        tokenScalars(token: token)
+    }
+
+    private static func runBlocking<T: Sendable>(_ operation: @Sendable @escaping () async throws -> T) throws -> T {
         let semaphore = DispatchSemaphore(value: 0)
-        var result: Result<T, Error>!
+        var result: Result<T, any Error>!
         Task.detached(priority: nil) {
             do {
                 let value = try await operation()
@@ -321,3 +359,5 @@ final class ZenzContext {
         }
     }
 }
+
+#endif
