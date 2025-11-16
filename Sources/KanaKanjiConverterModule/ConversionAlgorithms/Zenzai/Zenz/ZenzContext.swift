@@ -28,7 +28,7 @@ enum ZenzError: LocalizedError {
         }
     }
 }
-final class ZenzContext {
+final class ZenzContext: ZenzContextProtocol {
     private var model: OpaquePointer
     private var context: OpaquePointer
     private var vocab: OpaquePointer
@@ -168,18 +168,6 @@ final class ZenzContext {
         return sum
     }
 
-    enum CandidateEvaluationResult: Sendable, Equatable, Hashable {
-        case error
-        case pass(score: Float, alternativeConstraints: [AlternativeConstraint])
-        case fixRequired(prefixConstraint: [UInt8])
-        case wholeResult(String)
-
-        struct AlternativeConstraint: Sendable, Equatable, Hashable {
-            var probabilityRatio: Float
-            var prefixConstraint: [UInt8]
-        }
-    }
-
     func getLearningPriority(data: DicdataElement) -> Float {
         // 文字数の長い候補ほど優先的に適用されるようにする
         // 積極的な複合語化の効果を期待
@@ -288,7 +276,7 @@ final class ZenzContext {
         prefixConstraint: Kana2Kanji.PrefixConstraint,
         personalizationMode: (mode: ConvertRequestOptions.ZenzaiMode.PersonalizationMode, base: EfficientNGram, personal: EfficientNGram)?,
         versionDependentConfig: ConvertRequestOptions.ZenzaiVersionDependentMode
-    ) -> CandidateEvaluationResult {
+    ) -> ZenzCandidateEvaluationResult {
         debug("Evaluate", candidate)
         // For zenz-v1 model, \u{EE00} is a token used for 'start query', and \u{EE01} is a token used for 'start answer'
         // We assume \u{EE01}\(candidate) is always splitted into \u{EE01}_\(candidate) by zenz-v1 tokenizer

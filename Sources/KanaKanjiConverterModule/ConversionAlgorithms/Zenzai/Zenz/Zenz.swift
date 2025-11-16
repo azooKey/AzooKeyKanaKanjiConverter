@@ -7,7 +7,7 @@ import SwiftUtils
 #endif
 package final class Zenz {
     package var resourceURL: URL
-    private var zenzContext: ZenzContext?
+    private var zenzContext: (any ZenzContextProtocol)?
     init(resourceURL: URL) throws {
         self.resourceURL = resourceURL
         do {
@@ -47,7 +47,7 @@ package final class Zenz {
         prefixConstraint: Kana2Kanji.PrefixConstraint,
         personalizationMode: (mode: ConvertRequestOptions.ZenzaiMode.PersonalizationMode, base: EfficientNGram, personal: EfficientNGram)?,
         versionDependentConfig: ConvertRequestOptions.ZenzaiVersionDependentMode
-    ) -> ZenzContext.CandidateEvaluationResult {
+    ) -> ZenzCandidateEvaluationResult {
         guard let zenzContext else {
             return .error
         }
