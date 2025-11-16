@@ -49,14 +49,17 @@ var targets: [Target] = [
         resources: [.copy("tokenizer")],
         swiftSettings: swiftSettings
     ),
-    .target(
-        name: "ZenzCoreMLBackend",
-        dependencies: [],
-        resources: [
-            .copy("zenz-CoreML/Stateful")
-        ],
-        swiftSettings: swiftSettings
-    ),
+.target(
+    name: "ZenzCoreMLBackend",
+    dependencies: [
+        .product(name: "Tokenizers", package: "swift-transformers")
+    ],
+    resources: [
+        .copy("zenz-CoreML/Stateful"),
+        .copy("zenz-CoreML/tokenizer")
+    ],
+    swiftSettings: swiftSettings
+),
     .target(
         name: "KanaKanjiConverterModuleWithDefaultDictionary",
         dependencies: [

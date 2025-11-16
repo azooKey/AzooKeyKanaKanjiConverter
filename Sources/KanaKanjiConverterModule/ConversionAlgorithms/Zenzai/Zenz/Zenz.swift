@@ -9,12 +9,20 @@ package final class Zenz {
         self.resourceURL = resourceURL
         do {
             #if canImport(Darwin)
+            #if ZenzaiCoreML
+            if #available(iOS 18, macOS 15, *) {
+                self.zenzContext = try ZenzContext.createContext(path: resourceURL.path(percentEncoded: false))
+            } else {
+                preconditionFailure("ZenzaiCoreML requires iOS 18 / macOS 15")
+            }
+            #else
             if #available(iOS 16, macOS 13, *) {
                 self.zenzContext = try ZenzContext.createContext(path: resourceURL.path(percentEncoded: false))
             } else {
                 // this is not percent-encoded
                 self.zenzContext = try ZenzContext.createContext(path: resourceURL.path)
             }
+            #endif
             #else
             // this is not percent-encoded
             self.zenzContext = try ZenzContext.createContext(path: resourceURL.path)

@@ -7,3 +7,4 @@
 [submodule "Sources/ZenzCoreMLBackend/zenz-CoreML"]
 	path = Sources/ZenzCoreMLBackend/zenz-CoreML
 	url = https://github.com/Skyline-23/zenz-CoreML.git
+	fetchRecurseSubmodules = false
