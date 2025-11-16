@@ -64,6 +64,29 @@ extension KanaKanjiConverter {
             }
             return await zenz.predictNextCharacter(leftSideContext: leftSideContext, count: count)
         }
+
+        func convert(
+            modelURL: URL,
+            request: ZenzCoreMLExecutionRequest,
+            personalization: ZenzPersonalizationHandle?
+        ) async -> (result: LatticeNode, lattice: Lattice, cacheSnapshot: ZenzaiCacheSnapshot, snapshot: ZenzCoreMLResultSnapshot)? {
+            guard let zenz = await self.getOrLoadModel(modelURL: modelURL) else {
+                return nil
+            }
+            let evaluator: @Sendable (ZenzEvaluationRequest) async -> ZenzCandidateEvaluationResult = { evaluationRequest in
+                await zenz.candidateEvaluate(
+                    evaluationRequest,
+                    personalizationMode: personalization?.tuple
+                )
+            }
+            let result = await self.owner.executeZenzRequest(request, evaluator: evaluator)
+            return (
+                result: result.result,
+                lattice: result.lattice,
+                cacheSnapshot: result.cache.snapshot(),
+                snapshot: result.snapshot
+            )
+        }
     }
 }
 

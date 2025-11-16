@@ -54,12 +54,15 @@ extension Kana2Kanji {
                 dicdataStoreState: dicdataStoreState
             )
         }
-    }
 
-    // MARK: - Sendable support
-    /// The cache holds mutable lattice references but never leaves the converter actor.
-    /// We temporarily mark it as `@unchecked Sendable` to unblock CoreML refactors.
-    extension ZenzaiCache: @unchecked Sendable {}
+        func snapshot() -> ZenzaiCacheSnapshot {
+            ZenzaiCacheSnapshot(
+                inputData: self.inputData,
+                constraint: ZenzPrefixConstraintSnapshot(self.prefixConstraint),
+                satisfyingCandidate: self.satisfyingCandidate?.zenzSnapshot()
+            )
+        }
+    }
 
     struct PrefixConstraint: Sendable, Equatable, Hashable, CustomStringConvertible {
         init(_ constraint: [UInt8], hasEOS: Bool = false, ignoreMemoryAndUserDictionary: Bool = false) {
@@ -92,8 +95,9 @@ extension Kana2Kanji {
         inferenceLimit: Int,
         requestRichCandidates: Bool,
         versionDependentConfig: ConvertRequestOptions.ZenzaiVersionDependentMode,
+        personalizationConfig: ZenzPersonalizationVectorConfig?,
         dicdataStoreState: DicdataStoreState
-    ) async -> (result: LatticeNode, lattice: Lattice, cache: ZenzaiCache) {
+    ) async -> (result: LatticeNode, lattice: Lattice, cache: ZenzaiCache, snapshot: ZenzCoreMLResultSnapshot) {
         var constraint = zenzaiCache?.getNewConstraint(for: inputData) ?? PrefixConstraint([])
         debug("initial constraint", constraint)
         let eosNode = LatticeNode.EOSNode
@@ -142,7 +146,18 @@ extension Kana2Kanji {
                 debug("best was not found!")
                 // Emptyの場合
                 // 制約が満たせない場合は無視する
-                return (eosNode, lattice, ZenzaiCache(inputData, constraint: PrefixConstraint([]), satisfyingCandidate: nil, lattice: lattice))
+                let cache = ZenzaiCache(inputData, constraint: PrefixConstraint([]), satisfyingCandidate: nil, lattice: lattice)
+                return (
+                    eosNode,
+                    lattice,
+                    cache,
+                    self.makeCoreMLResultSnapshot(
+                        bestCandidate: nil,
+                        alternativeConstraints: [],
+                        lattice: lattice,
+                        cache: cache
+                    )
+                )
             }
 
             debug("Constrained draft modeling", -start.timeIntervalSinceNow)
@@ -153,14 +168,27 @@ extension Kana2Kanji {
                 if inferenceLimit == 0 {
                     debug("inference limit! \(candidate.text) is used for excuse")
                     // When inference occurs more than maximum times, then just return result at this point
-                    return (eosNode, lattice, ZenzaiCache(inputData, constraint: constraint, satisfyingCandidate: candidate, lattice: lattice))
+                    let cache = ZenzaiCache(inputData, constraint: constraint, satisfyingCandidate: candidate, lattice: lattice)
+                    return (
+                        eosNode,
+                        lattice,
+                        cache,
+                        self.makeCoreMLResultSnapshot(
+                            bestCandidate: candidate,
+                            alternativeConstraints: [],
+                            lattice: lattice,
+                            cache: cache
+                        )
+                    )
                 }
                 let payload = ZenzEvaluationRequest(
                     convertTarget: inputData.convertTarget,
                     candidate: candidate.zenzSnapshot(),
                     requestRichCandidates: requestRichCandidates,
                     prefixConstraint: ZenzPrefixConstraintSnapshot(constraint),
-                    versionDependentConfig: versionDependentConfig
+                    versionDependentConfig: versionDependentConfig,
+                    tokenizerMetadata: .init(version: versionDependentConfig.version),
+                    personalizationConfig: personalizationConfig
                 )
                 let reviewResult = await evaluateCandidate(payload)
                 inferenceLimit -= 1
@@ -202,11 +230,14 @@ extension Kana2Kanji {
                             }
                         }
                     }
-                    if satisfied {
-                        return (eosNode, lattice, ZenzaiCache(inputData, constraint: constraint, satisfyingCandidate: candidate, lattice: lattice))
-                    } else {
-                        return (eosNode, lattice, ZenzaiCache(inputData, constraint: constraint, satisfyingCandidate: nil, lattice: lattice))
-                    }
+                    let cache = ZenzaiCache(inputData, constraint: constraint, satisfyingCandidate: satisfied ? candidate : nil, lattice: lattice)
+                    let snapshot = self.makeCoreMLResultSnapshot(
+                        bestCandidate: satisfied ? candidate : nil,
+                        alternativeConstraints: alternativeConstraints,
+                        lattice: lattice,
+                        cache: cache
+                    )
+                    return (eosNode, lattice, cache, snapshot)
                 case .continue:
                     break reviewLoop
                 case .retry(let candidateIndex):
@@ -215,6 +246,20 @@ extension Kana2Kanji {
                 }
             }
         }
+    }
+
+    private func makeCoreMLResultSnapshot(
+        bestCandidate: Candidate?,
+        alternativeConstraints: [ZenzCandidateEvaluationResult.AlternativeConstraint],
+        lattice: Lattice,
+        cache: ZenzaiCache
+    ) -> ZenzCoreMLResultSnapshot {
+        ZenzCoreMLResultSnapshot(
+            bestCandidate: bestCandidate,
+            alternativeConstraints: alternativeConstraints,
+            lattice: lattice,
+            cache: cache
+        )
     }
 
     #if ZenzaiCoreML && canImport(CoreML)
@@ -327,3 +372,8 @@ extension Kana2Kanji {
         return true
     }
 }
+
+// MARK: - Sendable support
+/// The cache holds mutable lattice references but never leaves the converter actor.
+/// We temporarily mark it as `@unchecked Sendable` to unblock CoreML refactors.
+extension Kana2Kanji.ZenzaiCache: @unchecked Sendable {}

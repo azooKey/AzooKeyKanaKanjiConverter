@@ -47,11 +47,12 @@ public final class KanaKanjiConverter {
     private var zenzaiPersonalization: (mode: ConvertRequestOptions.ZenzaiMode.PersonalizationMode, base: EfficientNGram, personal: EfficientNGram)?
     public private(set) var zenzStatus: String = ""
     var dicdataStoreState: DicdataStoreState
+#if Zenzai || ZenzaiCPU
+    private var zenzaiLocalModel: (url: URL, model: Zenz)?
+#endif
 #if ZenzaiCoreML && canImport(CoreML)
     private var coreMLServiceStorage: Any?
-    private var zenzaiCoreMLCache: Kana2Kanji.ZenzaiCache?
 
-    @available(iOS 18, macOS 15, *)
     private func resolvedCoreMLService() -> ZenzCoreMLService {
         if let service = self.coreMLServiceStorage as? ZenzCoreMLService {
             return service
@@ -60,17 +61,69 @@ public final class KanaKanjiConverter {
         self.coreMLServiceStorage = service
         return service
     }
+#endif
+    private var zenzaiCoreMLCache: Kana2Kanji.ZenzaiCache?
+    private var latestZenzCoreMLResultSnapshot: ZenzCoreMLResultSnapshot?
 
-    @available(iOS 18, macOS 15, *)
+    private func executeZenzRequest(
+        _ request: ZenzCoreMLExecutionRequest,
+        evaluator: @escaping @Sendable (ZenzEvaluationRequest) async -> ZenzCandidateEvaluationResult
+    ) async -> (result: LatticeNode, lattice: Lattice, cache: Kana2Kanji.ZenzaiCache, snapshot: ZenzCoreMLResultSnapshot) {
+        let localCache = request.cacheSnapshot.map { Kana2Kanji.ZenzaiCache(snapshot: $0) }
+        let output = await self.converter.all_zenzai(
+            request.inputData,
+            evaluateCandidate: evaluator,
+            zenzaiCache: localCache,
+            inferenceLimit: request.inferenceLimit,
+            requestRichCandidates: request.requestRichCandidates,
+            versionDependentConfig: request.versionDependentConfig,
+            personalizationConfig: request.personalizationConfig,
+            dicdataStoreState: DicdataStoreState(snapshot: request.dicdataSnapshot)
+        )
+        return output
+    }
+
+    private final class BlockingAsyncOperationBox<T>: @unchecked Sendable {
+        private let operationClosure: () async -> T
+        init(_ operation: @escaping () async -> T) {
+            self.operationClosure = operation
+        }
+
+        func execute() async -> T {
+            await self.operationClosure()
+        }
+    }
+
+    private final class BlockingAsyncResultStorage<T>: @unchecked Sendable {
+        var value: T?
+    }
+
     private func blockingAsync<T>(_ operation: @escaping () async -> T) -> T {
         let semaphore = DispatchSemaphore(value: 0)
-        var result: T?
-        Task {
-            result = await operation()
+        let storage = BlockingAsyncResultStorage<T>()
+        let box = BlockingAsyncOperationBox(operation)
+        Task.detached(priority: nil) { @Sendable in
+            storage.value = await box.execute()
             semaphore.signal()
         }
         semaphore.wait()
-        return result!
+        return storage.value!
+    }
+
+#if Zenzai || ZenzaiCPU
+    private func resolvedLocalZenz(modelURL: URL) async -> Zenz? {
+        if let state = self.zenzaiLocalModel, state.url == modelURL {
+            return state.model
+        }
+        do {
+            let model = try await Zenz(resourceURL: modelURL)
+            self.zenzaiLocalModel = (url: modelURL, model: model)
+            self.updateZenzStatus("load local \(modelURL.lastPathComponent)")
+            return model
+        } catch {
+            self.updateZenzStatus("load local \(modelURL.lastPathComponent) failed: \(error.localizedDescription)")
+            return nil
+        }
     }
 #endif
 
@@ -84,6 +137,7 @@ public final class KanaKanjiConverter {
             self.coreMLServiceStorage = nil
         }
         self.zenzaiCoreMLCache = nil
+        self.latestZenzCoreMLResultSnapshot = nil
 #endif
         self.zenzaiPersonalization = nil
         self.previousInputData = nil
@@ -720,45 +774,61 @@ public final class KanaKanjiConverter {
     ///   - N_best: 計算途中で保存する候補数。実際に得られる候補数とは異なる。
     /// - Returns:
     ///   結果のラティスノードと、計算済みノードの全体
-    private func convertToLattice(_ inputData: ComposingText, N_best: Int, zenzaiMode: ConvertRequestOptions.ZenzaiMode, needTypoCorrection: Bool) -> (result: LatticeNode, lattice: Lattice)? {
+    private func convertToLattice(_ inputData: ComposingText, N_best: Int, zenzaiMode: ConvertRequestOptions.ZenzaiMode, needTypoCorrection: Bool) async -> (result: LatticeNode, lattice: Lattice)? {
         if inputData.convertTarget.isEmpty {
             return nil
         }
 
-        // FIXME: enable cache based zenzai
+        if zenzaiMode.enabled, !needTypoCorrection {
+            let personalizationSource = self.getZenzaiPersonalization(mode: zenzaiMode.personalizationMode)
+            let personalizationConfig = personalizationSource.map { ZenzPersonalizationVectorConfig(mode: $0.mode) }
+            let request = ZenzCoreMLExecutionRequest(
+                inputData: inputData,
+                previousInputData: self.previousInputData,
+                cacheSnapshot: self.zenzaiCoreMLCache?.snapshot(),
+                dicdataSnapshot: self.dicdataStoreState.snapshot(),
+                inferenceLimit: zenzaiMode.inferenceLimit,
+                requestRichCandidates: zenzaiMode.requestRichCandidates,
+                versionDependentConfig: zenzaiMode.versionDependentMode,
+                personalizationConfig: personalizationConfig
+            )
 #if ZenzaiCoreML && canImport(CoreML)
-        if #available(iOS 18, macOS 15, *), zenzaiMode.enabled, !needTypoCorrection {
-            let service = self.resolvedCoreMLService()
-            let personalizationHandle = self.getZenzaiPersonalization(mode: zenzaiMode.personalizationMode).map {
-                ZenzPersonalizationHandle(mode: $0.mode, base: $0.base, personal: $0.personal)
-            }
-            let modelReady = self.blockingAsync {
-                await service.prepareModelIfNeeded(modelURL: zenzaiMode.weightURL)
-            }
-            if modelReady {
-                let evaluator: @Sendable (ZenzEvaluationRequest) async -> ZenzCandidateEvaluationResult = { request in
-                    await service.evaluate(
+            if #available(iOS 18, macOS 15, *) {
+                let service = self.resolvedCoreMLService()
+                let personalizationHandle = personalizationSource.map {
+                    ZenzPersonalizationHandle(mode: $0.mode, base: $0.base, personal: $0.personal)
+                }
+                let modelReady = await service.prepareModelIfNeeded(modelURL: zenzaiMode.weightURL)
+                if modelReady {
+                    if let coreMLResult = await service.convert(
                         modelURL: zenzaiMode.weightURL,
                         request: request,
                         personalization: personalizationHandle
-                    )
+                    ) {
+                        self.zenzaiCoreMLCache = Kana2Kanji.ZenzaiCache(snapshot: coreMLResult.cacheSnapshot)
+                        self.latestZenzCoreMLResultSnapshot = coreMLResult.snapshot
+                        return (coreMLResult.result, coreMLResult.lattice)
+                    }
                 }
-                let coreMLResult = self.blockingAsync {
-                    await self.converter.all_zenzai(
-                        inputData,
-                        evaluateCandidate: evaluator,
-                        zenzaiCache: self.zenzaiCoreMLCache,
-                        inferenceLimit: zenzaiMode.inferenceLimit,
-                        requestRichCandidates: zenzaiMode.requestRichCandidates,
-                        versionDependentConfig: zenzaiMode.versionDependentMode,
-                        dicdataStoreState: self.dicdataStoreState
-                    )
-                }
-                self.zenzaiCoreMLCache = coreMLResult.cache
-                return (coreMLResult.result, coreMLResult.lattice)
             }
-        }
 #endif
+#if Zenzai || ZenzaiCPU
+            if let localZenz = await self.resolvedLocalZenz(modelURL: zenzaiMode.weightURL) {
+                let localResult = await self.executeZenzRequest(
+                    request,
+                    evaluator: { evaluationRequest in
+                        await localZenz.candidateEvaluate(
+                            evaluationRequest,
+                            personalizationMode: personalizationSource
+                        )
+                    }
+                )
+                self.zenzaiCoreMLCache = localResult.cache
+                self.latestZenzCoreMLResultSnapshot = localResult.snapshot
+                return (localResult.result, localResult.lattice)
+            }
+#endif
+        }
 
         guard let previousInputData else {
             debug("\(#function): 新規計算用の関数を呼びますA")
@@ -823,14 +893,14 @@ public final class KanaKanjiConverter {
         converter.mergeCandidates(left, right)
     }
 
-    /// 外部から呼ばれる変換候補を要求する関数。
-    /// - Parameters:
-    ///   - inputData: 変換対象のInputData。
-    ///   - options: リクエストにかかるパラメータ。
-    /// - Returns: `ConversionResult`
     public func requestCandidates(_ inputData: ComposingText, options: ConvertRequestOptions) -> ConversionResult {
+        self.blockingAsync {
+            await self.requestCandidatesAsync(inputData, options: options)
+        }
+    }
+
+    public func requestCandidatesAsync(_ inputData: ComposingText, options: ConvertRequestOptions) async -> ConversionResult {
         debug("requestCandidates 入力は", inputData)
-        // 変換対象が無の場合
         if inputData.convertTarget.isEmpty {
             return ConversionResult(mainResults: [], firstClauseResults: [])
         }
@@ -844,7 +914,7 @@ public final class KanaKanjiConverter {
         let needTypoCorrection = options.needTypoCorrection ?? false
         #endif
 
-        guard let result = self.convertToLattice(inputData, N_best: options.N_best, zenzaiMode: options.zenzaiMode, needTypoCorrection: needTypoCorrection) else {
+        guard let result = await self.convertToLattice(inputData, N_best: options.N_best, zenzaiMode: options.zenzaiMode, needTypoCorrection: needTypoCorrection) else {
             return ConversionResult(mainResults: [], firstClauseResults: [])
         }
 

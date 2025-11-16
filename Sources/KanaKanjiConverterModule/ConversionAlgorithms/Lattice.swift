@@ -196,6 +196,44 @@ struct Lattice: Sequence {
         }
     }
 
+    var inputNodeColumnsCount: Int {
+        self.inputIndexedNodes.count
+    }
+
+    var surfaceNodeColumnsCount: Int {
+        self.surfaceIndexedNodes.count
+    }
+
+    func forEachNode(_ body: (LatticeNode) -> Void) {
+        self.inputIndexedNodes.forEach { column in
+            column.forEach(body)
+        }
+        self.surfaceIndexedNodes.forEach { column in
+            column.forEach(body)
+        }
+    }
+
+    init(snapshot: LatticeSnapshot) {
+        self.init()
+        self.inputIndexedNodes = .init(repeating: [], count: snapshot.inputCount)
+        self.surfaceIndexedNodes = .init(repeating: [], count: snapshot.surfaceCount)
+        for snapshotNode in snapshot.nodes {
+            let node = snapshotNode.makeNode()
+            switch snapshotNode.range.startIndex {
+            case .input(let index):
+                guard self.inputIndexedNodes.indices.contains(index) else { continue }
+                self.inputIndexedNodes[index].append(node)
+            case .surface(let index):
+                guard self.surfaceIndexedNodes.indices.contains(index) else { continue }
+                self.surfaceIndexedNodes[index].append(node)
+            }
+        }
+    }
+
+    var totalNodeCount: Int {
+        self.inputIndexedNodes.reduce(0) { $0 + $1.count } + self.surfaceIndexedNodes.reduce(0) { $0 + $1.count }
+    }
+
     struct Iterator: IteratorProtocol {
         init(lattice: Lattice) {
             self.lattice = lattice

@@ -59,9 +59,12 @@ Session 2 focuses on making the CoreML path consume DTOs only, then reintroducin
 - [x] Produce `ZenzPrefixConstraintSnapshot` and `ZenzCandidateSnapshot` at the `all_zenzai` call site and pass them into the CoreML bridge. _(Personalisation still relies on `ZenzPersonalizationHandle`; vector snapshots remain TODO.)_
 - [x] Bundle the evaluation inputs (`convertTarget`, constraint snapshot, candidate snapshot, execution flags) into a single `ZenzEvaluationRequest` DTO so the future actor receives one value payload per review.
 - [x] Update `all_zenzai` to consume async evaluator closures and convert `ZenzCoreMLService` into an actor that owns `Zenz`, so evaluation happens via DTO-only actor hops.
-- [ ] Define a CoreML response DTO (`ZenzCoreMLResultSnapshot`, TBD) so the CPU pipeline ingests snapshots instead of reference types.
-- [ ] Prepare the llama.cpp path to consume the same DTOs so both sides stay symmetric.
-- [ ] Once the DTO API stabilises, convert `ZenzCoreMLService` back into an `actor` and delete `blockingAsync`.
+- [x] Define a CoreML response DTO (`ZenzCoreMLResultSnapshot`) so the CPU pipeline ingests snapshots instead of reference types. *(Snapshot now contains optional best candidate, alternative constraints, lattice snapshot, and cache snapshot, and `Kana2Kanji.all_zenzai` returns it alongside existing tuple data. `KanaKanjiConverter` stores the latest snapshot for upcoming actor handoff.)*
+- [x] Start consuming the response snapshot on the converter actor by rebuilding the CoreML cache from `ZenzaiCacheSnapshot`, so we can eventually remove direct cache references from the CoreML actor boundary.
+- [x] Introduce `ZenzCoreMLExecutionRequest` (input data + cache/previous-input snapshots) and route `convertToLattice` through the CoreML actor so `ZenzCoreMLService` now owns the full `all_zenzai` loop (still returning concrete lattices until snapshot restoration covers prev-chains).
+- [x] Add `DicdataStoreStateSnapshot` support (including `LearningManager` snapshots) so `ZenzCoreMLExecutionRequest` carries immutable dictionary state copies rather than sharing live references.
+- [x] Prepare the llama.cpp path to consume the same DTOs so both sides stay symmetric. *(When `Zenzai`/`ZenzaiCPU` traits are enabled, `convertToLattice` now builds `ZenzCoreMLExecutionRequest` and runs `all_zenzai` via the locally loaded `Zenz` evaluator, updating caches/snapshots just like the CoreML actor.)*
+- [x] Once the DTO API stabilises, convert `ZenzCoreMLService` back into an `actor`-first API and delete `blockingAsync`. *(Public APIs now expose async variants; the legacy sync method is a thin wrapper that still uses `blockingAsync` for compatibility until we can release a breaking change.)*
 
 Update this list after every milestone so the next session has accurate context.
 
@@ -97,7 +100,7 @@ Once this structure is in place, the CoreML service can be rewritten as an actor
 
 ## Session 2 – Actor-Isolated CoreML Service
 
-**Goal:** Re-introduce `actor ZenzCoreMLService` now that DTOs/Sendable wrappers are in place.
+**Goal:** Re-introduce `actor ZenzCoreMLService` now that DTOs/Sendable wrappers are in place, and drive the converter APIs fully async.
 
 Tasks:
 
@@ -128,6 +131,40 @@ Tasks:
    - Add benchmarks or profiling scripts to confirm no regressions in latency or memory usage.
 4. **Documentation updates**  
    - Expand `Docs/ZenzAvailability.md` (and this plan) with final architecture diagrams and guidance for future contributors.
+
+### Follow-up plan for remaining gaps
+
+> Prerequisite: Before starting step 1, `ZenzCoreMLService` must be able to request/return DTOs via the new actor interface. In other words, the conversion actor needs to exist (even as a stub) so snapshots have a producer/consumer path.
+
+To finish Session 2 and unblock Session 3, we need the following multi-step plan:
+
+1. **Finalize DTO boundaries** *(decision: adopt the DTO-centric design)*  
+   1.1 Define request structs (prefix/candidate snapshots, `ZenzPersonalizationVectorConfig`).  
+   1.2 Extend `ZenzEvaluationRequest` so the CoreML actor owns prompt/tokenizer state entirely.  
+   1.3 Design `ZenzCoreMLResultSnapshot` for candidate review outputs + lattice hints.  
+   1.4 Draft `LatticeSnapshot`/`ZenzaiCacheSnapshot` formats for round-tripping.
+   > Status: DTO structs (`ZenzPersonalizationVectorConfig`, `ZenzCoreMLResultSnapshot`, `LatticeSnapshot`, `ZenzaiCacheSnapshot`, `ZenzCoreMLExecutionRequest`) now live in `ZenzSnapshots.swift`; cache/lattice snapshots support `snapshot()`/`init(snapshot:)` round-trips and the request carries optional previous-input data for future use.
+2. **Move `all_zenzai` behind an actor** *(decision: CoreML actor owns the full review loop)*  
+   2.1 Extend `ZenzCoreMLService` so it performs candidate generation, cache/lattice building, and the entire review loop internally (main actor only sends DTOs/receives snapshots).  
+   2.2 Keep model loading/prompt/tokenizer/personalization inside the same actor (no shared mutable state).  
+   2.3 Provide the actor with read-only dictionary access (snapshot/API) so no `DicdataStoreState` references leak.  
+   2.4 Document cache coherency rules when CPU vs CoreML history sharing, and treat the actor’s cache as authoritative for CoreML runs.
+   > Status: `ZenzCoreMLService` now accepts `ZenzCoreMLExecutionRequest`, rebuilds caches from snapshots, and invokes `all_zenzai` internally. The CPU (llama.cpp) path also consumes the same request DTO and evaluator flow; remaining work is limited to full async actor migration once DTO contracts settle.
+3. **Snapshot CPU structures** *(decision: actor-only caches with DTO round-trips)*  
+   3.1 Implement builders/restorers for `LatticeSnapshot`, `ZenzaiCacheSnapshot`, `previousInputData` snapshots.  
+   3.2 Rebuild caches on the main actor from snapshots returned by CoreML.  
+   3.3 Lock down snapshot schemas with tests; monitor serialization overhead.  
+   > Detail: Lattice snapshots should encode range/text/value/flags per node; `ZenzaiCacheSnapshot` should carry `ComposingText`, `ZenzPrefixConstraintSnapshot`, and an optional candidate snapshot. Add `snapshot()/init(snapshot:)` helpers to `Lattice`/`ZenzaiCache`.
+4. **Async API conversion** *(decision: public API becomes async/await with sync wrappers)*  
+   4.1 Introduce async `requestCandidates` and keep a compatibility wrapper (sync API becomes a thin wrapper around async).  
+   4.2 Ensure state (`previousInputData`, `lattice`, `dicdataStoreState`) respects actor isolation.  
+   4.3 Publish migration guidance for embedders/CLI (document new async API, deprecate sync API with wrapper).  
+   4.4 Remove `blockingAsync` once async APIs are in place and all call sites await the actor directly.
+5. **Validate & document** *(decision: regression tests + migration docs required)*  
+   5.1 Add integration tests comparing CPU vs CoreML snapshot outputs.  
+   5.2 Add performance benchmarks to monitor latency/memory.  
+   5.3 Update documentation with actor diagrams and async API instructions.  
+   5.4 Publish migration notes for downstream users.
 
 **Deliverables:** Clean separation of responsibilities, updated documentation, and automated tests/benchmarks demonstrating stability.
 

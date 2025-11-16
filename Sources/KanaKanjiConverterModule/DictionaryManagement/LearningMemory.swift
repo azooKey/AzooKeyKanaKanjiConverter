@@ -595,6 +595,8 @@ struct TemporalLearningMemoryTrie {
     }
 }
 
+extension TemporalLearningMemoryTrie: Sendable {}
+
 public struct LearningConfig: Sendable, Equatable {
     var learningType: LearningType = .nothing
     var maxMemoryCount: Int = 0
@@ -877,5 +879,30 @@ final class LearningManager {
         } catch {
             debug("LearningManager reset failed", error)
         }
+    }
+}
+
+extension LearningManager {
+    struct Snapshot: Sendable {
+        var char2UInt8: [Character: UInt8]
+        var temporaryMemory: TemporalLearningMemoryTrie
+        var config: LearningConfig
+        var memoryCollapsed: Bool
+    }
+
+    func snapshot() -> Snapshot {
+        Snapshot(
+            char2UInt8: self.char2UInt8,
+            temporaryMemory: self.temporaryMemory,
+            config: self.config,
+            memoryCollapsed: self.memoryCollapsed
+        )
+    }
+
+    func apply(snapshot: Snapshot) {
+        self.char2UInt8 = snapshot.char2UInt8
+        self.temporaryMemory = snapshot.temporaryMemory
+        self.config = snapshot.config
+        self.memoryCollapsed = snapshot.memoryCollapsed
     }
 }

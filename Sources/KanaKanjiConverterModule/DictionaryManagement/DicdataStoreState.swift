@@ -2,7 +2,10 @@ import Foundation
 import SwiftUtils
 
 package final class DicdataStoreState {
+    let dictionaryURL: URL
+
     init(dictionaryURL: URL) {
+        self.dictionaryURL = dictionaryURL
         self.learningMemoryManager = LearningManager(dictionaryURL: dictionaryURL)
     }
 
@@ -131,5 +134,54 @@ package final class DicdataStoreState {
         case .replacement(targetData: let targetData, replacementData: let replacementData):
             self.learningMemoryManager.update(data: candidate.data.dropLast(targetData.count), updatePart: replacementData)
         }
+    }
+}
+
+struct DicdataStoreStateSnapshot: Sendable {
+    var dictionaryURL: URL
+    var keyboardLanguage: KeyboardLanguage
+    var dynamicUserDictionary: [DicdataElement]
+    var dynamicUserShortcuts: [DicdataElement]
+    var userDictionaryURL: URL?
+    var userDictionaryHasLoaded: Bool
+    var userDictionaryLOUDS: LOUDS?
+    var userShortcutsHasLoaded: Bool
+    var userShortcutsLOUDS: LOUDS?
+    var memoryHasLoaded: Bool
+    var memoryLOUDS: LOUDS?
+    var learningSnapshot: LearningManager.Snapshot
+}
+
+extension DicdataStoreState {
+    func snapshot() -> DicdataStoreStateSnapshot {
+        DicdataStoreStateSnapshot(
+            dictionaryURL: self.dictionaryURL,
+            keyboardLanguage: self.keyboardLanguage,
+            dynamicUserDictionary: self.dynamicUserDictionary,
+            dynamicUserShortcuts: self.dynamicUserShortcuts,
+            userDictionaryURL: self.userDictionaryURL,
+            userDictionaryHasLoaded: self.userDictionaryHasLoaded,
+            userDictionaryLOUDS: self.userDictionaryLOUDS,
+            userShortcutsHasLoaded: self.userShortcutsHasLoaded,
+            userShortcutsLOUDS: self.userShortcutsLOUDS,
+            memoryHasLoaded: self.memoryHasLoaded,
+            memoryLOUDS: self.memoryLOUDS,
+            learningSnapshot: self.learningMemoryManager.snapshot()
+        )
+    }
+
+    convenience init(snapshot: DicdataStoreStateSnapshot) {
+        self.init(dictionaryURL: snapshot.dictionaryURL)
+        self.keyboardLanguage = snapshot.keyboardLanguage
+        self.dynamicUserDictionary = snapshot.dynamicUserDictionary
+        self.dynamicUserShortcuts = snapshot.dynamicUserShortcuts
+        self.userDictionaryURL = snapshot.userDictionaryURL
+        self.userDictionaryHasLoaded = snapshot.userDictionaryHasLoaded
+        self.userDictionaryLOUDS = snapshot.userDictionaryLOUDS
+        self.userShortcutsHasLoaded = snapshot.userShortcutsHasLoaded
+        self.userShortcutsLOUDS = snapshot.userShortcutsLOUDS
+        self.memoryHasLoaded = snapshot.memoryHasLoaded
+        self.memoryLOUDS = snapshot.memoryLOUDS
+        self.learningMemoryManager.apply(snapshot: snapshot.learningSnapshot)
     }
 }

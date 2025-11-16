@@ -319,7 +319,7 @@ final class ZenzContext: ZenzContextProtocol {
         let is_learned_token: [(isLearned: Bool, priority: Float)] = Array(repeating: (false, 0), count: prompt_tokens.count) + request.candidate.elements.flatMap {
             // priorityは文字数にする→文字数が長いほど優先される
             let priority = logf(getLearningPriority(rubyCount: $0.ruby.count))
-            return Array(repeating: ($0.isLearned, priority), count: Self.tokenize(text: $0.word, add_bos: false).count)
+            return Array(repeating: ($0.isLearned, priority), count: self.tokenize(text: $0.word, add_bos: false).count)
         }
 
         var score: Float = 0
