@@ -50,6 +50,14 @@ var targets: [Target] = [
         swiftSettings: swiftSettings
     ),
     .target(
+        name: "ZenzCoreMLBackend",
+        dependencies: [],
+        resources: [
+            .copy("zenz-CoreML/Stateful")
+        ],
+        swiftSettings: swiftSettings
+    ),
+    .target(
         name: "KanaKanjiConverterModuleWithDefaultDictionary",
         dependencies: [
             "KanaKanjiConverterModule"
@@ -158,6 +166,7 @@ targets.append(
             "SwiftUtils",
             .target(name: "EfficientNGram"),
             .target(name: "llama.cpp", condition: .when(traits: ["Zenzai", "ZenzaiCPU"])),
+            .target(name: "ZenzCoreMLBackend", condition: .when(traits: ["ZenzaiCoreML"])),
             .product(name: "Collections", package: "swift-collections"),
         ],
         swiftSettings: swiftSettings
@@ -187,6 +196,7 @@ let package = Package(
     traits: [
         .trait(name: "Zenzai"),
         .trait(name: "ZenzaiCPU"),
+        .trait(name: "ZenzaiCoreML"),
         .default(enabledTraits: [])
     ],
     dependencies: dependencies,
