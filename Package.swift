@@ -17,12 +17,11 @@ var dependencies: [Package.Dependency] = [
     .package(url: "https://github.com/apple/swift-algorithms", from: "1.0.0"),
     .package(url: "https://github.com/apple/swift-collections", from: "1.0.0"),
     .package(url: "https://github.com/apple/swift-argument-parser", .upToNextMajor(from: "1.0.0")),
-    .package(url: "https://github.com/huggingface/swift-transformers", .upToNextMinor(from: "1.1.2"))
+    .package(url: "https://github.com/ensan-hcl/swift-tokenizers", from: "0.0.1")
 ]
 
 var efficientNGramDependencies: [Target.Dependency] = [
-    .product(name: "Tokenizers", package: "swift-transformers"),
-    .product(name: "Hub", package: "swift-transformers")
+    .product(name: "Transformers", package: "swift-tokenizers")
 ]
 
 #if (!os(Linux) || !canImport(Android)) && !os(Windows)
