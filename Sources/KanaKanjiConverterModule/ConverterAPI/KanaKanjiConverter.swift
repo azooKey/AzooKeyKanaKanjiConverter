@@ -30,6 +30,11 @@ public final class KanaKanjiConverter {
             self.zenzaiCache = nil
             self.latestZenzSnapshot = nil
         }
+
+        mutating func invalidateZenzCaches() {
+            self.zenzaiCache = nil
+            self.latestZenzSnapshot = nil
+        }
     }
     let converter: Kana2Kanji
 
@@ -191,6 +196,7 @@ public final class KanaKanjiConverter {
             print("zenz-v2 model unavailable")
             return []
         }
+        self.cache.invalidateZenzCaches()
         return self.blockingAsync {
             await self.resolvedCoreMLService().predictNextCharacters(leftSideContext: leftSideContext, count: count, options: options)
         }
@@ -198,6 +204,7 @@ public final class KanaKanjiConverter {
 #else
     public func predictNextCharacter(leftSideContext: String, count: Int, options: ConvertRequestOptions) -> [(character: Character, value: Float)] {
         print("zenz-v2 model unavailable")
+        self.cache.invalidateZenzCaches()
         return []
     }
 #endif
@@ -275,6 +282,15 @@ public final class KanaKanjiConverter {
     /// 確定操作後の学習メモリの更新を確定させます。
     public func resetMemory() {
         self.dicdataStoreState.resetMemory()
+        self.cache.resetForNewSession()
+#if ZenzaiCoreML && canImport(CoreML)
+        if #available(iOS 18, macOS 15, *), let service = self.coreMLServiceStorage as? ZenzCoreMLService {
+            self.blockingAsync {
+                await service.stopComposition()
+            }
+            self.coreMLServiceStorage = nil
+        }
+#endif
     }
 
     /// 賢い変換候補を生成する関数。
@@ -943,6 +959,7 @@ public final class KanaKanjiConverter {
 
     /// 変換確定後の予測変換候補を要求する関数
     public func requestPostCompositionPredictionCandidates(leftSideCandidate: Candidate, options: ConvertRequestOptions) -> [PostCompositionPredictionCandidate] {
+        self.cache.invalidateZenzCaches()
         // ゼロヒント予測変換に基づく候補を列挙
         var zeroHintResults = self.getUniquePostCompositionPredictionCandidate(self.converter.getZeroHintPredictionCandidates(preparts: [leftSideCandidate], N_best: 15))
         do {

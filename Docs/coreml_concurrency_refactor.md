@@ -127,7 +127,8 @@ Tasks:
    - Extract `previousInputData`, `lattice`, `ZenzaiCache` etc. into a dedicated cache manager that is `Sendable`/actor-aware.  
    > Status: `KanaKanjiConverter` now stores all mutating state inside `ConversionCache` (previous input, lattice, completed/last data, CoreML cache snapshots), so the CPU/CoreML paths share one value-type cache entry point.
 2. **Unified lifecycle hooks**  
-   - Ensure `stopComposition`, `resetMemory`, and prediction APIs notify both CPU and CoreML caches consistently.
+   - Ensure `stopComposition`, `resetMemory`, and prediction APIs notify both CPU and CoreML caches consistently.  
+   > Status: `ConversionCache` now encapsulates previous input/lattice/last data along with CoreML cache snapshots. `stopComposition` and `resetMemory` call `cache.resetForNewSession()` (and `resetMemory` also stops the CoreML actor), while prediction APIs (`predictNextCharacter`, post-composition predictions) invalidate Zenz caches so both CPU and CoreML stay in sync.
 3. **Performance verification**  
    - Add benchmarks or profiling scripts to confirm no regressions in latency or memory usage.
 4. **Documentation updates**  
