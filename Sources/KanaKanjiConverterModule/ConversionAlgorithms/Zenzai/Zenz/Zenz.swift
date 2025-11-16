@@ -13,11 +13,7 @@ package final class Zenz {
         do {
             #if canImport(Darwin)
             #if ZenzaiCoreML
-            if #available(iOS 18, macOS 15, *) {
-                self.zenzContext = try ZenzContext.createContext(path: resourceURL.path(percentEncoded: false))
-            } else {
-                preconditionFailure("ZenzaiCoreML requires iOS 18 / macOS 15")
-            }
+            self.zenzContext = try ZenzContext.createContext(path: resourceURL.path(percentEncoded: false))
             #else
             if #available(iOS 16, macOS 13, *) {
                 self.zenzContext = try ZenzContext.createContext(path: resourceURL.path(percentEncoded: false))
