@@ -38,7 +38,7 @@ final class ZenzaiTests: XCTestCase {
         )
     }
 
-    func testFullConversion() async throws {
+    func testFullConversion() throws {
         do {
             let converter = KanaKanjiConverter.withDefaultDictionary()
             var c = ComposingText()

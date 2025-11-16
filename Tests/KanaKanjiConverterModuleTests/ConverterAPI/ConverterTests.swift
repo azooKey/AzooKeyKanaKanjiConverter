@@ -34,7 +34,7 @@ final class ConverterTests: XCTestCase {
     }
 
     // 変換されてはいけないケースを示す
-    func testMustNotCases() async throws {
+    func testMustNotCases() throws {
         do {
             // 改行文字に対して本当に改行が入ってしまうケース
             let converter = KanaKanjiConverter(dictionaryURL: dictionaryURL())

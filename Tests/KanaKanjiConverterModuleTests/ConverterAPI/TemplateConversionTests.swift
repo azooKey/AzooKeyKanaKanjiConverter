@@ -8,7 +8,7 @@ final class TemplateConversionTests: XCTestCase {
         .default
     }
 
-    func testTemplateConversion() async throws {
+    func testTemplateConversion() throws {
         let converter = KanaKanjiConverter.withoutDictionary()
         let template = #"<date format="yyyy年MM月dd日" type="western" language="ja_JP" delta="0" deltaunit="1">"#
         converter.importDynamicUserDictionary([

@@ -11,7 +11,7 @@ final class TimeExpressionTests: XCTestCase {
         )
     }
 
-    func testConvertToTimeExpression() async throws {
+    func testConvertToTimeExpression() throws {
         let converter = KanaKanjiConverter.withoutDictionary()
 
         let input1 = makeDirectInput(direct: "123")

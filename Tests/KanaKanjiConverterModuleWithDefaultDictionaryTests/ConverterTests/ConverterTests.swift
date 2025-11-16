@@ -39,7 +39,7 @@ final class ConverterTests: XCTestCase {
         )
     }
 
-    func testFullConversion() async throws {
+    func testFullConversion() throws {
         do {
             let converter = KanaKanjiConverter.withDefaultDictionary()
             var c = ComposingText()
@@ -56,7 +56,7 @@ final class ConverterTests: XCTestCase {
         }
     }
 
-    func testRoman2KanaFullConversion() async throws {
+    func testRoman2KanaFullConversion() throws {
         for needTypoCorrection in [true, false] {
             do {
                 let converter = KanaKanjiConverter.withDefaultDictionary()
@@ -75,7 +75,7 @@ final class ConverterTests: XCTestCase {
         }
     }
 
-    func testAzikFullConversion() async throws {
+    func testAzikFullConversion() throws {
         for needTypoCorrection in [true, false] {
             do {
                 let converter = KanaKanjiConverter.withDefaultDictionary()
@@ -100,7 +100,7 @@ final class ConverterTests: XCTestCase {
 
     // 1文字ずつ変換する
     // memo: 内部実装としては別のモジュールが呼ばれるのだが、それをテストする方法があまりないかもしれない
-    func testGradualConversion() async throws {
+    func testGradualConversion() throws {
         let converter = KanaKanjiConverter.withDefaultDictionary()
         var c = ComposingText()
         let text = "ようしょうきからてにすすいえいやきゅうしょうりんじけんぽうなどさまざまなすぽーつをけいけんしながらそだちしょうがっこうじだいはろさんぜるすきんこうにたいざいしておりごるふやてにすをならっていた"
@@ -115,7 +115,7 @@ final class ConverterTests: XCTestCase {
 
     // 1文字ずつ変換する
     // memo: 内部実装としては別のモジュールが呼ばれるのだが、それをテストする方法があまりないかもしれない
-    func testRoman2KanaGradualConversion() async throws {
+    func testRoman2KanaGradualConversion() throws {
         let converter = KanaKanjiConverter.withDefaultDictionary()
         var c = ComposingText()
         let text = "youshoukikaratenisusuieiyakyuushourinjikenpounadosamazamanasupoーtuwokeikennsinagarasodatishougakkouzidaiharosanzerusukinkounitaizaisiteorigoruhuyatenisuwonaratteita"
@@ -135,7 +135,7 @@ final class ConverterTests: XCTestCase {
 
     // 2,3文字ずつ変換する
     // memo: 内部実装としては別のモジュールが呼ばれるのだが、それをテストする方法があまりないかもしれない
-    func testSemiGradualConversion() async throws {
+    func testSemiGradualConversion() throws {
         let converter = KanaKanjiConverter.withDefaultDictionary()
         var c = ComposingText()
         let text = "ようしょうきからてにすすいえいやきゅうしょうりんじけんぽうなどさまざまなすぽーつをけいけんしながらそだちしょうがっこうじだいはろさんぜるすきんこうにたいざいしておりごるふやてにすをならっていた"
@@ -155,7 +155,7 @@ final class ConverterTests: XCTestCase {
         }
     }
     // memo: このケースで単漢字変換などの結果が得られない問題があった
-    func testKimiAndThenDelete() async throws {
+    func testKimiAndThenDelete() throws {
         let converter = KanaKanjiConverter.withDefaultDictionary()
         var c = ComposingText()
         let text = "kimi"
@@ -179,7 +179,7 @@ final class ConverterTests: XCTestCase {
     }
 
     // memo: このケースでfatalErrorが発生する不具合が生じることがあった
-    func testIttaAndThenDelete() async throws {
+    func testIttaAndThenDelete() throws {
         let converter = KanaKanjiConverter.withDefaultDictionary()
         var c = ComposingText()
         let text = "itta"
@@ -204,7 +204,7 @@ final class ConverterTests: XCTestCase {
 
     // 1文字ずつ入力するが、時折削除を行う
     // memo: 内部実装としてはdeleted_last_nのテストを意図している
-    func testGradualConversionWithDelete() async throws {
+    func testGradualConversionWithDelete() throws {
         let converter = KanaKanjiConverter.withDefaultDictionary()
         var c = ComposingText()
         let text = Array("ようしょうきからてにすすいえいやきゅうしょうりんじけんぽうなどさまざまなすぽーつをけいけんしながらそだちしょうがっこうじだいはろさんぜるすきんこうにたいざいしておりごるふやてにすをならっていた")
@@ -226,7 +226,7 @@ final class ConverterTests: XCTestCase {
         }
     }
 
-    func testDeleteConversionPerformance() async throws {
+    func testDeleteConversionPerformance() throws {
         let converter = KanaKanjiConverter.withDefaultDictionary()
         var c = ComposingText()
         do {
@@ -241,7 +241,7 @@ final class ConverterTests: XCTestCase {
         XCTAssertTrue(c.isEmpty)
     }
 
-    func testTrailing_N_and_EndOfTextBehavior() async throws {
+    func testTrailing_N_and_EndOfTextBehavior() throws {
         do {
             let converter = KanaKanjiConverter.withDefaultDictionary()
             var c = ComposingText()
@@ -340,7 +340,7 @@ final class ConverterTests: XCTestCase {
     }
 
     // 必ず正解すべきテストケース
-    func testMustCases() async throws {
+    func testMustCases() throws {
         // ダイレクト入力
         do {
             let cases: [(input: String, expect: String)] = [
@@ -442,7 +442,7 @@ final class ConverterTests: XCTestCase {
 
     // 変換結果が比較的一意なテストケースを無数に持ち、一定の割合を正解することを要求する
     // 辞書を更新した結果性能が悪化したら気付ける
-    func testAccuracy() async throws {
+    func testAccuracy() throws {
         let cases: [(input: String, expect: [String])] = [
             ("3がつ8にち", ["3月8日"]),
             ("いっていのわりあい", ["一定の割合"]),
@@ -519,7 +519,7 @@ final class ConverterTests: XCTestCase {
     // 変換結果が比較的一意なテストケースを無数に持ち、一定の割合を正解することを要求する
     // 辞書を更新した結果性能が悪化したら気付ける
     // 口語表現を中心にテストする
-    func testVerbalAccuracy() async throws {
+    func testVerbalAccuracy() throws {
         let cases: [(input: String, expect: [String])] = [
             ("うわああああ、まじか", ["うわああああ、マジか", "うわああああ、まじか"]),
             ("は？", ["は？"]),
@@ -566,7 +566,7 @@ final class ConverterTests: XCTestCase {
     }
 
     /// MIDベースの文節単位計算でどれだけ同音異義語の判断が向上しているか確認する。
-    func testMeaningBasedConversionAccuracy() async throws {
+    func testMeaningBasedConversionAccuracy() throws {
         let cases: [(input: String, expect: String)] = [
             ("しょうぼう、しょうか、ほのお", "消防、消火、炎"),
             ("いえき、しょうか、こうそ", "胃液、消化、酵素"),
@@ -867,12 +867,12 @@ final class ConverterTests: XCTestCase {
     }
 
     #if os(macOS) || os(iOS) || os(watchOS) || os(tvOS) || os(visionOS)
-    func testMozcEvaluationData() async throws {
+    func testMozcEvaluationData() throws {
         // ダウンロードするURL
         let urlString = "https://raw.githubusercontent.com/google/mozc/master/src/data/dictionary_oss/evaluation.tsv"
         let url = URL(string: urlString)!
         // URLを元にURLオブジェクトを生成
-        let (data, _) = try await URLSession.shared.data(from: url)
+        let data = try Data(contentsOf: url)
         let content = String(data: data, encoding: .utf8)!
 
         var mozcScore: Double = 0

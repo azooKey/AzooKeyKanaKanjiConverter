@@ -11,7 +11,7 @@ final class EmailAddressConversionTests: XCTestCase {
         )
     }
 
-    func testtoEmailAddressCandidates() async throws {
+    func testtoEmailAddressCandidates() throws {
         do {
             let converter = KanaKanjiConverter.withoutDictionary()
             let input = makeDirectInput(direct: "azooKey@")

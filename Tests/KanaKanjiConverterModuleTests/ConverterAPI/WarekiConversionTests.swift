@@ -19,7 +19,7 @@ final class WarekiConversionTests: XCTestCase {
         )
     }
 
-    func testSeireki2Wareki() async throws {
+    func testSeireki2Wareki() throws {
         do {
             let converter = KanaKanjiConverter.withoutDictionary()
             let input = makeDirectInput(direct: "2019ねん")
@@ -92,7 +92,7 @@ final class WarekiConversionTests: XCTestCase {
         }
     }
 
-    func testWareki2Seireki() async throws {
+    func testWareki2Seireki() throws {
         do {
             let converter = KanaKanjiConverter.withoutDictionary()
             let input = ComposingText(

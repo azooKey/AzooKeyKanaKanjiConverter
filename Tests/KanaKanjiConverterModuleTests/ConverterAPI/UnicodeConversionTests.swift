@@ -19,7 +19,7 @@ final class UnicodeConversionTests: XCTestCase {
         )
     }
 
-    func testFromUnicode() async throws {
+    func testFromUnicode() throws {
         do {
             let converter = KanaKanjiConverter.withoutDictionary()
             let input = makeDirectInput(direct: "U+3042")
