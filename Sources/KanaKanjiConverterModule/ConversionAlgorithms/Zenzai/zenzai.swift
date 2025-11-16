@@ -77,6 +77,9 @@ extension Kana2Kanji {
     }
 
     /// zenzaiシステムによる完全変換。
+    #if ZenzaiCoreML && canImport(CoreML)
+    @available(iOS 18, macOS 15, *)
+    #endif
     func all_zenzai(
         _ inputData: ComposingText,
         zenz: Zenz,
@@ -210,12 +213,18 @@ extension Kana2Kanji {
         }
     }
 
+    #if ZenzaiCoreML && canImport(CoreML)
+    @available(iOS 18, macOS 15, *)
+    #endif
     private enum NextAction {
         case `return`(constraint: PrefixConstraint, alternativeConstraints: [ZenzContext.CandidateEvaluationResult.AlternativeConstraint], satisfied: Bool)
         case `continue`
         case `retry`(candidateIndex: Int)
     }
 
+    #if ZenzaiCoreML && canImport(CoreML)
+    @available(iOS 18, macOS 15, *)
+    #endif
     private func review(
         candidateIndex: Int,
         candidates: [Candidate],

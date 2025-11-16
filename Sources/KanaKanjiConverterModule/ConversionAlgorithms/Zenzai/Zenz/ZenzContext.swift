@@ -1,16 +1,18 @@
-#if !ZenzaiCoreML
+#if !ZenzaiCoreML || !canImport(CoreML)
 #if Zenzai || ZenzaiCPU
 // Zenzai/ZenzaiCPU が有効でない場合、llama-mock.swift の実装が利用される
 import llama
 #endif
 
-#if !ZenzaiCoreML
 import Algorithms
 import EfficientNGram
 import Foundation
 import HeapModule
 import SwiftUtils
-
+#if canImport(Darwin)
+import Darwin
+#elseif canImport(Glibc)
+import Glibc
 #endif
 
 enum ZenzError: LocalizedError {
@@ -26,7 +28,6 @@ enum ZenzError: LocalizedError {
         }
     }
 }
-#endif
 final class ZenzContext {
     private var model: OpaquePointer
     private var context: OpaquePointer
@@ -497,3 +498,4 @@ final class ZenzContext {
         }
     }
 }
+#endif

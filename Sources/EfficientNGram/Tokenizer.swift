@@ -12,22 +12,22 @@ public struct ZenzTokenizer {
         let tokenizer = try! AutoTokenizer.from(tokenizerConfig: tokenizerConfig, tokenizerData: tokenizerData)
         self.tokenizer = tokenizer
     }
-    func encode(text: String) -> [Int] {
+    public func encode(text: String) -> [Int] {
         self.tokenizer.encode(text: text)
     }
-    func encode(text: String, addSpecialTokens: Bool) -> [Int] {
+    public func encode(text: String, addSpecialTokens: Bool) -> [Int] {
         self.tokenizer.encode(text: text, addSpecialTokens: addSpecialTokens)
     }
-    func decode(tokens: [Int]) -> String {
+    public func decode(tokens: [Int]) -> String {
         self.tokenizer.decode(tokens: tokens)
     }
-    var startTokenID: Int {
+    public var startTokenID: Int {
         self.tokenizer.bosTokenId!
     }
-    var endTokenID: Int {
+    public var endTokenID: Int {
         self.tokenizer.eosTokenId!
     }
-    var vocabSize: Int {
+    public var vocabSize: Int {
         // FIXME
         6000
     }
