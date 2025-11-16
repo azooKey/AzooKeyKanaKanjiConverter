@@ -47,6 +47,7 @@ public final class KanaKanjiConverter {
     public private(set) var zenzStatus: String = ""
     fileprivate var dicdataStoreState: DicdataStoreState
 #if ZenzaiCoreML && canImport(CoreML)
+    @available(iOS 18, macOS 15, *)
     private lazy var coreMLBridge = ZenzCoreMLBridge(owner: self)
 #endif
 
