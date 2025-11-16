@@ -110,7 +110,7 @@ targets.append(
     .target(
         name: "ZenzCoreMLBackend",
         dependencies: [
-            .product(name: "Tokenizers", package: "swift-transformers")
+            .product(name: "Transformers", package: "swift-tokenizers")
         ],
         resources: [
             .copy("zenz-CoreML/Stateful"),
