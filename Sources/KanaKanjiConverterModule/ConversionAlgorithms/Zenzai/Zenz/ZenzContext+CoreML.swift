@@ -42,31 +42,27 @@ final class ZenzContext: ZenzContextProtocol {
     }
 
     func evaluate_candidate(
-        input: String,
-        candidate: Candidate,
-        requestRichCandidates: Bool,
-        prefixConstraint: Kana2Kanji.PrefixConstraint,
-        personalizationMode: (mode: ConvertRequestOptions.ZenzaiMode.PersonalizationMode, base: EfficientNGram, personal: EfficientNGram)?,
-        versionDependentConfig: ConvertRequestOptions.ZenzaiVersionDependentMode
+        request: ZenzEvaluationRequest,
+        personalizationMode: (mode: ConvertRequestOptions.ZenzaiMode.PersonalizationMode, base: EfficientNGram, personal: EfficientNGram)?
     ) async -> ZenzCandidateEvaluationResult {
-        debug("Evaluate", candidate)
+        debug("Evaluate", request.candidate)
         let prompt = ZenzPromptBuilder.buildPrompt(
-            convertTarget: input,
-            candidate: candidate,
-            versionDependentConfig: versionDependentConfig
+            convertTarget: request.convertTarget,
+            candidate: request.candidate,
+            versionDependentConfig: request.versionDependentConfig
         )
         let prompt_tokens = self.tokenize(text: prompt, add_bos: true, add_eos: false)
         defer {
             self.prevPrompt = prompt_tokens
         }
 
-        let candidate_tokens = self.tokenize(text: ZenzPromptBuilder.preprocess(candidate.text), add_bos: false, add_eos: false)
+        let candidate_tokens = self.tokenize(text: ZenzPromptBuilder.preprocess(request.candidate.text), add_bos: false, add_eos: false)
         let addressed_tokens: [Int]
-        if self.prevPrompt == prompt_tokens, !requestRichCandidates {
+        if self.prevPrompt == prompt_tokens, !request.requestRichCandidates {
             var string = ""
-            for character in candidate.text {
+            for character in request.candidate.text {
                 let newString = string + String(character)
-                if prefixConstraint.constraint.hasPrefix(newString.utf8) {
+                if request.prefixConstraint.hasPrefix(newString) {
                     string = newString
                 } else {
                     break
@@ -86,8 +82,10 @@ final class ZenzContext: ZenzContextProtocol {
         let logits = logitsResult.values
         let n_vocab = logitsResult.vocabSize
 
-        let is_learned_token: [(isLearned: Bool, priority: Float)] = Array(repeating: (false, 0), count: prompt_tokens.count) + candidate.data.flatMap {
-            Array(repeating: ($0.metadata.contains(.isLearned), logf(getLearningPriority(data: $0))), count: self.tokenize(text: $0.word, add_bos: false).count)
+        let is_learned_token: [(isLearned: Bool, priority: Float)] = Array(repeating: (false, 0), count: prompt_tokens.count) + request.candidate.elements.flatMap {
+            // priorityは文字数にする→文字数が長いほど優先される
+            let priority = logf(getLearningPriority(rubyCount: $0.ruby.count))
+            return Array(repeating: ($0.isLearned, priority), count: self.tokenize(text: $0.word, add_bos: false).count)
         }
 
         var score: Float = 0
@@ -102,7 +100,7 @@ final class ZenzContext: ZenzContextProtocol {
             var probabilityRatioToMaxProb: Float
         }
 
-        var altTokens = FixedSizeHeap<AlternativeHighProbToken>(size: requestRichCandidates ? 5 : 0)
+        var altTokens = FixedSizeHeap<AlternativeHighProbToken>(size: request.requestRichCandidates ? 5 : 0)
         for (i, token_id) in tokens.indexed().dropFirst(startOffset + 1) {
             struct TokenAndLogprob: Comparable {
                 static func < (lhs: TokenAndLogprob, rhs: TokenAndLogprob) -> Bool {
@@ -114,7 +112,7 @@ final class ZenzContext: ZenzContextProtocol {
             var sumexp: Float = 0
             let startIndex = (i - 1 - startOffset) * n_vocab
             let endIndex = (i - startOffset) * n_vocab
-            var tokenHeap = FixedSizeHeap<TokenAndLogprob>(size: requestRichCandidates ? 3 : 1)
+            var tokenHeap = FixedSizeHeap<TokenAndLogprob>(size: request.requestRichCandidates ? 3 : 1)
             for index in startIndex..<endIndex {
                 sumexp += expf(logits[index])
             }
@@ -174,8 +172,8 @@ final class ZenzContext: ZenzContextProtocol {
             } else if !tokenHeap.isEmpty {
                 tokenHeap.removeMax()
                 let prefixBytes = tokens[..<i].reduce(into: [UInt8]()) {
-                    $0.append(contentsOf: token_to_piece(token: $1))
-                }.dropFirst(prompt.utf8.count)
+                            $0.append(contentsOf: token_to_piece(token: $1))
+                        }.dropFirst(prompt.utf8.count)
 
                 for item in tokenHeap.unordered {
                     altTokens.insertIfPossible(
@@ -314,11 +312,13 @@ final class ZenzContext: ZenzContextProtocol {
         tokenScalars(token: token)
     }
 
-    func getLearningPriority(data: DicdataElement) -> Float {
-        if 1 <= data.ruby.count && data.ruby.count <= 4 {
-            Float(data.ruby.count + 2)
-        } else if 5 <= data.ruby.count && data.ruby.count <= 15 {
-            Float(data.ruby.count * 2)
+    func getLearningPriority(rubyCount: Int) -> Float {
+        // 文字数の長い候補ほど優先的に適用されるようにする
+        // 積極的な複合語化の効果を期待
+        if 1 <= rubyCount && rubyCount <= 4 {
+            Float(rubyCount + 2)
+        } else if 5 <= rubyCount && rubyCount <= 15 {
+            Float(rubyCount * 2)
         } else {
             30
         }

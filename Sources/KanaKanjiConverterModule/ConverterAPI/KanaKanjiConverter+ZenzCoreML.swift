@@ -4,49 +4,53 @@ import Foundation
 
 extension KanaKanjiConverter {
     @available(iOS 18, macOS 15, *)
-    final class ZenzCoreMLService {
+    actor ZenzCoreMLService {
         unowned let owner: KanaKanjiConverter
-        private let stateLock = NSLock()
         private var zenz: Zenz?
 
         init(owner: KanaKanjiConverter) {
             self.owner = owner
         }
 
-        private func withStateLock<T>(_ operation: () -> T) -> T {
-            self.stateLock.lock()
-            defer { self.stateLock.unlock() }
-            return operation()
-        }
-
         func stopComposition() async {
-            let zenz = self.withStateLock { () -> Zenz? in
-                defer {
-                    self.zenz = nil
-                }
-                return self.zenz
-            }
             if let zenz {
                 await zenz.endSession()
             }
+            self.zenz = nil
         }
 
-        func getOrLoadModel(modelURL: URL) async -> Zenz? {
-            if let cached = self.withStateLock({ self.zenz?.resourceURL == modelURL ? self.zenz : nil }) {
+        private func getOrLoadModel(modelURL: URL) async -> Zenz? {
+            if let cached = self.zenz, cached.resourceURL == modelURL {
                 self.owner.updateZenzStatus("load \(modelURL.absoluteString)")
                 return cached
             }
             do {
                 let model = try await Zenz(resourceURL: modelURL)
-                self.withStateLock {
-                    self.zenz = model
-                }
+                self.zenz = model
                 self.owner.updateZenzStatus("load \(modelURL.absoluteString)")
                 return model
             } catch {
                 self.owner.updateZenzStatus("load \(modelURL.absoluteString)    " + error.localizedDescription)
                 return nil
             }
+        }
+
+        func prepareModelIfNeeded(modelURL: URL) async -> Bool {
+            await self.getOrLoadModel(modelURL: modelURL) != nil
+        }
+
+        func evaluate(
+            modelURL: URL,
+            request: ZenzEvaluationRequest,
+            personalization: ZenzPersonalizationHandle?
+        ) async -> ZenzCandidateEvaluationResult {
+            guard let zenz = await self.getOrLoadModel(modelURL: modelURL) else {
+                return .error
+            }
+            return await zenz.candidateEvaluate(
+                request,
+                personalizationMode: personalization?.tuple
+            )
         }
 
         func predictNextCharacters(leftSideContext: String, count: Int, options: ConvertRequestOptions) async -> [(character: Character, value: Float)] {

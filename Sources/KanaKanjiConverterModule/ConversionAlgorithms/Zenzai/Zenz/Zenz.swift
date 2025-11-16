@@ -37,27 +37,15 @@ package final class Zenz {
     }
 
     func candidateEvaluate(
-        convertTarget: String,
-        candidates: [Candidate],
-        requestRichCandidates: Bool,
-        prefixConstraint: Kana2Kanji.PrefixConstraint,
-        personalizationMode: (mode: ConvertRequestOptions.ZenzaiMode.PersonalizationMode, base: EfficientNGram, personal: EfficientNGram)?,
-        versionDependentConfig: ConvertRequestOptions.ZenzaiVersionDependentMode
+        _ request: ZenzEvaluationRequest,
+        personalizationMode: (mode: ConvertRequestOptions.ZenzaiMode.PersonalizationMode, base: EfficientNGram, personal: EfficientNGram)?
     ) async -> ZenzCandidateEvaluationResult {
         guard let zenzContext else {
             return .error
         }
-        for candidate in candidates {
-            return await zenzContext.evaluate_candidate(
-                input: convertTarget.toKatakana(),
-                candidate: candidate,
-                requestRichCandidates: requestRichCandidates,
-                prefixConstraint: prefixConstraint,
-                personalizationMode: personalizationMode,
-                versionDependentConfig: versionDependentConfig
-            )
-        }
-        return .error
+        var request = request
+        request.convertTarget = request.convertTarget.toKatakana()
+        return await zenzContext.evaluate_candidate(request: request, personalizationMode: personalizationMode)
     }
 
     func predictNextCharacter(leftSideContext: String, count: Int) async -> [(character: Character, value: Float)] {

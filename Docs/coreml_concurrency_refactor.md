@@ -56,7 +56,9 @@ Tasks:
 
 Session 2 focuses on making the CoreML path consume DTOs only, then reintroducing the actor-based service. Official TODOs:
 
-- [ ] Produce `ZenzPrefixConstraintSnapshot`, `ZenzCandidateSnapshot`, and `ZenzPersonalizationVector` at the `all_zenzai` call site and feed only these DTOs into the CoreML service. _(Currently `all_zenzai` already lives back inside the converter, so `DicdataStoreStateHandle` is gone.)_
+- [x] Produce `ZenzPrefixConstraintSnapshot` and `ZenzCandidateSnapshot` at the `all_zenzai` call site and pass them into the CoreML bridge. _(Personalisation still relies on `ZenzPersonalizationHandle`; vector snapshots remain TODO.)_
+- [x] Bundle the evaluation inputs (`convertTarget`, constraint snapshot, candidate snapshot, execution flags) into a single `ZenzEvaluationRequest` DTO so the future actor receives one value payload per review.
+- [x] Update `all_zenzai` to consume async evaluator closures and convert `ZenzCoreMLService` into an actor that owns `Zenz`, so evaluation happens via DTO-only actor hops.
 - [ ] Define a CoreML response DTO (`ZenzCoreMLResultSnapshot`, TBD) so the CPU pipeline ingests snapshots instead of reference types.
 - [ ] Prepare the llama.cpp path to consume the same DTOs so both sides stay symmetric.
 - [ ] Once the DTO API stabilises, convert `ZenzCoreMLService` back into an `actor` and delete `blockingAsync`.

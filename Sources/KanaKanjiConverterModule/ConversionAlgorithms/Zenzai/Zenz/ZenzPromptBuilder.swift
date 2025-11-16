@@ -4,11 +4,11 @@ import SwiftUtils
 enum ZenzPromptBuilder {
     static func buildPrompt(
         convertTarget: String,
-        candidate: Candidate,
+        candidate: ZenzCandidateSnapshot,
         versionDependentConfig: ConvertRequestOptions.ZenzaiVersionDependentMode
     ) -> String {
-        let userDictionaryPrompt = candidate.data.compactMap { element -> String? in
-            guard element.metadata.contains(.isFromUserDictionary) else { return nil }
+        let userDictionaryPrompt = candidate.elements.compactMap { element -> String? in
+            guard element.isFromUserDictionary else { return nil }
             return "\(element.word)(\(element.ruby.toHiragana()))"
         }.joined()
 

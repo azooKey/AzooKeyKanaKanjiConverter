@@ -728,20 +728,28 @@ public final class KanaKanjiConverter {
         // FIXME: enable cache based zenzai
 #if ZenzaiCoreML && canImport(CoreML)
         if #available(iOS 18, macOS 15, *), zenzaiMode.enabled, !needTypoCorrection {
+            let service = self.resolvedCoreMLService()
             let personalizationHandle = self.getZenzaiPersonalization(mode: zenzaiMode.personalizationMode).map {
                 ZenzPersonalizationHandle(mode: $0.mode, base: $0.base, personal: $0.personal)
             }
-            if let zenz = self.blockingAsync({
-                await self.resolvedCoreMLService().getOrLoadModel(modelURL: zenzaiMode.weightURL)
-            }) {
+            let modelReady = self.blockingAsync {
+                await service.prepareModelIfNeeded(modelURL: zenzaiMode.weightURL)
+            }
+            if modelReady {
+                let evaluator: @Sendable (ZenzEvaluationRequest) async -> ZenzCandidateEvaluationResult = { request in
+                    await service.evaluate(
+                        modelURL: zenzaiMode.weightURL,
+                        request: request,
+                        personalization: personalizationHandle
+                    )
+                }
                 let coreMLResult = self.blockingAsync {
                     await self.converter.all_zenzai(
                         inputData,
-                        zenz: zenz,
+                        evaluateCandidate: evaluator,
                         zenzaiCache: self.zenzaiCoreMLCache,
                         inferenceLimit: zenzaiMode.inferenceLimit,
                         requestRichCandidates: zenzaiMode.requestRichCandidates,
-                        personalizationMode: personalizationHandle?.tuple,
                         versionDependentConfig: zenzaiMode.versionDependentMode,
                         dicdataStoreState: self.dicdataStoreState
                     )

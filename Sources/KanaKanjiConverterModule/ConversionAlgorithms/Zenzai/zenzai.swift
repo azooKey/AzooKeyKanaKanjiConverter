@@ -87,11 +87,10 @@ extension Kana2Kanji {
     #endif
     func all_zenzai(
         _ inputData: ComposingText,
-        zenz: Zenz,
+        evaluateCandidate: @escaping @Sendable (ZenzEvaluationRequest) async -> ZenzCandidateEvaluationResult,
         zenzaiCache: ZenzaiCache?,
         inferenceLimit: Int,
         requestRichCandidates: Bool,
-        personalizationMode: (mode: ConvertRequestOptions.ZenzaiMode.PersonalizationMode, base: EfficientNGram, personal: EfficientNGram)?,
         versionDependentConfig: ConvertRequestOptions.ZenzaiVersionDependentMode,
         dicdataStoreState: DicdataStoreState
     ) async -> (result: LatticeNode, lattice: Lattice, cache: ZenzaiCache) {
@@ -156,14 +155,14 @@ extension Kana2Kanji {
                     // When inference occurs more than maximum times, then just return result at this point
                     return (eosNode, lattice, ZenzaiCache(inputData, constraint: constraint, satisfyingCandidate: candidate, lattice: lattice))
                 }
-                let reviewResult = await zenz.candidateEvaluate(
+                let payload = ZenzEvaluationRequest(
                     convertTarget: inputData.convertTarget,
-                    candidates: [candidate],
+                    candidate: candidate.zenzSnapshot(),
                     requestRichCandidates: requestRichCandidates,
-                    prefixConstraint: constraint,
-                    personalizationMode: personalizationMode,
+                    prefixConstraint: ZenzPrefixConstraintSnapshot(constraint),
                     versionDependentConfig: versionDependentConfig
                 )
+                let reviewResult = await evaluateCandidate(payload)
                 inferenceLimit -= 1
                 let nextAction = self.review(
                     candidateIndex: index,
