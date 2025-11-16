@@ -17,11 +17,12 @@ var dependencies: [Package.Dependency] = [
     .package(url: "https://github.com/apple/swift-algorithms", from: "1.0.0"),
     .package(url: "https://github.com/apple/swift-collections", from: "1.0.0"),
     .package(url: "https://github.com/apple/swift-argument-parser", .upToNextMajor(from: "1.0.0")),
-    .package(url: "https://github.com/ensan-hcl/swift-tokenizers", from: "0.0.1")
+    .package(url: "https://github.com/Skyline-23/swift-transformers.git", branch: "feature/remove-combine")
 ]
 
 var efficientNGramDependencies: [Target.Dependency] = [
-    .product(name: "Transformers", package: "swift-tokenizers")
+    .product(name: "Tokenizers", package: "swift-transformers"),
+    .product(name: "Hub", package: "swift-transformers")
 ]
 
 #if (!os(Linux) || !canImport(Android)) && !os(Windows)
@@ -110,7 +111,7 @@ targets.append(
     .target(
         name: "ZenzCoreMLBackend",
         dependencies: [
-            .product(name: "Transformers", package: "swift-tokenizers")
+            .product(name: "Tokenizers", package: "swift-transformers")
         ],
         resources: [
             .copy("zenz-CoreML/Stateful"),
