@@ -5,7 +5,7 @@
 //  Created by Buseong Kim on 11/16/25.
 //
 
-public import CoreML
+@preconcurrency import CoreML
 import Foundation
 import Tokenizers
 
@@ -37,6 +37,7 @@ public struct ZenzCoreMLLogits {
     public let timeSteps: Int
 }
 
+@available(iOS 18.0, macOS 15.0, *)
 public actor ZenzStateful8BitGenerator {
     private let modelBox: MLModelBox
     private let tokenizer: any Tokenizer
@@ -139,7 +140,9 @@ public actor ZenzStateful8BitGenerator {
         switch logits.dataType {
         case .float32:
             let ptr = logits.dataPointer.assumingMemoryBound(to: Float.self)
-            buffer.assign(from: ptr, count: count)
+            buffer.withUnsafeMutableBufferPointer {
+                $0.baseAddress?.assign(from: ptr, count: count)
+            }
         case .float16:
             let ptr = logits.dataPointer.assumingMemoryBound(to: Float16.self)
             for i in 0..<count {
@@ -147,7 +150,7 @@ public actor ZenzStateful8BitGenerator {
             }
         default:
             for i in 0..<count {
-                buffer[i] = logits[i as NSNumber].floatValue
+                buffer[i] = logits[i].floatValue
             }
         }
         return buffer
