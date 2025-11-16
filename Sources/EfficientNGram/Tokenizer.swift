@@ -15,6 +15,9 @@ public struct ZenzTokenizer {
     func encode(text: String) -> [Int] {
         self.tokenizer.encode(text: text)
     }
+    func encode(text: String, addSpecialTokens: Bool) -> [Int] {
+        self.tokenizer.encode(text: text, addSpecialTokens: addSpecialTokens)
+    }
     func decode(tokens: [Int]) -> String {
         self.tokenizer.decode(tokens: tokens)
     }
