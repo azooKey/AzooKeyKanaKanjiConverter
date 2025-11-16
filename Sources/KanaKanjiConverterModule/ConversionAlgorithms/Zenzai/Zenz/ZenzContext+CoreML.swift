@@ -14,7 +14,7 @@ import Glibc
 #endif
 
 @available(iOS 18.0, macOS 15.0, *)
-final class ZenzContext {
+final class ZenzContext: ZenzContextProtocol {
     private let generator: ZenzStateful8BitGenerator
     private let tokenizer = ZenzTokenizer()
     private var prevInput: [Int] = []
@@ -46,18 +46,6 @@ final class ZenzContext {
         self.prevPrompt = []
     }
 
-    enum CandidateEvaluationResult: Sendable, Equatable, Hashable {
-        case error
-        case pass(score: Float, alternativeConstraints: [AlternativeConstraint])
-        case fixRequired(prefixConstraint: [UInt8])
-        case wholeResult(String)
-
-        struct AlternativeConstraint: Sendable, Equatable, Hashable {
-            var probabilityRatio: Float
-            var prefixConstraint: [UInt8]
-        }
-    }
-
     func evaluate_candidate(
         input: String,
         candidate: Candidate,
@@ -65,7 +53,7 @@ final class ZenzContext {
         prefixConstraint: Kana2Kanji.PrefixConstraint,
         personalizationMode: (mode: ConvertRequestOptions.ZenzaiMode.PersonalizationMode, base: EfficientNGram, personal: EfficientNGram)?,
         versionDependentConfig: ConvertRequestOptions.ZenzaiVersionDependentMode
-    ) -> CandidateEvaluationResult {
+    ) -> ZenzCandidateEvaluationResult {
         debug("Evaluate", candidate)
         let prompt = ZenzPromptBuilder.buildPrompt(
             convertTarget: input,
@@ -207,7 +195,7 @@ final class ZenzContext {
             score += maxItem.logprob
         }
         return .pass(score: score, alternativeConstraints: altTokens.unordered.sorted(by: >).map {
-            CandidateEvaluationResult.AlternativeConstraint(
+            ZenzCandidateEvaluationResult.AlternativeConstraint(
                 probabilityRatio: $0.probabilityRatioToMaxProb,
                 prefixConstraint: $0.constraint
             )
