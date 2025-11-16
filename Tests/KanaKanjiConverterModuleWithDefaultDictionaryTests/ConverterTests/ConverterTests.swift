@@ -10,6 +10,7 @@ import Foundation
 @testable import KanaKanjiConverterModuleWithDefaultDictionary
 import XCTest
 
+@MainActor
 final class ConverterTests: XCTestCase {
     func sequentialInput(_ composingText: inout ComposingText, sequence: String, inputStyle: KanaKanjiConverterModule.InputStyle) {
         for char in sequence {

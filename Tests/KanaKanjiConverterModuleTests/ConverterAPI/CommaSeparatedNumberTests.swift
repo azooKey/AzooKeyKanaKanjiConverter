@@ -1,6 +1,7 @@
 @testable import KanaKanjiConverterModule
 import XCTest
 
+@MainActor
 final class CommaSeparatedNumberTests: XCTestCase {
     private func makeDirectInput(direct input: String) -> ComposingText {
         ComposingText(
