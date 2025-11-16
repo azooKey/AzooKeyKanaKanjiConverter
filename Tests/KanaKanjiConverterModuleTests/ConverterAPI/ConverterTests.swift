@@ -8,8 +8,7 @@
 @testable import KanaKanjiConverterModule
 import XCTest
 
-@MainActor
-final class ConverterTests: XCTestCase {
+final class ConverterTests: MainActorTestCase {
     func dictionaryURL() -> URL {
         Bundle.module.resourceURL!.standardizedFileURL.appendingPathComponent("DictionaryMock", isDirectory: true)
     }

@@ -1,8 +1,7 @@
 @testable import KanaKanjiConverterModule
 import XCTest
 
-@MainActor
-final class TimeExpressionTests: XCTestCase {
+final class TimeExpressionTests: MainActorTestCase {
     private func makeDirectInput(direct input: String) -> ComposingText {
         ComposingText(
             convertTargetCursorPosition: input.count,

@@ -3,7 +3,7 @@ import Foundation
 import XCTest
 
 #if Zenzai || ZenzaiCPU
-final class ZenzaiTests: XCTestCase {
+final class ZenzaiTests: MainActorTestCase {
     func sequentialInput(_ composingText: inout ComposingText, sequence: String, inputStyle: KanaKanjiConverterModule.InputStyle) {
         for char in sequence {
             composingText.insertAtCursorPosition(String(char), inputStyle: inputStyle)

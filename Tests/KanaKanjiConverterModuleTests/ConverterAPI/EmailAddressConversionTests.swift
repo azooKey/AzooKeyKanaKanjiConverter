@@ -1,8 +1,7 @@
 @testable import KanaKanjiConverterModule
 import XCTest
 
-@MainActor
-final class EmailAddressConversionTests: XCTestCase {
+final class EmailAddressConversionTests: MainActorTestCase {
     func makeDirectInput(direct input: String) -> ComposingText {
         ComposingText(
             convertTargetCursorPosition: input.count,

@@ -9,8 +9,7 @@
 @testable import KanaKanjiConverterModule
 import XCTest
 
-@MainActor
-final class UnicodeConversionTests: XCTestCase {
+final class UnicodeConversionTests: MainActorTestCase {
     func makeDirectInput(direct input: String) -> ComposingText {
         ComposingText(
             convertTargetCursorPosition: input.count,

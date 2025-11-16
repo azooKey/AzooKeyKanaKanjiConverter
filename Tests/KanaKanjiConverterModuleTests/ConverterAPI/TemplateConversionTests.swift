@@ -2,8 +2,7 @@ import Foundation
 @testable import KanaKanjiConverterModule
 import XCTest
 
-@MainActor
-final class TemplateConversionTests: XCTestCase {
+final class TemplateConversionTests: MainActorTestCase {
     func requestOptions() -> ConvertRequestOptions {
         .default
     }
