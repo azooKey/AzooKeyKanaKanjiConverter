@@ -19,6 +19,7 @@ final class WarekiConversionTests: MainActorTestCase {
     }
 
     func testSeireki2Wareki() throws {
+        try runOnMainActor {
         do {
             let converter = KanaKanjiConverter.withoutDictionary()
             let input = makeDirectInput(direct: "2019ねん")
@@ -89,9 +90,11 @@ final class WarekiConversionTests: MainActorTestCase {
             let result = converter.toWarekiCandidates(input)
             XCTAssertTrue(result.isEmpty)
         }
+        }
     }
 
     func testWareki2Seireki() throws {
+        try runOnMainActor {
         do {
             let converter = KanaKanjiConverter.withoutDictionary()
             let input = ComposingText(
@@ -161,6 +164,7 @@ final class WarekiConversionTests: MainActorTestCase {
             let input = makeDirectInput(direct: "けいおう5ねん")
             let result = converter.toSeirekiCandidates(input)
             XCTAssertTrue(result.isEmpty)
+        }
         }
     }
 }

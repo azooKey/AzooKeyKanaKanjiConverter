@@ -10,7 +10,6 @@ import Foundation
 @testable import KanaKanjiConverterModuleWithDefaultDictionary
 import XCTest
 
-@MainActor
 final class ConverterTests: MainActorTestCase {
     func sequentialInput(_ composingText: inout ComposingText, sequence: String, inputStyle: KanaKanjiConverterModule.InputStyle) {
         for char in sequence {
@@ -40,6 +39,9 @@ final class ConverterTests: MainActorTestCase {
     }
 
     func testFullConversion() throws {
+
+
+        try runOnMainActor {
         do {
             let converter = KanaKanjiConverter.withDefaultDictionary()
             var c = ComposingText()
@@ -54,9 +56,15 @@ final class ConverterTests: MainActorTestCase {
             let results = converter.requestCandidates(c, options: requestOptions())
             XCTAssertEqual(results.mainResults.first?.text, "幼少期からテニス水泳野球少林寺拳法など様々なスポーツを経験しながら育ち小学校時代はロサンゼルス近郊に滞在しておりゴルフやテニスを習っていた")
         }
-    }
+    
+
+        }
+}
 
     func testRoman2KanaFullConversion() throws {
+
+
+        try runOnMainActor {
         for needTypoCorrection in [true, false] {
             do {
                 let converter = KanaKanjiConverter.withDefaultDictionary()
@@ -73,9 +81,15 @@ final class ConverterTests: MainActorTestCase {
                 XCTAssertEqual(results.mainResults.first?.text, "幼少期からテニス水泳野球少林寺拳法など様々なスポーツを経験しながら育ち小学校時代はロサンゼルス近郊に滞在しておりゴルフやテニスを習っていた")
             }
         }
-    }
+    
+
+        }
+}
 
     func testAzikFullConversion() throws {
+
+
+        try runOnMainActor {
         for needTypoCorrection in [true, false] {
             do {
                 let converter = KanaKanjiConverter.withDefaultDictionary()
@@ -96,11 +110,16 @@ final class ConverterTests: MainActorTestCase {
                 XCTAssertEqual(results.mainResults.first?.text, "幼少期からテニス水泳野球少林寺拳法など様々なスポーツを経験しながら育ち小学校時代はロサンゼルス近郊に滞在しておりゴルフやテニスを習っていた")
             }
         }
-    }
+    
+
+        }
+}
 
     // 1文字ずつ変換する
     // memo: 内部実装としては別のモジュールが呼ばれるのだが、それをテストする方法があまりないかもしれない
     func testGradualConversion() throws {
+
+        try runOnMainActor {
         let converter = KanaKanjiConverter.withDefaultDictionary()
         var c = ComposingText()
         let text = "ようしょうきからてにすすいえいやきゅうしょうりんじけんぽうなどさまざまなすぽーつをけいけんしながらそだちしょうがっこうじだいはろさんぜるすきんこうにたいざいしておりごるふやてにすをならっていた"
@@ -111,11 +130,15 @@ final class ConverterTests: MainActorTestCase {
                 XCTAssertEqual(results.mainResults.first?.text, "幼少期からテニス水泳野球少林寺拳法など様々なスポーツを経験しながら育ち小学校時代はロサンゼルス近郊に滞在しておりゴルフやテニスを習っていた")
             }
         }
-    }
+    
+        }
+}
 
     // 1文字ずつ変換する
     // memo: 内部実装としては別のモジュールが呼ばれるのだが、それをテストする方法があまりないかもしれない
     func testRoman2KanaGradualConversion() throws {
+
+        try runOnMainActor {
         let converter = KanaKanjiConverter.withDefaultDictionary()
         var c = ComposingText()
         let text = "youshoukikaratenisusuieiyakyuushourinjikenpounadosamazamanasupoーtuwokeikennsinagarasodatishougakkouzidaiharosanzerusukinkounitaizaisiteorigoruhuyatenisuwonaratteita"
@@ -131,11 +154,15 @@ final class ConverterTests: MainActorTestCase {
                 XCTAssertTrue(possibles.contains(results.mainResults.first!.text))
             }
         }
-    }
+    
+        }
+}
 
     // 2,3文字ずつ変換する
     // memo: 内部実装としては別のモジュールが呼ばれるのだが、それをテストする方法があまりないかもしれない
     func testSemiGradualConversion() throws {
+
+        try runOnMainActor {
         let converter = KanaKanjiConverter.withDefaultDictionary()
         var c = ComposingText()
         let text = "ようしょうきからてにすすいえいやきゅうしょうりんじけんぽうなどさまざまなすぽーつをけいけんしながらそだちしょうがっこうじだいはろさんぜるすきんこうにたいざいしておりごるふやてにすをならっていた"
@@ -153,9 +180,13 @@ final class ConverterTests: MainActorTestCase {
                 XCTAssertEqual(results.mainResults.first?.text, "幼少期からテニス水泳野球少林寺拳法など様々なスポーツを経験しながら育ち小学校時代はロサンゼルス近郊に滞在しておりゴルフやテニスを習っていた")
             }
         }
-    }
+    
+        }
+}
     // memo: このケースで単漢字変換などの結果が得られない問題があった
     func testKimiAndThenDelete() throws {
+
+        try runOnMainActor {
         let converter = KanaKanjiConverter.withDefaultDictionary()
         var c = ComposingText()
         let text = "kimi"
@@ -176,10 +207,14 @@ final class ConverterTests: MainActorTestCase {
         c.deleteBackwardFromCursorPosition(count: 1)
         let results = converter.requestCandidates(c, options: requestOptions())
         XCTAssertTrue(results.mainResults.contains { $0.text == "黄" })
-    }
+    
+        }
+}
 
     // memo: このケースでfatalErrorが発生する不具合が生じることがあった
     func testIttaAndThenDelete() throws {
+
+        try runOnMainActor {
         let converter = KanaKanjiConverter.withDefaultDictionary()
         var c = ComposingText()
         let text = "itta"
@@ -200,11 +235,15 @@ final class ConverterTests: MainActorTestCase {
         c.deleteBackwardFromCursorPosition(count: 1)
         let results = converter.requestCandidates(c, options: requestOptions())
         XCTAssertTrue(results.mainResults.contains { $0.text == "言っ" })
-    }
+    
+        }
+}
 
     // 1文字ずつ入力するが、時折削除を行う
     // memo: 内部実装としてはdeleted_last_nのテストを意図している
     func testGradualConversionWithDelete() throws {
+
+        try runOnMainActor {
         let converter = KanaKanjiConverter.withDefaultDictionary()
         var c = ComposingText()
         let text = Array("ようしょうきからてにすすいえいやきゅうしょうりんじけんぽうなどさまざまなすぽーつをけいけんしながらそだちしょうがっこうじだいはろさんぜるすきんこうにたいざいしておりごるふやてにすをならっていた")
@@ -224,9 +263,14 @@ final class ConverterTests: MainActorTestCase {
                 XCTAssertEqual(results.mainResults.first?.text, "幼少期からテニス水泳野球少林寺拳法など様々なスポーツを経験しながら育ち小学校時代はロサンゼルス近郊に滞在しておりゴルフやテニスを習っていた")
             }
         }
-    }
+    
+        }
+}
 
     func testDeleteConversionPerformance() throws {
+
+
+        try runOnMainActor {
         let converter = KanaKanjiConverter.withDefaultDictionary()
         var c = ComposingText()
         do {
@@ -239,9 +283,15 @@ final class ConverterTests: MainActorTestCase {
             _ = converter.requestCandidates(c, options: requestOptions())
         }
         XCTAssertTrue(c.isEmpty)
-    }
+    
+
+        }
+}
 
     func testTrailing_N_and_EndOfTextBehavior() throws {
+
+
+        try runOnMainActor {
         do {
             let converter = KanaKanjiConverter.withDefaultDictionary()
             var c = ComposingText()
@@ -314,9 +364,15 @@ final class ConverterTests: MainActorTestCase {
             let results = converter.requestCandidates(c, options: requestOptions())
             XCTAssertEqual(results.mainResults.first?.text, "社員")
         }
-    }
+    
+
+        }
+}
 
     func testInputTableEdgeCases() throws {
+
+
+        try runOnMainActor {
         do {
             let converter = KanaKanjiConverter.withDefaultDictionary()
             InputStyleManager.registerInputStyle(table: InputTable(baseMapping: [
@@ -337,10 +393,15 @@ final class ConverterTests: MainActorTestCase {
                 XCTAssertTrue(results.mainResults.contains(where: {$0.text == "あ"}))
             }
         }
-    }
+    
+
+        }
+}
 
     // 必ず正解すべきテストケース
     func testMustCases() throws {
+
+        try runOnMainActor {
         // ダイレクト入力
         do {
             let cases: [(input: String, expect: String)] = [
@@ -438,11 +499,15 @@ final class ConverterTests: MainActorTestCase {
                 }
             }
         }
-    }
+    
+        }
+}
 
     // 変換結果が比較的一意なテストケースを無数に持ち、一定の割合を正解することを要求する
     // 辞書を更新した結果性能が悪化したら気付ける
     func testAccuracy() throws {
+
+        try runOnMainActor {
         let cases: [(input: String, expect: [String])] = [
             ("3がつ8にち", ["3月8日"]),
             ("いっていのわりあい", ["一定の割合"]),
@@ -514,12 +579,16 @@ final class ConverterTests: MainActorTestCase {
         let accuracy = score / Double(cases.count)
         print("\(#function) Result: accuracy \(accuracy), score \(score), count \(cases.count)")
         XCTAssertGreaterThan(accuracy, 0.7) // 0.7 < acuracy
-    }
+    
+        }
+}
 
     // 変換結果が比較的一意なテストケースを無数に持ち、一定の割合を正解することを要求する
     // 辞書を更新した結果性能が悪化したら気付ける
     // 口語表現を中心にテストする
     func testVerbalAccuracy() throws {
+
+        try runOnMainActor {
         let cases: [(input: String, expect: [String])] = [
             ("うわああああ、まじか", ["うわああああ、マジか", "うわああああ、まじか"]),
             ("は？", ["は？"]),
@@ -563,10 +632,14 @@ final class ConverterTests: MainActorTestCase {
         let accuracy = score / Double(cases.count)
         print("\(#function) Result: accuracy \(accuracy), score \(score), count \(cases.count)")
         XCTAssertGreaterThan(accuracy, 0.7) // 0.7 < acuracy
-    }
+    
+        }
+}
 
     /// MIDベースの文節単位計算でどれだけ同音異義語の判断が向上しているか確認する。
     func testMeaningBasedConversionAccuracy() throws {
+
+        try runOnMainActor {
         let cases: [(input: String, expect: String)] = [
             ("しょうぼう、しょうか、ほのお", "消防、消火、炎"),
             ("いえき、しょうか、こうそ", "胃液、消化、酵素"),
@@ -864,10 +937,14 @@ final class ConverterTests: MainActorTestCase {
         let accuracy = score / Double(cases.count)
         print("\(#function) Result: accuracy \(accuracy), score \(score), count \(cases.count)")
         XCTAssertGreaterThan(accuracy, 0.7) // 0.7 < accuracy
-    }
+    
+        }
+}
 
     #if os(macOS) || os(iOS) || os(watchOS) || os(tvOS) || os(visionOS)
     func testMozcEvaluationData() throws {
+
+        try runOnMainActor {
         // ダウンロードするURL
         let urlString = "https://raw.githubusercontent.com/google/mozc/master/src/data/dictionary_oss/evaluation.tsv"
         let url = URL(string: urlString)!
@@ -946,7 +1023,9 @@ final class ConverterTests: MainActorTestCase {
         XCTExpectFailure("azooKey is not as accurate as Mozc currently in this mertics, due to some reason") {
             XCTAssertTrue(mozcScore < azooKeyScore)
         }
-    }
+    
+        }
+}
     #endif
 
     enum MozcCommand: Equatable {

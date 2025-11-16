@@ -11,43 +11,45 @@ final class TimeExpressionTests: MainActorTestCase {
     }
 
     func testConvertToTimeExpression() throws {
-        let converter = KanaKanjiConverter.withoutDictionary()
+        try runOnMainActor {
+            let converter = KanaKanjiConverter.withoutDictionary()
 
-        let input1 = makeDirectInput(direct: "123")
-        let input2 = makeDirectInput(direct: "1234")
-        let input3 = makeDirectInput(direct: "999")
-        let input4 = makeDirectInput(direct: "1260")
-        let input5 = makeDirectInput(direct: "2440")
-        let input6 = makeDirectInput(direct: "")
-        let input7 = makeDirectInput(direct: "あいうえ")
-        let input8 = makeDirectInput(direct: "13122")
+            let input1 = makeDirectInput(direct: "123")
+            let input2 = makeDirectInput(direct: "1234")
+            let input3 = makeDirectInput(direct: "999")
+            let input4 = makeDirectInput(direct: "1260")
+            let input5 = makeDirectInput(direct: "2440")
+            let input6 = makeDirectInput(direct: "")
+            let input7 = makeDirectInput(direct: "あいうえ")
+            let input8 = makeDirectInput(direct: "13122")
 
-        let candidates1 = converter.convertToTimeExpression(input1)
-        let candidates2 = converter.convertToTimeExpression(input2)
-        let candidates3 = converter.convertToTimeExpression(input3)
-        let candidates4 = converter.convertToTimeExpression(input4)
-        let candidates5 = converter.convertToTimeExpression(input5)
-        let candidates6 = converter.convertToTimeExpression(input6)
-        let candidates7 = converter.convertToTimeExpression(input7)
-        let candidates8 = converter.convertToTimeExpression(input8)
+            let candidates1 = converter.convertToTimeExpression(input1)
+            let candidates2 = converter.convertToTimeExpression(input2)
+            let candidates3 = converter.convertToTimeExpression(input3)
+            let candidates4 = converter.convertToTimeExpression(input4)
+            let candidates5 = converter.convertToTimeExpression(input5)
+            let candidates6 = converter.convertToTimeExpression(input6)
+            let candidates7 = converter.convertToTimeExpression(input7)
+            let candidates8 = converter.convertToTimeExpression(input8)
 
-        XCTAssertEqual(candidates1.count, 1)
-        XCTAssertEqual(candidates1.first?.text, "1:23")
+            XCTAssertEqual(candidates1.count, 1)
+            XCTAssertEqual(candidates1.first?.text, "1:23")
 
-        XCTAssertEqual(candidates2.count, 1)
-        XCTAssertEqual(candidates2.first?.text, "12:34")
+            XCTAssertEqual(candidates2.count, 1)
+            XCTAssertEqual(candidates2.first?.text, "12:34")
 
-        XCTAssertEqual(candidates3.count, 0)
+            XCTAssertEqual(candidates3.count, 0)
 
-        XCTAssertEqual(candidates4.count, 0)
+            XCTAssertEqual(candidates4.count, 0)
 
-        XCTAssertEqual(candidates5.count, 1)
-        XCTAssertEqual(candidates5.first?.text, "24:40")
+            XCTAssertEqual(candidates5.count, 1)
+            XCTAssertEqual(candidates5.first?.text, "24:40")
 
-        XCTAssertEqual(candidates6.count, 0)
+            XCTAssertEqual(candidates6.count, 0)
 
-        XCTAssertEqual(candidates7.count, 0)
+            XCTAssertEqual(candidates7.count, 0)
 
-        XCTAssertEqual(candidates8.count, 0)
+            XCTAssertEqual(candidates8.count, 0)
+        }
     }
 }
