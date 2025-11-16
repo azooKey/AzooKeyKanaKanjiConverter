@@ -135,9 +135,11 @@ extension Subcommands {
 
             var histories = [String]()
 
-            var inputs = self.replayHistory.map {
-                try! String(contentsOfFile: $0, encoding: .utf8)
-            }?.split(by: "\n")
+            var inputs: [String]? = nil
+            if let replayHistory {
+                let history = try! String(contentsOfFile: replayHistory, encoding: .utf8)
+                inputs = history.split(separator: "\n").map(String.init)
+            }
             inputs?.append(":q")
 
             while true {
@@ -219,12 +221,12 @@ extension Subcommands {
                     \(bold: ":dump %s") - dump command history to specified file name (default: history.txt).
                     """)
                 default:
-                    if input.hasPrefix(":ctx") {
-                        let ctx = String(input.split(by: ":ctx ").last ?? "")
+                    if input.hasPrefix(":ctx ") {
+                        let ctx = String(input.dropFirst(":ctx ".count))
                         leftSideContext.append(ctx)
                         continue
-                    } else if input.hasPrefix(":input") {
-                        let specialInput = String(input.split(by: ":input ").last ?? "")
+                    } else if input.hasPrefix(":input ") {
+                        let specialInput = String(input.dropFirst(":input ".count))
                         switch specialInput {
                         case "eot":
                             composingText.insertAtCursorPosition([.init(piece: .compositionSeparator, inputStyle: inputStyle)])
