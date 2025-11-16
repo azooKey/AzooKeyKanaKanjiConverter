@@ -21,7 +21,7 @@ extension Kana2Kanji {
     ///    「これはき」から「これは今日」に対応する候補などを作って返す。
     /// - note:
     ///     この関数の役割は意味連接の考慮にある。
-    func getPredictionCandidates(composingText: ComposingText, prepart: CandidateData, lastClause: ClauseDataUnit, N_best: Int, dicdataStoreState: DicdataStoreState) -> [Candidate] {
+    func getPredictionCandidates(composingText: ComposingText, prepart: CandidateData, lastClause: ClauseDataUnit, N_best: Int, dicdataStoreState: DicdataStoreState, zenzNextTokenTopK: [ZenzContext.CandidateEvaluationResult.NextTokenPrediction]? = nil) -> [Candidate] {
         debug(#function, composingText, lastClause.ranges, lastClause.text)
         let lastRuby = lastClause.ranges.reduce(into: "") {
             let ruby = switch $1 {
@@ -94,7 +94,23 @@ extension Kana2Kanji {
             let ccValue: PValue = ccLatter.get(data.lcid)
             let penalty: PValue = -PValue(data.ruby.count &- lastRuby.count) * 3.0   // 文字数差をペナルティとする
             let wValue: PValue = data.value()
-            let newValue: PValue = lastCandidate.value + mmValue + ccValue + wValue + penalty - ignoreCCValue
+            let zenzBonus: PValue = {
+                guard let zenzNextTokenTopK else { return .zero }
+                // 先頭1トークン一致で加点（カタカナ正規化）
+                let normRuby = data.ruby.toKatakana()
+                // 入力済みの lastRuby を除いた「次文字候補位置」の1文字目と比較する
+                let remaining = String(normRuby.dropFirst(lastRuby.count))
+                let match = zenzNextTokenTopK.first(where: { tok in
+                    guard let c = remaining.first else { return false }
+                    return String(c).hasPrefix(tok.token.toKatakana().prefix(1))
+                })
+                guard let match else {
+                    return .zero
+                }
+                let bonus = PValue(match.probabilityRatio) * 6
+                return bonus
+            }()
+            let newValue: PValue = lastCandidate.value + mmValue + ccValue + wValue + penalty + zenzBonus - ignoreCCValue
             // 追加すべきindexを取得する
             let lastindex: Int = (result.lastIndex(where: {$0.value >= newValue}) ?? -1) + 1
             if lastindex >= N_best {

@@ -76,6 +76,8 @@ final class ZenzContext {
     private var vocab: OpaquePointer
     private var prevInput: [llama_token] = []
     private var prevPrompt: [llama_token] = []
+    // 直近のevaluate_candidateで得た入力末尾トップK
+    var latestFirstStepTopK: [CandidateEvaluationResult.NextTokenPrediction] = []
 
     private let n_len: Int32 = 512
 
@@ -212,13 +214,20 @@ final class ZenzContext {
 
     enum CandidateEvaluationResult: Sendable, Equatable, Hashable {
         case error
-        case pass(score: Float, alternativeConstraints: [AlternativeConstraint])
+        case pass(score: Float, alternativeConstraints: [AlternativeConstraint], nextTokenTopK: [NextTokenPrediction])
         case fixRequired(prefixConstraint: [UInt8])
         case wholeResult(String)
 
         struct AlternativeConstraint: Sendable, Equatable, Hashable {
             var probabilityRatio: Float
             var prefixConstraint: [UInt8]
+        }
+
+        struct NextTokenPrediction: Sendable, Equatable, Hashable {
+            /// UTF-8のトークン文字列（必ずしも1文字とは限らない）
+            var token: String
+            /// そのトークンの確率を最大値で割った比率
+            var probabilityRatio: Float
         }
     }
 
@@ -445,7 +454,9 @@ final class ZenzContext {
 
         // すでにprefixConstraintを満たしている部分については、計算をしない
         let startOffset = prompt_tokens.count - 1 + addressed_tokens.count
-        guard let logits = self.get_logits(tokens: tokens, logits_start_index: startOffset) else {
+        // 入力末尾（\u{EE01}＝3トークン）直前でログitsを計算させる
+        let logitsStartIndex = max(prompt_tokens.count - 4, 0)
+        guard let logits = self.get_logits(tokens: tokens, logits_start_index: logitsStartIndex) else {
             debug("logits unavailable")
             return .error
         }
@@ -456,6 +467,39 @@ final class ZenzContext {
         }
 
         var score: Float = 0
+        let nextTokenTopKCount = 3
+        var altTokens = FixedSizeHeap<AlternativeHighProbToken>(size: requestRichCandidates ? 5 : 0)
+        var firstStepTopK: [CandidateEvaluationResult.NextTokenPrediction] = []
+
+        // 入力末尾（\u{EE01}直前。EE01は3トークンなので-4）での分布をあらかじめ取得
+        do {
+            let rowOffset = max(prompt_tokens.count - 4 - logitsStartIndex, 0)
+            let base = rowOffset * Int(n_vocab) // logitsStartIndex行からのオフセット行
+            var sumexpInput: Float = 0
+            for idx in base ..< base + Int(n_vocab) { sumexpInput += expf(logits[idx]) }
+            let logsumexpInput = logf(sumexpInput)
+            struct TokenProb: Comparable {
+                static func < (lhs: TokenProb, rhs: TokenProb) -> Bool { lhs.logprob < rhs.logprob }
+                var token: llama_token
+                var logprob: Float
+            }
+            var heapInput = FixedSizeHeap<TokenProb>(size: nextTokenTopKCount)
+            for idx in 0 ..< Int(n_vocab) {
+                let logp = logits[base + idx] - logsumexpInput
+                heapInput.insertIfPossible(TokenProb(token: llama_token(idx), logprob: logp))
+            }
+            if let maxItemInput = heapInput.max {
+                let maxLogprob = maxItemInput.logprob
+                firstStepTopK = heapInput.unordered.compactMap { item -> CandidateEvaluationResult.NextTokenPrediction? in
+                    let piece = token_to_piece(token: item.token)
+                    let data = Data(piece.map { UInt8(bitPattern: $0) })
+                    guard let tokenString = String(data: data, encoding: .utf8), !tokenString.isEmpty else { return nil }
+                    return .init(token: tokenString, probabilityRatio: expf(item.logprob - maxLogprob))
+                }.sorted { $0.probabilityRatio > $1.probabilityRatio }.prefix(nextTokenTopKCount).map { $0 }
+            }
+            // キャッシュ用に保持
+            self.latestFirstStepTopK = firstStepTopK
+        }
 
         struct AlternativeHighProbToken: Comparable {
             static func < (lhs: AlternativeHighProbToken, rhs: AlternativeHighProbToken) -> Bool {
@@ -468,7 +512,6 @@ final class ZenzContext {
             var probabilityRatioToMaxProb: Float
         }
 
-        var altTokens = FixedSizeHeap<AlternativeHighProbToken>(size: requestRichCandidates ? 5 : 0)
         for (i, token_id) in tokens.indexed().dropFirst(startOffset + 1) {
             // それぞれのトークンが、一つ前の予測において最も確率の高いトークンであるかをチェックする
             // softmaxはmaxなので、単にlogitsの中で最も大きいものを選べば良い
@@ -483,7 +526,7 @@ final class ZenzContext {
             var sumexp: Float = 0
             let startIndex = (i - 1 - startOffset) * Int(n_vocab)
             let endIndex = (i - startOffset) * Int(n_vocab)
-            var tokenHeap = FixedSizeHeap<TokenAndLogprob>(size: requestRichCandidates ? 3 : 1)
+            var tokenHeap = FixedSizeHeap<TokenAndLogprob>(size: max(nextTokenTopKCount, requestRichCandidates ? 3 : 1))
             for index in startIndex ..< endIndex {
                 sumexp += expf(logits[index])
             }
@@ -520,6 +563,8 @@ final class ZenzContext {
                 debug("Max Item could not be found for unknown reason")
                 return .error
             }
+            // firstStepTopK は入力行で算出済み
+
             // ここで最も良い候補であったかをチェックする
             if maxItem.token != token_id {
                 if maxItem.token == llama_vocab_eos(vocab) {
@@ -561,7 +606,13 @@ final class ZenzContext {
             }
             score += maxItem.logprob
         }
-        return .pass(score: score, alternativeConstraints: altTokens.unordered.sorted(by: >).map {.init(probabilityRatio: $0.probabilityRatioToMaxProb, prefixConstraint: $0.constraint)})
+        return .pass(
+            score: score,
+            alternativeConstraints: altTokens.unordered.sorted(by: >).map {
+                .init(probabilityRatio: $0.probabilityRatioToMaxProb, prefixConstraint: $0.constraint)
+            },
+            nextTokenTopK: firstStepTopK.isEmpty ? self.latestFirstStepTopK : firstStepTopK
+        )
     }
 
     private func llama_batch_add(_ batch: inout llama_batch, _ id: llama_token, _ pos: llama_pos, _ seq_ids: [llama_seq_id], logits: Bool) {

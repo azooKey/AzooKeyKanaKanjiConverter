@@ -6,6 +6,7 @@
 //
 
 import Foundation
+import SwiftUtils
 
 // 確定後の予測変換に関係する実装
 extension Kana2Kanji {
@@ -32,7 +33,7 @@ extension Kana2Kanji {
         )
     }
 
-    func getPredictionCandidates(prepart: Candidate, N_best: Int, dicdataStoreState: DicdataStoreState) -> [PostCompositionPredictionCandidate] {
+    func getPredictionCandidates(prepart: Candidate, N_best: Int, dicdataStoreState: DicdataStoreState, zenzNextTokenTopK: [ZenzContext.CandidateEvaluationResult.NextTokenPrediction]? = nil) -> [PostCompositionPredictionCandidate] {
         var result: [PostCompositionPredictionCandidate] = []
         var count = 1
         var prefixCandidate = prepart
@@ -73,7 +74,22 @@ extension Kana2Kanji {
                 let includeMMValueCalculation = DicdataStore.includeMMValueCalculation(data)
                 let mmValue = includeMMValueCalculation ? self.dicdataStore.getMMValue(prefixCandidate.lastMid, data.mid) : .zero
                 let wValue = data.value()
-                let newValue = prefixCandidate.value + mmValue + ccValue + wValue
+                let zenzBonus: PValue = {
+                    guard let zenzNextTokenTopK else { return .zero }
+                    let normRuby = data.ruby.toKatakana()
+                    let remaining = normRuby // post-compositionでは lastRubyCount がないため全文で比較
+                    let match = zenzNextTokenTopK.first(where: {
+                        let normTok = $0.token.toKatakana()
+                        guard let c = remaining.first else { return false }
+                        return String(c).hasPrefix(normTok.prefix(1))
+                    })
+                    guard let match else {
+                        return .zero
+                    }
+                    let bonus = PValue(match.probabilityRatio) * 6
+                    return bonus
+                }()
+                let newValue = prefixCandidate.value + mmValue + ccValue + wValue + zenzBonus
                 // 追加すべきindexを取得する
                 let lastindex: Int = (result.lastIndex(where: {$0.value >= newValue}) ?? -1) + 1
                 if lastindex == N_best {
