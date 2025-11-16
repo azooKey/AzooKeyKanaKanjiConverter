@@ -26,7 +26,7 @@ enum ZenzError: LocalizedError {
         }
     }
 }
-
+#endif
 final class ZenzContext {
     private var model: OpaquePointer
     private var context: OpaquePointer
@@ -497,5 +497,3 @@ final class ZenzContext {
         }
     }
 }
-
-#endif
