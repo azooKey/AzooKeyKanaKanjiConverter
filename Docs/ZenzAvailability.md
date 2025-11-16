@@ -7,10 +7,10 @@ AzooKey の Zenz 関連コードは複数プラットフォームで動作させ
    `PrefixConstraint` やラティス構築、候補レビューなど CoreML 以外でも使う機能は `#if ZenzaiCoreML` / `@available` で隠さない。`FullInputProcessingWithPrefixConstraint.swift` や `zenzai.swift` は常にビルド対象にする。
 
 2. **CoreML 専用の入口だけをガードする**  
-   CoreML バックエンド、`ZenzContext+CoreML`、CoreML ブリッジ等、実際に CoreML ランタイムを必要とする箇所だけに `#if ZenzaiCoreML && canImport(CoreML)` + `@available(iOS 18, macOS 15, *)` を付ける。呼び出し側は `coreMLBridge?.convert(...)` のように単一の入口経由で利用する。
+   CoreML バックエンド、`ZenzContext+CoreML`、`ZenzCoreMLService` など実際に CoreML ランタイムを必要とする箇所だけに `#if ZenzaiCoreML && canImport(CoreML)` + `@available(iOS 18, macOS 15, *)` を付ける。呼び出し側は `coreMLService?.convert(...)` のように単一の入口経由で利用する。
 
-3. **実行時判定はブリッジに閉じ込める**  
-   `KanaKanjiConverter` 本体は CoreML の有無を意識せず、ブリッジオブジェクトが `#available` 判定やモデルキャッシュ管理を担当する。他プラットフォームではブリッジが `nil` となり、既存の処理経路がそのまま使える構成にする。
+3. **実行時判定はサービスに閉じ込める**  
+   `KanaKanjiConverter` 本体は CoreML の有無を意識せず、`ZenzCoreMLService` が `#available` 判定やモデルキャッシュ管理を担当する。他プラットフォームではサービスが `nil` となり、既存の処理経路がそのまま使える構成にする。
 
 4. **新しいコードを追加したら本書を更新する**  
    CoreML 専用ファイルや可用性ルールに変更があれば、必ずこのドキュメントを更新して意図を共有する。

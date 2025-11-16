@@ -56,6 +56,11 @@ extension Kana2Kanji {
         }
     }
 
+    // MARK: - Sendable support
+    /// The cache holds mutable lattice references but never leaves the converter actor.
+    /// We temporarily mark it as `@unchecked Sendable` to unblock CoreML refactors.
+    extension ZenzaiCache: @unchecked Sendable {}
+
     struct PrefixConstraint: Sendable, Equatable, Hashable, CustomStringConvertible {
         init(_ constraint: [UInt8], hasEOS: Bool = false, ignoreMemoryAndUserDictionary: Bool = false) {
             self.constraint = constraint
@@ -89,7 +94,7 @@ extension Kana2Kanji {
         personalizationMode: (mode: ConvertRequestOptions.ZenzaiMode.PersonalizationMode, base: EfficientNGram, personal: EfficientNGram)?,
         versionDependentConfig: ConvertRequestOptions.ZenzaiVersionDependentMode,
         dicdataStoreState: DicdataStoreState
-    ) -> (result: LatticeNode, lattice: Lattice, cache: ZenzaiCache) {
+    ) async -> (result: LatticeNode, lattice: Lattice, cache: ZenzaiCache) {
         var constraint = zenzaiCache?.getNewConstraint(for: inputData) ?? PrefixConstraint([])
         debug("initial constraint", constraint)
         let eosNode = LatticeNode.EOSNode
@@ -151,7 +156,7 @@ extension Kana2Kanji {
                     // When inference occurs more than maximum times, then just return result at this point
                     return (eosNode, lattice, ZenzaiCache(inputData, constraint: constraint, satisfyingCandidate: candidate, lattice: lattice))
                 }
-                let reviewResult = zenz.candidateEvaluate(
+                let reviewResult = await zenz.candidateEvaluate(
                     convertTarget: inputData.convertTarget,
                     candidates: [candidate],
                     requestRichCandidates: requestRichCandidates,
