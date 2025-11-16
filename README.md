@@ -10,6 +10,9 @@ iOS 16以降, macOS 13以降, visionOS 1以降, Ubuntu 22.04以降で動作を�
 AzooKeyKanaKanjiConverterの開発については[開発ガイド](Docs/development_guide.md)をご覧ください。
 学習データの保存先やリセット方法については[Docs/learning_data.md](Docs/learning_data.md)を参照してください。
 
+> [!TIP]
+> このリポジトリは辞書や Core ML モデルを Git Submodules / Git LFS で管理しています。クローン後は必ず `./scripts/bootstrap.sh` を実行してサブモジュールと LFS ファイルを同期してください。
+
 ## KanaKanjiConverterModule
 かな漢字変換を受け持つモジュールです。
 
