@@ -14,7 +14,7 @@ enum ZenzCandidateEvaluationResult: Sendable, Equatable, Hashable {
 }
 
 protocol ZenzContextProtocol: AnyObject {
-    func reset_context() throws
+    func reset_context() async throws
     func evaluate_candidate(
         input: String,
         candidate: Candidate,
@@ -22,7 +22,7 @@ protocol ZenzContextProtocol: AnyObject {
         prefixConstraint: Kana2Kanji.PrefixConstraint,
         personalizationMode: (mode: ConvertRequestOptions.ZenzaiMode.PersonalizationMode, base: EfficientNGram, personal: EfficientNGram)?,
         versionDependentConfig: ConvertRequestOptions.ZenzaiVersionDependentMode
-    ) -> ZenzCandidateEvaluationResult
-    func predict_next_character(leftSideContext: String, count: Int) -> [(character: Character, value: Float)]
-    func pure_greedy_decoding(leftSideContext: String, maxCount: Int) -> String
+    ) async -> ZenzCandidateEvaluationResult
+    func predict_next_character(leftSideContext: String, count: Int) async -> [(character: Character, value: Float)]
+    func pure_greedy_decoding(leftSideContext: String, maxCount: Int) async -> String
 }

@@ -284,3 +284,8 @@ struct Lattice: Sequence {
         }
     }
 }
+
+// MARK: - Sendable support
+/// `Lattice` aggregates `LatticeNode` references that remain confined to the converter.
+/// We rely on higher layers to avoid sharing it across actors until lattice snapshots land.
+extension Lattice: @unchecked Sendable {}

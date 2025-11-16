@@ -1,7 +1,6 @@
 #if ZenzaiCoreML && canImport(CoreML)
 
 import Algorithms
-import Dispatch
 import EfficientNGram
 import Foundation
 import HeapModule
@@ -25,23 +24,19 @@ final class ZenzContext: ZenzContextProtocol {
         self.generator = generator
     }
 
-    static func createContext(path _: String) throws -> ZenzContext {
-        let generator = try Self.runBlocking {
-            try await ZenzStateful8BitGenerator()
-        }
+    static func createContext(path _: String) async throws -> ZenzContext {
+        let generator = try await ZenzStateful8BitGenerator()
         return ZenzContext(generator: generator)
     }
 
     deinit {
-        try? Self.runBlocking { [generator] in
-            await generator.resetState()
+        Task {
+            await self.generator.resetState()
         }
     }
 
-    func reset_context() throws {
-        try Self.runBlocking { [generator] in
-            await generator.resetState()
-        }
+    func reset_context() async throws {
+        try await self.generator.resetState()
         self.prevInput = []
         self.prevPrompt = []
     }
@@ -53,7 +48,7 @@ final class ZenzContext: ZenzContextProtocol {
         prefixConstraint: Kana2Kanji.PrefixConstraint,
         personalizationMode: (mode: ConvertRequestOptions.ZenzaiMode.PersonalizationMode, base: EfficientNGram, personal: EfficientNGram)?,
         versionDependentConfig: ConvertRequestOptions.ZenzaiVersionDependentMode
-    ) -> ZenzCandidateEvaluationResult {
+    ) async -> ZenzCandidateEvaluationResult {
         debug("Evaluate", candidate)
         let prompt = ZenzPromptBuilder.buildPrompt(
             convertTarget: input,
@@ -84,7 +79,7 @@ final class ZenzContext: ZenzContextProtocol {
 
         let tokens = prompt_tokens + candidate_tokens
         let startOffset = prompt_tokens.count - 1 + addressed_tokens.count
-        guard let logitsResult = self.get_logits(tokens: tokens) else {
+        guard let logitsResult = await self.get_logits(tokens: tokens) else {
             debug("logits unavailable")
             return .error
         }
@@ -202,7 +197,7 @@ final class ZenzContext: ZenzContextProtocol {
         })
     }
 
-    func predict_next_character(leftSideContext: String, count: Int) -> [(character: Character, value: Float)] {
+    func predict_next_character(leftSideContext: String, count: Int) async -> [(character: Character, value: Float)] {
         struct NextCharacterCandidate: Comparable {
             static func < (lhs: NextCharacterCandidate, rhs: NextCharacterCandidate) -> Bool {
                 lhs.value < rhs.value
@@ -214,7 +209,7 @@ final class ZenzContext: ZenzContextProtocol {
         let prompt_tokens = self.tokenize(text: "\u{EE00}。\u{EE02}\(leftSideContext)", add_bos: false)
         let startOffset = prompt_tokens.count - 1
 
-        guard let logitsResult = self.get_logits(tokens: prompt_tokens) else {
+        guard let logitsResult = await self.get_logits(tokens: prompt_tokens) else {
             debug("logits unavailable")
             return []
         }
@@ -247,13 +242,13 @@ final class ZenzContext: ZenzContextProtocol {
         return minHeap.unordered.sorted { $0.value > $1.value }.map { ($0.character, $0.value / exp_sum) }
     }
 
-    func pure_greedy_decoding(leftSideContext: String, maxCount: Int = .max) -> String {
+    func pure_greedy_decoding(leftSideContext: String, maxCount: Int = .max) async -> String {
         var prompt_tokens = self.tokenize(text: leftSideContext, add_bos: false)
         let initial_count = prompt_tokens.count
         let eos_token = tokenizer.endTokenID
         while prompt_tokens.count - initial_count < maxCount {
             let startOffset = prompt_tokens.count - 1
-            guard let logitsResult = self.get_logits(tokens: prompt_tokens) else {
+            guard let logitsResult = await self.get_logits(tokens: prompt_tokens) else {
                 debug("logits unavailable")
                 return ""
             }
@@ -282,11 +277,9 @@ final class ZenzContext: ZenzContextProtocol {
         return String(data: data, encoding: .utf8) ?? ""
     }
 
-    private func get_logits(tokens: [Int]) -> ZenzCoreMLLogits? {
+    private func get_logits(tokens: [Int]) async -> ZenzCoreMLLogits? {
         do {
-            let result = try Self.runBlocking { [generator] in
-                try await generator.logits(for: tokens)
-            }
+            let result = try await self.generator.logits(for: tokens)
             self.prevInput = tokens
             return result
         } catch {
@@ -319,22 +312,6 @@ final class ZenzContext: ZenzContextProtocol {
 
     private func token_to_cchars(token: Int) -> [CChar] {
         tokenScalars(token: token)
-    }
-
-    private static func runBlocking<T: Sendable>(_ operation: @Sendable @escaping () async throws -> T) throws -> T {
-        let semaphore = DispatchSemaphore(value: 0)
-        var result: Result<T, any Error>!
-        Task.detached(priority: nil) {
-            do {
-                let value = try await operation()
-                result = .success(value)
-            } catch {
-                result = .failure(error)
-            }
-            semaphore.signal()
-        }
-        semaphore.wait()
-        return try result.get()
     }
 
     func getLearningPriority(data: DicdataElement) -> Float {
