@@ -20,6 +20,7 @@ private final class MLModelBox: @unchecked Sendable {
 
 @available(iOS 18.0, macOS 15.0, *)
 public enum ZenzCoreMLError: Error {
+    case bundleNotFound
     case modelNotFound
     case tokenizerNotFound
     case tokenizerLoadFailed(String)
@@ -66,12 +67,9 @@ public actor ZenzStateful8BitGenerator {
 
     private static let modelName = "zenz_v3.1_stateful-8bit"
     public init(computeUnits: ZenzCoreMLComputeUnits = .cpuAndGPU) async throws {
-        guard let modelURL = ZenzCoreMLResources.statefulModelURL(named: Self.modelName) else {
-            throw ZenzCoreMLError.modelNotFound
-        }
         let configuration = MLModelConfiguration()
         configuration.computeUnits = computeUnits.coreMLValue
-        let model = try await MLModel.load(contentsOf: modelURL, configuration: configuration)
+        let model = try await ZenzCoreMLLoader.loadStateful8bit(configuration: configuration)
         self.modelBox = MLModelBox(model: model)
         self.evalState = model.makeState()
         self.tokenizer = try await Self.loadTokenizer()
@@ -104,8 +102,8 @@ public actor ZenzStateful8BitGenerator {
     }
 
     private static func loadTokenizer() async throws -> any Tokenizer {
-        guard let tokenizerDirectory = ZenzCoreMLResources.tokenizerDirectory else {
-            throw ZenzCoreMLError.tokenizerNotFound
+        let tokenizerDirectory = try await MainActor.run {
+            try ZenzCoreMLLoader.tokenizerDirectory()
         }
         do {
             return try await AutoTokenizer.from(modelFolder: tokenizerDirectory)
