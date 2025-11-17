@@ -320,11 +320,18 @@ public final class KanaKanjiConverter: @unchecked Sendable {
     ///   `賢い変換候補
     nonisolated private func getSpecialCandidate(_ inputData: ComposingText, options: ConvertRequestOptions) -> [Candidate] {
         let converter = self
+        #if os(macOS) || os(iOS) || os(watchOS) || os(tvOS) || os(visionOS)
         return MainActor.assumeIsolated {
             options.specialCandidateProviders.flatMap { provider in
                 provider.provideCandidates(converter: converter, inputData: inputData, options: options)
             }
         }
+        #else
+        // On Linux, there's no MainActor isolation, so execute directly
+        return options.specialCandidateProviders.flatMap { provider in
+            provider.provideCandidates(converter: converter, inputData: inputData, options: options)
+        }
+        #endif
     }
 
     /// 変換候補の重複を除去する関数。
