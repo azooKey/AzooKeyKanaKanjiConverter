@@ -12,7 +12,9 @@ import EfficientNGram
 public import Foundation
 import SwiftUtils
 
+#if os(macOS) || os(iOS) || os(watchOS) || os(tvOS) || os(visionOS)
 @MainActor
+#endif
 /// かな漢字変換の管理を受け持つクラス
 public final class KanaKanjiConverter {
     private struct ConversionCache {
