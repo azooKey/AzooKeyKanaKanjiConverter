@@ -94,7 +94,8 @@ public final class KanaKanjiConverter: @unchecked Sendable {
         evaluator: @escaping @Sendable (ZenzEvaluationRequest) async -> ZenzCandidateEvaluationResult
     ) async -> (result: LatticeNode, lattice: Lattice, cache: Kana2Kanji.ZenzaiCache, snapshot: ZenzCoreMLResultSnapshot) {
         let localCache = request.cacheSnapshot.map { Kana2Kanji.ZenzaiCache(snapshot: $0) }
-        let output = await self.converter.all_zenzai(
+        let converter = self.converter
+        let output = await converter.all_zenzai(
             request.inputData,
             evaluateCandidate: evaluator,
             zenzaiCache: localCache,
@@ -164,8 +165,9 @@ public final class KanaKanjiConverter: @unchecked Sendable {
     /// リセットする関数
     @available(*, deprecated, message: "Use async version 'stopCompositionAsync' instead to avoid blocking the calling thread")
     nonisolated public func stopComposition() {
+        let converter = self
         self.blockingAsync {
-            await self.stopCompositionAsync()
+            await converter.stopCompositionAsync()
         }
     }
 
@@ -214,8 +216,9 @@ public final class KanaKanjiConverter: @unchecked Sendable {
             print("zenz-v2 model unavailable")
             return []
         }
+        let converter = self
         return self.blockingAsync {
-            await self.predictNextCharacterAsync(leftSideContext: leftSideContext, count: count, options: options)
+            await converter.predictNextCharacterAsync(leftSideContext: leftSideContext, count: count, options: options)
         }
     }
 #else
@@ -311,8 +314,9 @@ public final class KanaKanjiConverter: @unchecked Sendable {
     /// 確定操作後の学習メモリの更新を確定させます。
     @available(*, deprecated, message: "Use async version 'resetMemoryAsync' instead to avoid blocking the calling thread")
     nonisolated public func resetMemory() {
+        let converter = self
         self.blockingAsync {
-            await self.resetMemoryAsync()
+            await converter.resetMemoryAsync()
         }
     }
 
@@ -322,9 +326,10 @@ public final class KanaKanjiConverter: @unchecked Sendable {
     /// - Returns:
     ///   `賢い変換候補
     nonisolated private func getSpecialCandidate(_ inputData: ComposingText, options: ConvertRequestOptions) -> [Candidate] {
-        MainActor.assumeIsolated {
+        let converter = self
+        return MainActor.assumeIsolated {
             options.specialCandidateProviders.flatMap { provider in
-                provider.provideCandidates(converter: self, inputData: inputData, options: options)
+                provider.provideCandidates(converter: converter, inputData: inputData, options: options)
             }
         }
     }
@@ -943,8 +948,9 @@ public final class KanaKanjiConverter: @unchecked Sendable {
 
     @available(*, deprecated, message: "Use async version 'requestCandidatesAsync' instead to avoid blocking the calling thread")
     nonisolated public func requestCandidates(_ inputData: ComposingText, options: ConvertRequestOptions) -> ConversionResult {
-        self.blockingAsync {
-            await self.requestCandidatesAsync(inputData, options: options)
+        let converter = self
+        return self.blockingAsync {
+            await converter.requestCandidatesAsync(inputData, options: options)
         }
     }
 
