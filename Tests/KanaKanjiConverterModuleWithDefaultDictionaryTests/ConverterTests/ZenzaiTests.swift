@@ -41,7 +41,7 @@ final class ZenzaiTests: MainActorTestCase {
     func testFullConversion() throws {
 
 
-        try runOnMainActor {
+        
         do {
             let converter = KanaKanjiConverter.withDefaultDictionary()
             var c = ComposingText()
@@ -79,12 +79,12 @@ final class ZenzaiTests: MainActorTestCase {
         }
     
 
-        }
+        
 }
 
     func testGradualConversion() throws {
 
-        try runOnMainActor {
+        
         // 辞書は先に読み込んでおく（純粋な比較のため）
         let dicdataStore = DicdataStore.withDefaultDictionary(preloadDictionary: true)
         for inferenceLimit in [1, 2, 3, 5, .max] {
@@ -100,12 +100,12 @@ final class ZenzaiTests: MainActorTestCase {
             }
         }
     
-        }
+        
 }
 
     func testGradualConversion_Roman2Kana() throws {
 
-        try runOnMainActor {
+        
         // 辞書は先に読み込んでおく（純粋な比較のため）
         let dicdataStore = DicdataStore.withDefaultDictionary(preloadDictionary: true)
         for inferenceLimit in [1, 2, 3, 5, .max] {
@@ -121,12 +121,12 @@ final class ZenzaiTests: MainActorTestCase {
             }
         }
     
-        }
+        
 }
 
     func testGradualConversion_AZIK() throws {
 
-        try runOnMainActor {
+        
         // 辞書は先に読み込んでおく（純粋な比較のため）
         let dicdataStore = DicdataStore.withDefaultDictionary(preloadDictionary: true)
         for inferenceLimit in [1, 2, 3, 5, .max] {
@@ -142,7 +142,7 @@ final class ZenzaiTests: MainActorTestCase {
             }
         }
     
-        }
+        
 }
 }
 #endif
