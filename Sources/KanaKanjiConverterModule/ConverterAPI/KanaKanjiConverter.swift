@@ -16,7 +16,7 @@ import SwiftUtils
 @MainActor
 #endif
 /// かな漢字変換の管理を受け持つクラス
-public final class KanaKanjiConverter {
+public final class KanaKanjiConverter: @unchecked Sendable {
     private struct ConversionCache {
         var previousInputData: ComposingText?
         var lattice: Lattice = .init()
