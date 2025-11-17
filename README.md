@@ -1,5 +1,7 @@
 # AzooKeyKanaKanjiConverter
 
+**日本語** | [English](README.en.md) | [한국어](README.ko.md)
+
 AzooKeyKanaKanjiConverterは[azooKey](https://github.com/ensan-hcl/azooKey)のために開発したかな漢字変換エンジンです。数行のコードでかな漢字変換をiOS / macOS / visionOSのアプリケーションに組み込むことができます。
 
 また、AzooKeyKanaKanjiConverterはニューラルかな漢字変換システム「Zenzai」を利用した高精度な変換もサポートしています。
@@ -7,11 +9,18 @@ AzooKeyKanaKanjiConverterは[azooKey](https://github.com/ensan-hcl/azooKey)の�
 ## 動作環境
 iOS 16以降, macOS 13以降, visionOS 1以降, Ubuntu 22.04以降で動作を確認しています。Swift 6.1以上が必要です。
 
+### Swift Concurrency対応
+AzooKeyKanaKanjiConverterはSwift 6 strict concurrency checkingに完全対応しています。以下の機能を備えています：
+
+- **MainActor分離**: Darwin（iOS/macOS/visionOS）では`KanaKanjiConverter`が`@MainActor`として動作し、UIスレッドの安全性を確保
+- **非同期API**: すべての主要APIに非同期バージョンを提供し、UIスレッドのブロックを防止
+- **クロスプラットフォーム**: Linux環境でも同等の機能を提供（MainActor分離なし）
+
+> [!NOTE]
+> Linuxプラットフォームでは、MainActorによる分離が行われないため、スレッド安全性の保証メカニズムがDarwinと異なります。
+
 AzooKeyKanaKanjiConverterの開発については[開発ガイド](Docs/development_guide.md)をご覧ください。
 学習データの保存先やリセット方法については[Docs/learning_data.md](Docs/learning_data.md)を参照してください。
-
-> [!TIP]
-> このリポジトリは辞書や Core ML モデルを Git Submodules / Git LFS で管理しています。クローン後は必ず `./scripts/bootstrap.sh` を実行してサブモジュールと LFS ファイルを同期してください。
 
 ## KanaKanjiConverterModule
 かな漢字変換を受け持つモジュールです。
@@ -40,17 +49,57 @@ AzooKeyKanaKanjiConverterの開発については[開発ガイド](Docs/developm
 
 
 ### 使い方
+
+#### Async/Await API（推奨）
+iOS 16以降では、非同期APIを使用することでUIスレッドのブロックを防ぎます。キーボードアプリなどUIレスポンスが重要な場合に推奨されます。
+
 ```swift
 // デフォルト辞書つきの変換モジュールをインポート
 import KanaKanjiConverterModuleWithDefaultDictionary
 
 // 変換器を初期化する（デフォルト辞書を利用）
 let converter = KanaKanjiConverter.withDefaultDictionary()
-// 入力を初期化する
+
+// async関数内で使用
+@MainActor
+func convertText() async {
+    // 入力を初期化する
+    var c = ComposingText()
+    // 変換したい文章を追加する
+    c.insertAtCursorPosition("あずーきーはしんじだいのきーぼーどあぷりです", inputStyle: .direct)
+    // 変換のためのオプションを指定して、変換を要求（非同期）
+    let results = await converter.requestCandidatesAsync(c, options: .init(
+        N_best: 10,
+        requireJapanesePrediction: true,
+        requireEnglishPrediction: false,
+        keyboardLanguage: .ja_JP,
+        englishCandidateInRoman2KanaInput: true,
+        fullWidthRomanCandidate: false,
+        halfWidthKanaCandidate: false,
+        learningType: .inputAndOutput,
+        maxMemoryCount: 65536,
+        shouldResetMemory: false,
+        memoryDirectoryURL: FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first!,
+        sharedContainerURL: FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first!,
+        textReplacer: .withDefaultEmojiDictionary(),
+        specialCandidateProviders: KanaKanjiConverter.defaultSpecialCandidateProviders,
+        metadata: .init(versionString: "Your App Version X")
+    ))
+    // 結果の一番目を表示
+    print(results.mainResults.first!.text)  // azooKeyは新時代のキーボードアプリです
+}
+```
+
+#### 同期API（レガシー）
+既存のコードとの互換性のため、同期APIも引き続き利用可能ですが、非推奨です。
+
+```swift
+// 変換器を初期化する（デフォルト辞書を利用）
+let converter = KanaKanjiConverter.withDefaultDictionary()
 var c = ComposingText()
-// 変換したい文章を追加する
 c.insertAtCursorPosition("あずーきーはしんじだいのきーぼーどあぷりです", inputStyle: .direct)
-// 変換のためのオプションを指定して、変換を要求
+
+// 同期API（非推奨 - UIスレッドをブロックする可能性があります）
 let results = converter.requestCandidates(c, options: .init(
     N_best: 10,
     requireJapanesePrediction: .autoMix,
@@ -68,10 +117,20 @@ let results = converter.requestCandidates(c, options: .init(
     specialCandidateProviders: KanaKanjiConverter.defaultSpecialCandidateProviders,
     metadata: .init(versionString: "Your App Version X")
 ))
-// 結果の一番目を表示
-print(results.mainResults.first!.text)  // azooKeyは新時代のキーボードアプリです
+print(results.mainResults.first!.text)
 ```
+
 `ConvertRequestOptions`は変換リクエストに必要な情報を指定します。詳しくはコード内のドキュメントコメントを参照してください。
+
+#### Async API一覧
+以下の非同期APIが利用可能です：
+- `requestCandidatesAsync(_:options:)` - 変換候補を非同期で取得
+- `stopCompositionAsync()` - 変換セッションを非同期で終了
+- `resetMemoryAsync()` - 学習データを非同期でリセット
+- `predictNextCharacterAsync(leftSideContext:count:options:)` - 次の文字を非同期で予測（zenz-v2モデルが必要、ZenzaiまたはZenzaiCoreML traitで利用可能）
+
+> [!NOTE]
+> Swift Concurrencyの詳細な移行計画については、[Docs/swift_concurrency_migration.md](Docs/swift_concurrency_migration.md)を参照してください。
 
 
 ### `ConvertRequestOptions`
@@ -107,16 +166,31 @@ let options = ConvertRequestOptions(
 `ComposingText`は入力管理を行いつつ変換をリクエストするためのAPIです。ローマ字入力などを適切にハンドルするために利用できます。詳しくは[ドキュメント](./Docs/composing_text.md)を参照してください。
 
 ### Zenzaiを使う
-ニューラルかな漢字変換システム「Zenzai」を利用するには、追加で[Swift Package Traits](https://github.com/swiftlang/swift-evolution/blob/main/proposals/0450-swiftpm-package-traits.md)の設定を行う必要があります。AzooKeyKanaKanjiConverterはGPU向けの「Zenzai」およびCPU専用の「ZenzaiCPU」というTraitをサポートしています。環境に応じていずれかを追加してください。
+ニューラルかな漢字変換システム「Zenzai」を利用するには、追加で[Swift Package Traits](https://github.com/swiftlang/swift-evolution/blob/main/proposals/0450-swiftpm-package-traits.md)の設定を行う必要があります。AzooKeyKanaKanjiConverterは以下の3つのTraitをサポートしています。環境に応じていずれかを追加してください。
 
 ```swift
 dependencies: [
-    // GPU (Metal/CUDA 等) を使う場合
+    // GPU (Metal/CUDA 等) を使う場合 - llama.cpp ベース
     .package(url: "https://github.com/azooKey/AzooKeyKanaKanjiConverter", .upToNextMinor(from: "0.8.0"), traits: ["Zenzai"]),
+
+    // CoreML を使う場合（iOS 18+, macOS 15+）- Stateful モデル、CPU/GPU 最適化
+    // .package(url: "https://github.com/azooKey/AzooKeyKanaKanjiConverter", .upToNextMinor(from: "0.8.0"), traits: ["ZenzaiCoreML"]),
+
     // CPU のみで動作させる場合（オフロード無効）
     // .package(url: "https://github.com/azooKey/AzooKeyKanaKanjiConverter", .upToNextMinor(from: "0.8.0"), traits: ["ZenzaiCPU"]),
 ],
 ```
+
+#### Trait の選択ガイド
+
+| Trait | バックエンド | 対応OS | アクセラレータ | 推奨用途 |
+|-------|------------|--------|--------------|---------|
+| `Zenzai` | llama.cpp | iOS 16+, macOS 13+, Linux | Metal/CUDA | 汎用的な GPU アクセラレーション |
+| `ZenzaiCoreML` | CoreML (Stateful) | iOS 18+, macOS 15+ | CPU/GPU | Apple デバイスでの CPU/GPU 最適化推論 |
+| `ZenzaiCPU` | llama.cpp (CPU only) | iOS 16+, macOS 13+, Linux | なし | GPUが使えない環境、デバッグ用 |
+
+> [!NOTE]
+> `ZenzaiCoreML` は Swift Concurrency を活用した非同期実行により、UI スレッドをブロックせずに Stateful モデルでの高速な推論を実現します。詳細は [Docs/swift_concurrency_migration.md](Docs/swift_concurrency_migration.md) を参照してください。
 
 `ConvertRequestOptions`の`zenzaiMode`を指定します。詳しい引数の情報については[ドキュメント](./Docs/zenzai.md)を参照してください。
 

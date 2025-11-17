@@ -1,6 +1,8 @@
 ## Zenz / CoreML の可用性ガイドライン
 
-AzooKey の Zenz 関連コードは複数プラットフォームで動作させる必要があります。  
+[English](./ZenzAvailability.en.md) | **日本語** | [한국어](./ZenzAvailability.ko.md)
+
+AzooKey の Zenz 関連コードは複数プラットフォームで動作させる必要があります。
 下記のルールを守ることで、`#if` ガードや `@available` が散逸せず、保守性を維持できます。
 
 1. **共通ロジックは常に公開する**  

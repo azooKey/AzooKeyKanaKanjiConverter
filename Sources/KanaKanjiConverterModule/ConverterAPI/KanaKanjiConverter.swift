@@ -134,6 +134,26 @@ public final class KanaKanjiConverter {
             await self.resolvedCoreMLService().predictNextCharacters(leftSideContext: leftSideContext, count: count, options: options)
         }
     }
+#elseif Zenzai
+    public func predictNextCharacterAsync(leftSideContext: String, count: Int, options: ConvertRequestOptions) async -> [(character: Character, value: Float)] {
+        guard options.zenzaiMode.versionDependentMode.version == .v2 else {
+            debug("next character prediction requires zenz-v2 models, not zenz-v1 nor zenz-v3 and later")
+            return []
+        }
+        guard let zenz = await self.getModel(modelURL: options.zenzaiMode.weightURL) else {
+            debug("zenz-v2 model unavailable")
+            return []
+        }
+        return await zenz.predictNextCharacter(leftSideContext: leftSideContext, count: count)
+    }
+
+    @available(*, deprecated, message: "Use async version 'predictNextCharacterAsync' instead to avoid blocking the calling thread")
+    nonisolated public func predictNextCharacter(leftSideContext: String, count: Int, options: ConvertRequestOptions) -> [(character: Character, value: Float)] {
+        let converter = self
+        return self.blockingAsync {
+            await converter.predictNextCharacterAsync(leftSideContext: leftSideContext, count: count, options: options)
+        }
+    }
 #else
     public func predictNextCharacter(leftSideContext: String, count: Int, options: ConvertRequestOptions) -> [(character: Character, value: Float)] {
         print("zenz-v2 model unavailable")
