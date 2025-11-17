@@ -328,10 +328,14 @@ public final class KanaKanjiConverter: @unchecked Sendable {
         }
     }
     #else
-    // On Linux, provideCandidates is still MainActor-isolated, so this method must be too
-    private func getSpecialCandidate(_ inputData: ComposingText, options: ConvertRequestOptions) -> [Candidate] {
-        options.specialCandidateProviders.flatMap { provider in
-            provider.provideCandidates(converter: self, inputData: inputData, options: options)
+    // On Linux, KanaKanjiConverter is not @MainActor, but provideCandidates is still @MainActor
+    // We need to use blockingAsync to bridge the isolation boundary
+    nonisolated private func getSpecialCandidate(_ inputData: ComposingText, options: ConvertRequestOptions) -> [Candidate] {
+        let converter = self
+        return self.blockingAsync {
+            options.specialCandidateProviders.flatMap { provider in
+                provider.provideCandidates(converter: converter, inputData: inputData, options: options)
+            }
         }
     }
     #endif
