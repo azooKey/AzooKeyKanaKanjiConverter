@@ -152,6 +152,19 @@ public final class KanaKanjiConverter {
 #endif
 
     /// リセットする関数
+    public func stopCompositionAsync() async {
+#if ZenzaiCoreML && canImport(CoreML)
+        if #available(iOS 18, macOS 15, *), let service = self.coreMLServiceStorage as? ZenzCoreMLService {
+            await service.stopComposition()
+            self.coreMLServiceStorage = nil
+        }
+#endif
+        self.zenzaiPersonalization = nil
+        self.cache.resetForNewSession()
+    }
+
+    /// リセットする関数
+    @available(*, deprecated, message: "Use async version 'stopCompositionAsync' instead to avoid blocking the calling thread")
     public func stopComposition() {
 #if ZenzaiCoreML && canImport(CoreML)
         if #available(iOS 18, macOS 15, *), let service = self.coreMLServiceStorage as? ZenzCoreMLService {
@@ -198,6 +211,13 @@ public final class KanaKanjiConverter {
 #endif
 
 #if ZenzaiCoreML && canImport(CoreML)
+    @available(iOS 18, macOS 15, *)
+    public func predictNextCharacterAsync(leftSideContext: String, count: Int, options: ConvertRequestOptions) async -> [(character: Character, value: Float)] {
+        self.cache.invalidateZenzCaches()
+        return await self.resolvedCoreMLService().predictNextCharacters(leftSideContext: leftSideContext, count: count, options: options)
+    }
+
+    @available(*, deprecated, message: "Use async version 'predictNextCharacterAsync' instead to avoid blocking the calling thread")
     public func predictNextCharacter(leftSideContext: String, count: Int, options: ConvertRequestOptions) -> [(character: Character, value: Float)] {
         guard #available(iOS 18, macOS 15, *) else {
             print("zenz-v2 model unavailable")
@@ -209,6 +229,7 @@ public final class KanaKanjiConverter {
         }
     }
 #else
+    @available(*, deprecated, message: "Use async version 'predictNextCharacterAsync' instead to avoid blocking the calling thread")
     public func predictNextCharacter(leftSideContext: String, count: Int, options: ConvertRequestOptions) -> [(character: Character, value: Float)] {
         print("zenz-v2 model unavailable")
         self.cache.invalidateZenzCaches()
@@ -287,6 +308,19 @@ public final class KanaKanjiConverter {
     }
 
     /// 確定操作後の学習メモリの更新を確定させます。
+    public func resetMemoryAsync() async {
+        self.dicdataStoreState.resetMemory()
+        self.cache.resetForNewSession()
+#if ZenzaiCoreML && canImport(CoreML)
+        if #available(iOS 18, macOS 15, *), let service = self.coreMLServiceStorage as? ZenzCoreMLService {
+            await service.stopComposition()
+            self.coreMLServiceStorage = nil
+        }
+#endif
+    }
+
+    /// 確定操作後の学習メモリの更新を確定させます。
+    @available(*, deprecated, message: "Use async version 'resetMemoryAsync' instead to avoid blocking the calling thread")
     public func resetMemory() {
         self.dicdataStoreState.resetMemory()
         self.cache.resetForNewSession()
@@ -923,6 +957,7 @@ public final class KanaKanjiConverter {
         converter.mergeCandidates(left, right)
     }
 
+    @available(*, deprecated, message: "Use async version 'requestCandidatesAsync' instead to avoid blocking the calling thread")
     public func requestCandidates(_ inputData: ComposingText, options: ConvertRequestOptions) -> ConversionResult {
         self.blockingAsync {
             await self.requestCandidatesAsync(inputData, options: options)
