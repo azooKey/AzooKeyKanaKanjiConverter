@@ -7,6 +7,7 @@ This document captures a multi-session plan for making the converter fully Swift
 **Session 1** ✅ COMPLETED – Data Model Audit & Sendable Wrappers
 **Session 2** ✅ COMPLETED – Actor-Isolated CoreML Service & Async API Migration
 **Session 3** ✅ COMPLETED – Cache Ownership & Lifecycle
+**Session 4** ✅ COMPLETED – Swift 6 Strict Concurrency & Cross-Platform Support
 
 **Key Achievements:**
 - **Eliminated MainActor deadlocks**: Sync methods are now `nonisolated`, preventing semaphore blocking when called from MainActor contexts (critical for keyboard UI responsiveness)
@@ -15,12 +16,20 @@ This document captures a multi-session plan for making the converter fully Swift
 - **Centralized cache management**: `ConversionCache` struct consolidates all mutable state (works for both CoreML and llama.cpp/ZenzaiCPU paths)
 - **Platform-conditional MainActor**: `KanaKanjiConverter` is `@MainActor` on Darwin platforms only (Linux XCTest compatibility)
 - **Async-first internals**: Internal code paths use direct `await` calls instead of `blockingAsync` pattern
+- **Swift 6 strict concurrency compliance**: All Sendable violations fixed using local variable capture pattern
+- **Cross-platform actor isolation**: Platform-conditional `@MainActor` and `MainActor.assumeIsolated` usage for Darwin/Linux compatibility
 
 **Remaining Work:**
+- ⚠️ **Test validation**: Automated test results not fully verified on both Darwin and Linux platforms
+- ⚠️ **Platform behavior differences**: Linux runtime without MainActor isolation may exhibit different behavior than Darwin
 - Performance benchmarks to validate no regressions in latency/memory
 - Complete documentation updates (`ZenzAvailability.md`, architecture diagrams)
 - Integration tests comparing CoreML vs llama.cpp/ZenzaiCPU outputs under concurrency
 - (Future breaking change) Remove deprecated sync APIs and `blockingAsync` helper entirely
+
+**Known Issues:**
+- ⚠️ **Platform-specific code proliferation**: Many methods now have `#if os(macOS) || os(iOS)...#else...#endif` branches, increasing maintenance complexity
+- ⚠️ **Linux MainActor semantics**: On Linux, `KanaKanjiConverter` is not `@MainActor`, so thread safety relies on different mechanisms than Darwin
 
 **Critical User Impact:**
 In keyboard applications, conversion happens during active typing. Before this migration, heavy operations (ML inference, dictionary lookups, lattice building) could block the main thread via `blockingAsync`'s semaphore, causing UI freezes. The async migration ensures the main thread remains responsive regardless of which backend (CoreML/llama.cpp/ZenzaiCPU) is processing the conversion request.
@@ -201,6 +210,74 @@ To finish Session 2 and unblock Session 3, we need the following multi-step plan
    5.4 Publish migration notes for downstream users.
 
 **Deliverables:** Clean separation of responsibilities, updated documentation, and automated tests/benchmarks demonstrating stability.
+
+## Session 4 – Swift 6 Strict Concurrency & Cross-Platform Support ✅ COMPLETED
+
+**Goal:** Achieve Swift 6 strict concurrency compliance and ensure cross-platform compatibility (Darwin + Linux).
+
+Tasks:
+
+1. **Fix Swift 6 Sendable violations** ✅
+   - Resolve "sending 'self' risks causing data races" errors using local variable capture pattern
+   - Add `Sendable` constraint to generic parameters where needed (e.g., `blockingAsync<T: Sendable>`)
+   - Mark appropriate types as `@unchecked Sendable` (`EfficientNGram`, `KanaKanjiConverter`)
+
+2. **Linux XCTest compatibility** ✅
+   - Make `@MainActor` annotation conditional on Darwin platforms in test base classes (`MainActorTestCase.swift`)
+   - Make `KanaKanjiConverter` class-level `@MainActor` conditional on Darwin platforms
+   - Implement platform-conditional `getSpecialCandidate` to handle `MainActor.assumeIsolated` differences
+
+3. **Cross-platform actor isolation patterns** ✅
+   - Use `#if os(macOS) || os(iOS) || os(watchOS) || os(tvOS) || os(visionOS)` for Darwin-specific MainActor code
+   - On Linux, methods that use `MainActor.assumeIsolated` on Darwin execute directly without actor isolation
+   - Document platform behavior differences and thread safety implications
+
+**Implementation Details:**
+
+- **Files Modified:**
+  - `Tests/KanaKanjiConverterModuleTests/MainActorTestCase.swift`: Platform-conditional `@MainActor`
+  - `Tests/KanaKanjiConverterModuleWithDefaultDictionaryTests/MainActorTestCase.swift`: Platform-conditional `@MainActor`
+  - `Sources/EfficientNGram/Inference.swift`: Added `@unchecked Sendable` to `EfficientNGram`
+  - `Sources/KanaKanjiConverterModule/ConverterAPI/KanaKanjiConverter.swift`:
+    - Platform-conditional `@MainActor` on class declaration
+    - Local variable capture pattern (`let converter = self`) before closures to satisfy Swift 6 sendability
+    - Platform-conditional `getSpecialCandidate` implementation (uses `MainActor.assumeIsolated` on Darwin, direct execution on Linux)
+    - Added `T: Sendable` constraint to `blockingAsync` helper
+
+- **Platform-Conditional Patterns:**
+  ```swift
+  #if os(macOS) || os(iOS) || os(watchOS) || os(tvOS) || os(visionOS)
+  @MainActor
+  public final class KanaKanjiConverter: @unchecked Sendable { ... }
+  #else
+  public final class KanaKanjiConverter: @unchecked Sendable { ... }
+  #endif
+  ```
+
+  ```swift
+  #if os(macOS) || os(iOS) || os(watchOS) || os(tvOS) || os(visionOS)
+  nonisolated private func getSpecialCandidate(...) -> [Candidate] {
+      return MainActor.assumeIsolated { /* ... */ }
+  }
+  #else
+  private func getSpecialCandidate(...) -> [Candidate] {
+      // Direct execution without MainActor on Linux
+  }
+  #endif
+  ```
+
+**Completion Notes:**
+- Swift 6 strict concurrency errors resolved across the codebase
+- Tests compile on both Darwin and Linux platforms
+- Platform-specific behavior documented for maintainability
+- ⚠️ **Maintenance burden**: Platform-conditional code increases complexity; future refactoring should consider unifying behavior where possible
+
+**Remaining Concerns:**
+- Test execution results not verified on Linux CI
+- Platform behavior divergence may lead to subtle bugs if not carefully managed
+- Consider future work to reduce `#if` branching by introducing platform-agnostic abstractions
+
+**Deliverables:** Swift 6 compliant codebase with cross-platform MainActor handling. ✅
 
 ---
 

@@ -21,8 +21,6 @@ jobs:
       - uses: actions/checkout@v5
         with:
           submodules: true
-      - name: Bootstrap submodules and LFS
-        run: ./scripts/bootstrap.sh
       - name: Build
         run: swift build -Xswiftc -strict-concurrency=complete -Xcxx -xobjective-c++ -v
       - name: Run tests
@@ -41,8 +39,6 @@ jobs:
       - uses: actions/checkout@v5
         with:
           submodules: true
-      - name: Bootstrap submodules and LFS
-        run: ./scripts/bootstrap.sh
       - name: Build (CoreML)
         env:
           CLANG_MODULE_CACHE_PATH: ${{ github.workspace }}/.build/ModuleCache
@@ -65,8 +61,6 @@ jobs:
       - uses: actions/checkout@v5
         with:
           submodules: true
-      - name: Bootstrap submodules and LFS
-        run: ./scripts/bootstrap.sh
       - name: Download pre-built llama.cpp binaries
         run: |
           wget -O llama-cpp-bin.zip "https://github.com/fkunn1326/llama.cpp/releases/download/b4846/llama-b4846-bin-ubuntu-x64.zip"
@@ -98,9 +92,6 @@ jobs:
       - uses: actions/checkout@v5
         with:
           submodules: true
-      - name: Bootstrap submodules and LFS
-        shell: bash
-        run: ./scripts/bootstrap.sh
       - name: Download pre-built llama.cpp binaries
         shell: pwsh
         run: |
@@ -154,10 +145,6 @@ jobs:
         with:
           path: AzooKeyKanaKanjiConverter
           submodules: true
-      - name: Bootstrap submodules and LFS
-        run: |
-          cd AzooKeyKanaKanjiConverter
-          ./scripts/bootstrap.sh
       - name: Build
         run: |
           cd AzooKeyKanaKanjiConverter
