@@ -23,7 +23,8 @@ final class LearningMemoryTests: XCTestCase {
 
         // ポーズファイルを設置
         let pauseURL = dir.appendingPathComponent(".pause", isDirectory: false)
-        FileManager.default.createFile(atPath: pauseURL.path, contents: Data())
+        let created = FileManager.default.createFile(atPath: pauseURL.path, contents: Data())
+        XCTAssertTrue(created)
         XCTAssertTrue(LongTermLearningMemory.memoryCollapsed(directoryURL: dir))
 
         // ここで副作用が発生
