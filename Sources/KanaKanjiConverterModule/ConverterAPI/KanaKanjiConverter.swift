@@ -107,27 +107,25 @@ public final class KanaKanjiConverter {
         return output
     }
 
-    private final class BlockingAsyncOperationBox<T>: @unchecked Sendable {
-        private let operationClosure: () async -> T
-        init(_ operation: @escaping () async -> T) {
-            self.operationClosure = operation
-        }
-
-        func execute() async -> T {
-            await self.operationClosure()
-        }
-    }
-
     private final class BlockingAsyncResultStorage<T>: @unchecked Sendable {
         var value: T?
     }
 
-    private func blockingAsync<T>(_ operation: @escaping () async -> T) -> T {
+    nonisolated private func blockingAsync<T>(_ operation: @escaping @Sendable @MainActor () async -> T) -> T {
         let semaphore = DispatchSemaphore(value: 0)
         let storage = BlockingAsyncResultStorage<T>()
-        let box = BlockingAsyncOperationBox(operation)
+
+        // Use Task.detached to escape current actor context and prevent deadlock
         Task.detached(priority: nil) { @Sendable in
-            storage.value = await box.execute()
+#if os(macOS) || os(iOS) || os(watchOS) || os(tvOS) || os(visionOS)
+            // Darwin: Execute on MainActor via MainActor.run
+            storage.value = await MainActor.run {
+                await operation()
+            }
+#else
+            // Linux: No MainActor isolation
+            storage.value = await operation()
+#endif
             semaphore.signal()
         }
         semaphore.wait()
@@ -166,16 +164,9 @@ public final class KanaKanjiConverter {
     /// リセットする関数
     @available(*, deprecated, message: "Use async version 'stopCompositionAsync' instead to avoid blocking the calling thread")
     nonisolated public func stopComposition() {
-#if ZenzaiCoreML && canImport(CoreML)
-        if #available(iOS 18, macOS 15, *), let service = self.coreMLServiceStorage as? ZenzCoreMLService {
-            self.blockingAsync {
-                await service.stopComposition()
-            }
-            self.coreMLServiceStorage = nil
+        self.blockingAsync {
+            await self.stopCompositionAsync()
         }
-#endif
-        self.zenzaiPersonalization = nil
-        self.cache.resetForNewSession()
     }
 
     func getZenzaiPersonalization(mode: ConvertRequestOptions.ZenzaiMode.PersonalizationMode?) -> (mode: ConvertRequestOptions.ZenzaiMode.PersonalizationMode, base: EfficientNGram, personal: EfficientNGram)? {
@@ -223,16 +214,14 @@ public final class KanaKanjiConverter {
             print("zenz-v2 model unavailable")
             return []
         }
-        self.cache.invalidateZenzCaches()
         return self.blockingAsync {
-            await self.resolvedCoreMLService().predictNextCharacters(leftSideContext: leftSideContext, count: count, options: options)
+            await self.predictNextCharacterAsync(leftSideContext: leftSideContext, count: count, options: options)
         }
     }
 #else
     @available(*, deprecated, message: "Use async version 'predictNextCharacterAsync' instead to avoid blocking the calling thread")
     nonisolated public func predictNextCharacter(leftSideContext: String, count: Int, options: ConvertRequestOptions) -> [(character: Character, value: Float)] {
         print("zenz-v2 model unavailable")
-        self.cache.invalidateZenzCaches()
         return []
     }
 #endif
@@ -322,16 +311,9 @@ public final class KanaKanjiConverter {
     /// 確定操作後の学習メモリの更新を確定させます。
     @available(*, deprecated, message: "Use async version 'resetMemoryAsync' instead to avoid blocking the calling thread")
     nonisolated public func resetMemory() {
-        self.dicdataStoreState.resetMemory()
-        self.cache.resetForNewSession()
-#if ZenzaiCoreML && canImport(CoreML)
-        if #available(iOS 18, macOS 15, *), let service = self.coreMLServiceStorage as? ZenzCoreMLService {
-            self.blockingAsync {
-                await service.stopComposition()
-            }
-            self.coreMLServiceStorage = nil
+        self.blockingAsync {
+            await self.resetMemoryAsync()
         }
-#endif
     }
 
     /// 賢い変換候補を生成する関数。
@@ -339,12 +321,11 @@ public final class KanaKanjiConverter {
     ///   - string: 入力されたString
     /// - Returns:
     ///   `賢い変換候補
-#if os(macOS) || os(iOS) || os(watchOS) || os(tvOS) || os(visionOS)
-    @MainActor
-#endif
-    private func getSpecialCandidate(_ inputData: ComposingText, options: ConvertRequestOptions) -> [Candidate] {
-        options.specialCandidateProviders.flatMap { provider in
-            provider.provideCandidates(converter: self, inputData: inputData, options: options)
+    nonisolated private func getSpecialCandidate(_ inputData: ComposingText, options: ConvertRequestOptions) -> [Candidate] {
+        MainActor.assumeIsolated {
+            options.specialCandidateProviders.flatMap { provider in
+                provider.provideCandidates(converter: self, inputData: inputData, options: options)
+            }
         }
     }
 
