@@ -20,6 +20,15 @@ var dependencies: [Package.Dependency] = [
     .package(url: "https://github.com/Skyline-23/swift-transformers.git", branch: "feature/increase-compatibility")
 ]
 
+#if os(macOS) || os(iOS)
+dependencies.append(
+    .package(
+        url: "https://github.com/Skyline-23/zenz-CoreML.git",
+        from: "3.1.1"
+    )
+)
+#endif
+
 var efficientNGramDependencies: [Target.Dependency] = [
     .product(name: "Tokenizers", package: "swift-transformers"),
     .product(name: "Hub", package: "swift-transformers")
@@ -111,12 +120,14 @@ targets.append(
     .target(
         name: "ZenzCoreMLBackend",
         dependencies: [
-            .product(name: "Tokenizers", package: "swift-transformers")
+            .product(name: "Tokenizers", package: "swift-transformers"),
+            .product(
+                name: "ZenzCoreMLStateful8bit",
+                package: "zenz-CoreML",
+                condition: .when(traits: ["ZenzaiCoreML"])
+            )
         ],
-        resources: [
-            .copy("zenz-CoreML/Stateful"),
-            .copy("zenz-CoreML/tokenizer")
-        ],
+        resources: [],
         swiftSettings: swiftSettings
     )
 )
@@ -147,9 +158,9 @@ if checkObjcAvailability() {
     print("Objective-C runtime is available")
     targets = targets.map { target in
         if target.name == "CliTool" || target.name == "KanaKanjiConverterModuleWithDefaultDictionaryTests" {
-        let modifiedTarget = target
-        modifiedTarget.linkerSettings = [.linkedLibrary("objc")]
-        return modifiedTarget
+            let modifiedTarget = target
+            modifiedTarget.linkerSettings = [.linkedLibrary("objc")]
+            return modifiedTarget
         }
         return target
     }
