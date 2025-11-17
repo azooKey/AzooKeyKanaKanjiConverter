@@ -14,9 +14,9 @@ enum ZenzCoreMLLoader {
     private static let modelFileName = "zenz_v3.1_stateful-8bit"
 
     @MainActor
-    static func loadStateful8bit(configuration: MLModelConfiguration) throws -> MLModel {
+    static func loadStateful8bit(configuration: MLModelConfiguration) async throws -> MLModel {
         let modelURL = try modelURL()
-        return try MLModel(contentsOf: modelURL, configuration: configuration)
+        return try await MLModel.load(contentsOf: modelURL, configuration: configuration)
     }
 
     @MainActor
