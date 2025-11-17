@@ -45,6 +45,18 @@ fi
 
 # Copy Required Resources
 sudo cp -R .build/${CONFIGURATION}/llama.framework /usr/local/lib/
+if [ "$USE_ZENZAI_COREML" -eq 1 ]; then
+  COREML_FW_PATH=$(find ".build" -type d -path "*/${CONFIGURATION}/ZenzCoreMLStateful8bit.framework" -print -quit)
+  if [ -z "$COREML_FW_PATH" ]; then
+    COREML_FW_PATH=$(find ".build" -type d -name "ZenzCoreMLStateful8bit.framework" -print -quit)
+  fi
+  if [ -z "$COREML_FW_PATH" ]; then
+    echo "❌ ZenzCoreMLStateful8bit.framework not found in .build. Please build with --zenzai-coreml first."
+    exit 1
+  fi
+  echo "📦 Installing ZenzCoreMLStateful8bit.framework from $COREML_FW_PATH"
+  sudo cp -R "$COREML_FW_PATH" /usr/local/lib/
+fi
 
 # add rpath
 RPATH="/usr/local/lib/"
