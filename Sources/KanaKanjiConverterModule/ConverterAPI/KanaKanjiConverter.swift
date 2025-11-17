@@ -111,7 +111,7 @@ public final class KanaKanjiConverter {
         var value: T?
     }
 
-    nonisolated private func blockingAsync<T>(_ operation: @escaping @Sendable @MainActor () async -> T) -> T {
+    nonisolated private func blockingAsync<T: Sendable>(_ operation: @escaping @Sendable @MainActor () async -> T) -> T {
         let semaphore = DispatchSemaphore(value: 0)
         let storage = BlockingAsyncResultStorage<T>()
 
