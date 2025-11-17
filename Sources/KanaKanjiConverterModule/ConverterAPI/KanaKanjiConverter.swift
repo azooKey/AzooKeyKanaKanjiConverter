@@ -112,17 +112,81 @@ public final class KanaKanjiConverter: @unchecked Sendable {
         var value: T?
     }
 
+#if os(macOS) || os(iOS) || os(watchOS) || os(tvOS) || os(visionOS)
+    private final class CompletionFlag: @unchecked Sendable {
+        private let lock = NSLock()
+        private var _completed = false
+
+        var completed: Bool {
+            get {
+                lock.lock()
+                defer { lock.unlock() }
+                return _completed
+            }
+            set {
+                lock.lock()
+                defer { lock.unlock() }
+                _completed = newValue
+            }
+        }
+    }
+#endif
+
     nonisolated private func blockingAsync<T: Sendable>(_ operation: @escaping @Sendable @MainActor () async -> T) -> T {
-        let semaphore = DispatchSemaphore(value: 0)
         let storage = BlockingAsyncResultStorage<T>()
 
-        // Use Task.detached to escape current actor context and prevent deadlock
-        // operation is @MainActor-isolated, so await will automatically hop to MainActor
+        #if os(macOS) || os(iOS) || os(watchOS) || os(tvOS) || os(visionOS)
+        // On Darwin platforms, KanaKanjiConverter is @MainActor
+        let isMainThread = Thread.isMainThread
+
+        if isMainThread {
+            // Special handling for main thread: Use RunLoop instead of semaphore
+            // This allows MainActor to process tasks while waiting, preventing deadlock
+            let completionFlag = CompletionFlag()
+
+            Task.detached(priority: nil) { @Sendable in
+                storage.value = await operation()
+                completionFlag.completed = true
+                // Wake up the RunLoop
+                CFRunLoopStop(CFRunLoopGetMain())
+            }
+
+            // Run the main RunLoop until the task completes
+            // This allows MainActor to execute the async operation
+            // Use short intervals to prevent the RunLoop from blocking indefinitely
+            while !completionFlag.completed {
+                // Run for a short interval (10ms) to allow periodic checking
+                // This prevents potential RunLoop blocking issues in test environments
+                autoreleasepool {
+                    RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.01))
+                }
+            }
+        } else {
+            // Not on main thread: Use background queue for waiting
+            DispatchQueue.global().sync {
+                let semaphore = DispatchSemaphore(value: 0)
+
+                Task.detached(priority: nil) { @Sendable in
+                    storage.value = await operation()
+                    semaphore.signal()
+                }
+
+                semaphore.wait()
+            }
+        }
+        #else
+        // On Linux/Windows, KanaKanjiConverter is not @MainActor
+        // Simple semaphore wait is safe and more efficient
+        let semaphore = DispatchSemaphore(value: 0)
+
         Task.detached(priority: nil) { @Sendable in
             storage.value = await operation()
             semaphore.signal()
         }
+
         semaphore.wait()
+        #endif
+
         return storage.value!
     }
 

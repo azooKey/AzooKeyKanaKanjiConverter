@@ -579,8 +579,87 @@ final class ConverterTests: MainActorTestCase {
         let accuracy = score / Double(cases.count)
         print("\(#function) Result: accuracy \(accuracy), score \(score), count \(cases.count)")
         XCTAssertGreaterThan(accuracy, 0.7) // 0.7 < acuracy
-    
-        
+
+
+}
+
+    // Async version of testAccuracy to test async API
+    func testAccuracyAsync() async throws {
+
+
+        let cases: [(input: String, expect: [String])] = [
+            ("3がつ8にち", ["3月8日"]),
+            ("いっていのわりあい", ["一定の割合"]),
+            ("あいふぉんをこうにゅうする", ["iPhoneを購入する"]),
+            ("それはくさ", ["それは草"]),
+            ("おにんぎょうさんみたいだね", ["お人形さんみたいだね"]),
+            ("にほんごぶんぽうのけいしきりろん", ["日本語文法の形式理論"]),
+            ("ぷらすちっくをさくげんするひつようがある", ["プラスチックを削減する必要がある"]),
+            ("きりんさんがすきです", ["キリンさんが好きです"]),
+            ("しんらばんしょうをすべるかみとなる", ["森羅万象を統べる神となる"]),
+            ("よねづけんしのしんきょく", ["米津玄師の新曲"]),
+            ("へいろをけんしゅつするもんだい", ["閉路を検出する問題"]),
+            ("それなすぎる", ["それなすぎる"]),
+            ("きたねえんだよやりかたが", ["汚ねえんだよやり方が"]),
+            ("なにわらってんだよ", ["何笑ってんだよ", "なに笑ってんだよ"]),
+            ("えもみがふかい", ["エモみが深い"]),
+            ("とうごてきかなかんじへんかん", ["統語的かな漢字変換"]),
+            ("あなたとふたりでいきをしていたい", ["あなたとふたりで息をしていたい"]),
+            ("こんごきをつけます", ["今後気をつけます"]),
+            ("ごめいわくをおかけしてもうしわけありません", ["ご迷惑をおかけして申し訳ありません"]),
+            ("どうぞよろしくおねがいいたします", ["どうぞよろしくお願いいたします"]),
+            ("らいぶへんかんでにゅうりょくがかいてきです", ["ライブ変換で入力が快適です"]),
+            ("にんちかがくがえがきだすにんげんのすがた", ["認知科学が描き出す人間の姿"]),
+            ("せいしゃいんになりました", ["正社員になりました"]),
+            ("しけんにでないえいたんご", ["試験に出ない英単語"]),
+            ("あかるくげんきなせいかつ", ["明るく元気な生活"]),
+            ("はるがきたのでかふんがつらい", ["春が来たので花粉が辛い"]),
+            ("しょうぼうたいがひっしにかじをしょうかした", ["消防隊が必死に火事を消火した"]),
+            ("たけとりものがたりはにほんのこてんぶんがくです", ["竹取物語は日本の古典文学です"]),
+            ("よとうもやとうもでぃすればちゅうりつ", ["与党も野党もディスれば中立"]),
+            ("だいすきなえしさん", ["大好きな絵師さん"]),
+            ("ぱいそんでかかれたそーすこーど", ["Pythonで書かれたソースコード"]),
+            ("SwiftでつくったApp", ["Swiftで作ったApp"]),
+            ("かんじょうなんてむだなもん", ["感情なんて無駄なもん"]),
+            ("ひびをすごす", ["日々を過ごす"]),
+            ("あたらしいほんをかった", ["新しい本を買った"]),
+            ("かれのはなしはおもしろい", ["彼の話は面白い"]),
+            ("ろーかるでうごかす", ["ローカルで動かす"]),
+            ("よのなかにひつようなのはてすうりょうぜろのでんしけっさい", ["世の中に必要なのは手数料ゼロの電子決済"]),
+            ("こんしゅうはとてもそーしゃる", ["今週はとてもソーシャル"]),
+            ("でかすぎるそーすこーど", ["デカすぎるソースコード"]),
+            ("らちがあかないんだよね", ["埒が明かないんだよね"]),
+            ("まいなんばーかーどでじゅうみんひょうだせてべんり", ["マイナンバーカードで住民票出せて便利"]),
+            ("でじたるかなんですか", ["デジタル化なんですか"]),
+            ("じぶんのひとつしたのせだいがゆうしゅうすぎる", ["自分の一つ下の世代が優秀すぎる"]),
+            ("みんなしごととごらくとべんきょうをぜんぶやってる", ["みんな仕事と娯楽と勉強を全部やってる"]),
+            ("ばいようにくたべてみたいね", ["培養肉食べてみたいね"]),
+            ("おどらされははらすめんと", ["踊らされはハラスメント"]),
+            ("じんじょうならびょういんにいくれべるのいたみ", ["尋常なら病院に行くレベルの痛み"]),
+            ("ろぐいんぼーなすてきなしくみがきらい", ["ログインボーナス的な仕組みが嫌い"]),
+            ("かいにいくのはおまえね", ["買いに行くのはお前ね"])
+        ]
+
+        var score: Double = 0
+        for (input, expect) in cases {
+            let converter = KanaKanjiConverter.withDefaultDictionary()
+            var c = ComposingText()
+            c.insertAtCursorPosition(input, inputStyle: .direct)
+            let results = await converter.requestCandidatesAsync(c, options: requestOptions())
+
+            if expect.contains(results.mainResults[0].text) {
+                score += 1
+            } else if results.mainResults.count > 1 && expect.contains(results.mainResults[1].text) {
+                score += 0.5
+            } else {
+                print("\(#function) Failure: input \(input), expect \(expect.joined(separator: " | ")), result: \(results.mainResults.map(\.text).prefix(5).joined(separator: ", "))")
+            }
+        }
+        let accuracy = score / Double(cases.count)
+        print("\(#function) Result: accuracy \(accuracy), score \(score), count \(cases.count)")
+        XCTAssertGreaterThan(accuracy, 0.7) // 0.7 < acuracy
+
+
 }
 
     // 変換結果が比較的一意なテストケースを無数に持ち、一定の割合を正解することを要求する
@@ -632,8 +711,59 @@ final class ConverterTests: MainActorTestCase {
         let accuracy = score / Double(cases.count)
         print("\(#function) Result: accuracy \(accuracy), score \(score), count \(cases.count)")
         XCTAssertGreaterThan(accuracy, 0.7) // 0.7 < acuracy
-    
-        
+
+
+}
+
+    // Async version of testVerbalAccuracy to test async API
+    func testVerbalAccuracyAsync() async throws {
+
+
+        let cases: [(input: String, expect: [String])] = [
+            ("うわああああ、まじか", ["うわああああ、マジか", "うわああああ、まじか"]),
+            ("は？", ["は？"]),
+            ("おまえなんなん", ["お前なんなん"]),
+            ("めっちゃくさ", ["めっちゃ草"]),
+            ("はやってんだなぁやっぱり", ["流行ってんだなぁやっぱり"]),
+            ("そっちかぁ", ["そっちかぁ"]),
+            ("かみすぎます…！", ["神すぎます…！"]),
+            ("うおー、りかいした", ["うおー、理解した"]),
+            ("あ、なるほど", ["あ、なるほど"]),
+            ("あらま", ["あらま"]),
+            ("さすがやな…", ["流石やな…"]),
+            ("のれないんでしょうね。", ["乗れないんでしょうね。"]),
+            ("おつかれさまですわら", ["お疲れ様です笑", "おつかれさまです笑"]),
+            ("よううれたのぉわらわら", ["よう売れたのぉ笑笑"]),
+            ("わーそれはもう", ["わーそれはもう"]),
+            ("よねんまえやで？？", ["4年前やで？？", "四年前やで？？"]),
+            ("おうしょうもいいなぁ", ["王将もいいなぁ", "王将も良いなぁ"]),
+            ("それなすぎる", ["それなすぎる"]),
+            ("じじつなんでしゃーないです", ["事実なんでしゃーないです"]),
+            ("がんばりまーーーす！", ["がんばりまーーーす！", "頑張りまーーーす！"]),
+            ("うるさいよな", ["うるさいよな"]),
+            ("ほんとどゆことわらわら", ["ほんとどゆこと笑笑"])
+        ]
+
+        var score: Double = 0
+        for (input, expect) in cases {
+            let converter = KanaKanjiConverter.withDefaultDictionary()
+            var c = ComposingText()
+            c.insertAtCursorPosition(input, inputStyle: .direct)
+            let results = await converter.requestCandidatesAsync(c, options: requestOptions())
+
+            if expect.contains(results.mainResults[0].text) {
+                score += 1
+            } else if results.mainResults.count > 1 && expect.contains(results.mainResults[1].text) {
+                score += 0.5
+            } else {
+                print("\(#function) Failure: input \(input), expect \(expect.joined(separator: " | ")), result: \(results.mainResults.map(\.text).prefix(5).joined(separator: ", "))")
+            }
+        }
+        let accuracy = score / Double(cases.count)
+        print("\(#function) Result: accuracy \(accuracy), score \(score), count \(cases.count)")
+        XCTAssertGreaterThan(accuracy, 0.7) // 0.7 < acuracy
+
+
 }
 
     /// MIDベースの文節単位計算でどれだけ同音異義語の判断が向上しているか確認する。
