@@ -3,6 +3,7 @@ set -e
 
 USE_ZENZAI=0
 USE_ZENZAI_CPU=0
+USE_ZENZAI_COREML=0
 USE_DEBUG=0
 
 # 引数の解析
@@ -12,6 +13,9 @@ for arg in "$@"; do
   fi
   if [ "$arg" = "--zenzai-cpu" ]; then
     USE_ZENZAI_CPU=1
+  fi
+  if [ "$arg" = "--zenzai-coreml" ]; then
+    USE_ZENZAI_COREML=1
   fi
   if [ "$arg" = "--debug" ]; then
     echo "⚠️ Debug mode is enabled. This may cause performance issues."
@@ -25,7 +29,10 @@ else
   CONFIGURATION="release"
 fi
 
-if [ "$USE_ZENZAI" -eq 1 ]; then
+if [ "$USE_ZENZAI_COREML" -eq 1 ]; then
+  echo "📦 Building with Zenzai CoreML support..."
+  swift build -c $CONFIGURATION -Xcxx -xobjective-c++ --traits ZenzaiCoreML
+elif [ "$USE_ZENZAI" -eq 1 ]; then
   echo "📦 Building with Zenzai support..."
   swift build -c $CONFIGURATION -Xcxx -xobjective-c++ --traits Zenzai
 elif [ "$USE_ZENZAI_CPU" -eq 1 ]; then
