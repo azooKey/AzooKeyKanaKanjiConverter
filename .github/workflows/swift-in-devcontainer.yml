@@ -14,9 +14,6 @@ jobs:
       with:
         submodules: true
 
-    - name: Bootstrap submodules and LFS
-      run: ./scripts/bootstrap.sh
-
     - name: Download pre-built llama.cpp binaries
       run: |
         wget -O llama-cpp-bin.zip "https://github.com/fkunn1326/llama.cpp/releases/download/b4846/llama-b4846-bin-ubuntu-x64.zip"
