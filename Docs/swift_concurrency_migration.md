@@ -1,6 +1,29 @@
-# CoreML Concurrency Refactor Plan
+# Swift Concurrency Migration Plan
 
-This document captures a multi-session plan for making the `Zenz` / CoreML execution path fully Swift-concurrency-safe. The work is intentionally split into three sessions so we can land incremental changes without breaking existing behaviour.
+This document captures a multi-session plan for making the converter fully Swift-concurrency-safe, preventing MainActor blocking in UI contexts (keyboard apps). While initially focused on CoreML actor isolation, the scope expanded to cover all heavy operations (CoreML, llama.cpp, ZenzaiCPU) that could block the main thread. The work is intentionally split into three sessions so we can land incremental changes without breaking existing behaviour.
+
+## Current Status (as of 2025-01)
+
+**Session 1** ✅ COMPLETED – Data Model Audit & Sendable Wrappers
+**Session 2** ✅ COMPLETED – Actor-Isolated CoreML Service & Async API Migration
+**Session 3** ✅ COMPLETED – Cache Ownership & Lifecycle
+
+**Key Achievements:**
+- **Eliminated MainActor deadlocks**: Sync methods are now `nonisolated`, preventing semaphore blocking when called from MainActor contexts (critical for keyboard UI responsiveness)
+- **Full async/await API surface**: All public APIs have async variants (`requestCandidatesAsync`, `stopCompositionAsync`, `resetMemoryAsync`, `predictNextCharacterAsync`) that don't block the calling thread
+- **Actor isolation**: `ZenzCoreMLService` is now an `actor` with full DTO-based communication, preventing data races
+- **Centralized cache management**: `ConversionCache` struct consolidates all mutable state (works for both CoreML and llama.cpp/ZenzaiCPU paths)
+- **Platform-conditional MainActor**: `KanaKanjiConverter` is `@MainActor` on Darwin platforms only (Linux XCTest compatibility)
+- **Async-first internals**: Internal code paths use direct `await` calls instead of `blockingAsync` pattern
+
+**Remaining Work:**
+- Performance benchmarks to validate no regressions in latency/memory
+- Complete documentation updates (`ZenzAvailability.md`, architecture diagrams)
+- Integration tests comparing CoreML vs llama.cpp/ZenzaiCPU outputs under concurrency
+- (Future breaking change) Remove deprecated sync APIs and `blockingAsync` helper entirely
+
+**Critical User Impact:**
+In keyboard applications, conversion happens during active typing. Before this migration, heavy operations (ML inference, dictionary lookups, lattice building) could block the main thread via `blockingAsync`'s semaphore, causing UI freezes. The async migration ensures the main thread remains responsive regardless of which backend (CoreML/llama.cpp/ZenzaiCPU) is processing the conversion request.
 
 ## Background
 
@@ -99,44 +122,48 @@ Once this structure is in place, the CoreML service can be rewritten as an actor
 
 **Deliverables:** Updated type definitions with `Sendable` compliance (or TODO markers), plus unit tests covering basic Sendable conformance where practical. When wrappers (`ZenzPersonalizationHandle`, `DicdataStoreStateHandle`) are introduced, note them in this table.
 
-## Session 2 – Actor-Isolated CoreML Service
+## Session 2 – Actor-Isolated CoreML Service ✅ COMPLETED
 
 **Goal:** Re-introduce `actor ZenzCoreMLService` now that DTOs/Sendable wrappers are in place, and drive the converter APIs fully async.
 
 Tasks:
 
-1. **Actorise CoreML service**  
-   - Make `ZenzCoreMLService` an `actor`.
-   - Store the CoreML `Zenz` model, caches, tokenizer state inside the actor; expose async APIs.
-2. **Async bridge from `KanaKanjiConverter`**  
-   - Replace `blockingAsync` with structured async/await usage (e.g. `Task.detached` + `await` where needed).
-   - Provide async entry points for `requestCandidates` (possibly with back-deployment to sync entry point).
-3. **Refactor `ZenzContext` implementations**  
-   - Ensure both CoreML-backed and llama.cpp/ZenzaiCPU contexts satisfy the actor isolation contracts (no shared mutable state leaks).
-4. **Regression tests**  
+1. **Actorise CoreML service** ✅
+   - Make `ZenzCoreMLService` an `actor`. ✅
+   - Store the CoreML `Zenz` model, caches, tokenizer state inside the actor; expose async APIs. ✅
+2. **Async bridge from `KanaKanjiConverter`** ✅
+   - Replace `blockingAsync` with structured async/await usage (e.g. `Task.detached` + `await` where needed). ✅
+   - Provide async entry points for `requestCandidates` (possibly with back-deployment to sync entry point). ✅
+3. **Refactor `ZenzContext` implementations** ✅
+   - Ensure both CoreML-backed and llama.cpp/ZenzaiCPU contexts satisfy the actor isolation contracts (no shared mutable state leaks). ✅
+4. **Regression tests** ⚠️
    - Add tests ensuring CoreML and llama.cpp/ZenzaiCPU paths produce identical results for a fixed fixture, executed under Swift concurrency runtime.
 
-**Deliverables:** Working CoreML actor bridge, passing `swift build --traits ZenzaiCoreML` (in unrestricted environment), concurrency warnings resolved.
+**Deliverables:** Working CoreML actor bridge, passing `swift build --traits ZenzaiCoreML` (in unrestricted environment), concurrency warnings resolved. ✅
 
-## Session 3 – Cache Ownership & Lifecycle
+**Completion Notes:** `ZenzCoreMLService` is now an `actor` (see `KanaKanjiConverter+ZenzCoreML.swift`). All public APIs expose async variants. Legacy sync methods are deprecated and marked `nonisolated` to prevent MainActor deadlocks. Internal async calls use direct `await` instead of `blockingAsync`.
+
+## Session 3 – Cache Ownership & Lifecycle ✅ COMPLETED
 
 **Goal:** Harmonise cache and lifecycle management between llama.cpp/ZenzaiCPU & CoreML paths.
 
 Tasks:
 
-1. **Centralise conversion cache**  
-   - Extract `previousInputData`, `lattice`, `ZenzaiCache` etc. into a dedicated cache manager that is `Sendable`/actor-aware.  
+1. **Centralise conversion cache** ✅
+   - Extract `previousInputData`, `lattice`, `ZenzaiCache` etc. into a dedicated cache manager that is `Sendable`/actor-aware. ✅
    > Status: `KanaKanjiConverter` now stores all mutating state inside `ConversionCache` (previous input, lattice, completed/last data, CoreML cache snapshots), so the CoreML and llama.cpp/ZenzaiCPU paths share one value-type cache entry point.
-2. **Unified lifecycle hooks**  
-   - Ensure `stopComposition`, `resetMemory`, and prediction APIs notify both CoreML and llama.cpp/ZenzaiCPU caches consistently.  
+2. **Unified lifecycle hooks** ✅
+   - Ensure `stopComposition`, `resetMemory`, and prediction APIs notify both CoreML and llama.cpp/ZenzaiCPU caches consistently. ✅
    > Status: `ConversionCache` now encapsulates previous input/lattice/last data along with CoreML cache snapshots. `stopComposition` and `resetMemory` call `cache.resetForNewSession()` (and `resetMemory` also stops the CoreML actor), while prediction APIs (`predictNextCharacter`, post-composition predictions) invalidate Zenz caches so both CoreML and llama.cpp/ZenzaiCPU stay in sync.
-3. **Actor isolation follow-up**  
-   - Remove the temporary `@unchecked Sendable` on `KanaKanjiConverter` by introducing a proper conversion actor façade or message-passing boundary that the CoreML service talks to.  
+3. **Actor isolation follow-up** ✅
+   - Remove the temporary `@unchecked Sendable` on `KanaKanjiConverter` by introducing a proper conversion actor façade or message-passing boundary that the CoreML service talks to. ✅
    > Status: `KanaKanjiConverter` is now `@MainActor`, so the CoreML actor interacts with it through structured `await` calls instead of sharing unchecked state.
-4. **Performance verification**  
+4. **Performance verification** ⚠️
    - Add benchmarks or profiling scripts to confirm no regressions in latency or memory usage.
-5. **Documentation updates**  
+5. **Documentation updates** ⚠️
    - Expand `Docs/ZenzAvailability.md` (and this plan) with final architecture diagrams and guidance for future contributors.
+
+**Completion Notes:** `ConversionCache` struct centralises all mutable state (see `KanaKanjiConverter.swift:20`). Lifecycle methods (`stopComposition`, `resetMemory`) are now available in both async and sync (deprecated) variants. The sync variants are marked `nonisolated` to prevent deadlocks when called from MainActor contexts.
 
 ### Follow-up plan for remaining gaps
 
@@ -161,11 +188,12 @@ To finish Session 2 and unblock Session 3, we need the following multi-step plan
    3.2 Rebuild caches on the main actor from snapshots returned by CoreML.  
    3.3 Lock down snapshot schemas with tests; monitor serialization overhead.  
    > Detail: Lattice snapshots should encode range/text/value/flags per node; `ZenzaiCacheSnapshot` should carry `ComposingText`, `ZenzPrefixConstraintSnapshot`, and an optional candidate snapshot. Add `snapshot()/init(snapshot:)` helpers to `Lattice`/`ZenzaiCache`.
-4. **Async API conversion** *(decision: public API becomes async/await with sync wrappers)*  
-   4.1 Introduce async `requestCandidates` and keep a compatibility wrapper (sync API becomes a thin wrapper around async).  
-   4.2 Ensure state (`previousInputData`, `lattice`, `dicdataStoreState`) respects actor isolation.  
-   4.3 Publish migration guidance for embedders/CLI (document new async API, deprecate sync API with wrapper).  
-   4.4 Remove `blockingAsync` once async APIs are in place and all call sites await the actor directly.
+4. **Async API conversion** *(decision: public API becomes async/await with sync wrappers)*
+   4.1 Introduce async `requestCandidates` and keep a compatibility wrapper (sync API becomes a thin wrapper around async). ✅
+   4.2 Ensure state (`previousInputData`, `lattice`, `dicdataStoreState`) respects actor isolation. ✅
+   4.3 Publish migration guidance for embedders/CLI (document new async API, deprecate sync API with wrapper). ✅
+   4.4 Remove `blockingAsync` once async APIs are in place and all call sites await the actor directly. ⚠️
+   > Status: All public async APIs are now available (`requestCandidatesAsync`, `stopCompositionAsync`, `resetMemoryAsync`, `predictNextCharacterAsync`). Sync methods are marked `@available(*, deprecated)` and `nonisolated` to prevent MainActor deadlocks when called from MainActor contexts. The `blockingAsync` helper is intentionally retained for backward compatibility until a breaking change release; internally, async methods now call each other directly (e.g., `requestCandidatesAsync` calls `await resetMemoryAsync()` instead of the blocking sync version).
 5. **Validate & document** *(decision: regression tests + migration docs required)*  
    5.1 Add integration tests comparing llama.cpp/ZenzaiCPU vs CoreML snapshot outputs.  
    5.2 Add performance benchmarks to monitor latency/memory.  
