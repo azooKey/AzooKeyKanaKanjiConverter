@@ -318,21 +318,23 @@ public final class KanaKanjiConverter: @unchecked Sendable {
     ///   - string: 入力されたString
     /// - Returns:
     ///   `賢い変換候補
+    #if os(macOS) || os(iOS) || os(watchOS) || os(tvOS) || os(visionOS)
     nonisolated private func getSpecialCandidate(_ inputData: ComposingText, options: ConvertRequestOptions) -> [Candidate] {
         let converter = self
-        #if os(macOS) || os(iOS) || os(watchOS) || os(tvOS) || os(visionOS)
         return MainActor.assumeIsolated {
             options.specialCandidateProviders.flatMap { provider in
                 provider.provideCandidates(converter: converter, inputData: inputData, options: options)
             }
         }
-        #else
-        // On Linux, there's no MainActor isolation, so execute directly
-        return options.specialCandidateProviders.flatMap { provider in
-            provider.provideCandidates(converter: converter, inputData: inputData, options: options)
-        }
-        #endif
     }
+    #else
+    // On Linux, provideCandidates is still MainActor-isolated, so this method must be too
+    private func getSpecialCandidate(_ inputData: ComposingText, options: ConvertRequestOptions) -> [Candidate] {
+        options.specialCandidateProviders.flatMap { provider in
+            provider.provideCandidates(converter: self, inputData: inputData, options: options)
+        }
+    }
+    #endif
 
     /// 変換候補の重複を除去する関数。
     /// - Parameters:
