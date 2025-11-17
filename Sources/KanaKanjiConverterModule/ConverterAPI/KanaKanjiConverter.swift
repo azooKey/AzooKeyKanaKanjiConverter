@@ -117,16 +117,9 @@ public final class KanaKanjiConverter: @unchecked Sendable {
         let storage = BlockingAsyncResultStorage<T>()
 
         // Use Task.detached to escape current actor context and prevent deadlock
+        // operation is @MainActor-isolated, so await will automatically hop to MainActor
         Task.detached(priority: nil) { @Sendable in
-#if os(macOS) || os(iOS) || os(watchOS) || os(tvOS) || os(visionOS)
-            // Darwin: Execute on MainActor via MainActor.run
-            storage.value = await MainActor.run {
-                await operation()
-            }
-#else
-            // Linux: No MainActor isolation
             storage.value = await operation()
-#endif
             semaphore.signal()
         }
         semaphore.wait()
