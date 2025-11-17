@@ -339,6 +339,9 @@ public final class KanaKanjiConverter {
     ///   - string: 入力されたString
     /// - Returns:
     ///   `賢い変換候補
+#if os(macOS) || os(iOS) || os(watchOS) || os(tvOS) || os(visionOS)
+    @MainActor
+#endif
     private func getSpecialCandidate(_ inputData: ComposingText, options: ConvertRequestOptions) -> [Candidate] {
         options.specialCandidateProviders.flatMap { provider in
             provider.provideCandidates(converter: self, inputData: inputData, options: options)
@@ -970,7 +973,7 @@ public final class KanaKanjiConverter {
             return ConversionResult(mainResults: [], firstClauseResults: [])
         }
         if options.shouldResetMemory {
-            self.resetMemory()
+            await self.resetMemoryAsync()
         }
         self.dicdataStoreState.updateIfRequired(options: options)
         #if os(iOS)
