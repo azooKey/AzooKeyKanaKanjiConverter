@@ -80,8 +80,7 @@ func convertText() async {
 }
 ```
 
-#### 同期API（レガシー）
-既存のコードとの互換性のため、同期APIも引き続き利用可能ですが、非推奨です。
+#### 同期API
 
 ```swift
 // 変換器を初期化する（デフォルト辞書を利用）
@@ -89,7 +88,7 @@ let converter = KanaKanjiConverter.withDefaultDictionary()
 var c = ComposingText()
 c.insertAtCursorPosition("あずーきーはしんじだいのきーぼーどあぷりです", inputStyle: .direct)
 
-// 同期API（非推奨 - UIスレッドをブロックする可能性があります）
+// 同期API
 let results = converter.requestCandidates(c, options: .init(
     N_best: 10,
     requireJapanesePrediction: .autoMix,
@@ -118,6 +117,7 @@ print(results.mainResults.first!.text)
 - `stopCompositionAsync()` - 変換セッションを非同期で終了
 - `resetMemoryAsync()` - 学習データを非同期でリセット
 - `predictNextCharacterAsync(leftSideContext:count:options:)` - 次の文字を非同期で予測（zenz-v2モデルが必要、ZenzaiまたはZenzaiCoreML traitで利用可能）
+同期APIが基本です。ノンブロッキングで呼びたい場合にだけ非同期版を補助的に利用できます。
 
 
 ### `ConvertRequestOptions`

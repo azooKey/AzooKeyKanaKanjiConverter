@@ -80,8 +80,7 @@ func convertText() async {
 }
 ```
 
-#### Synchronous API (Legacy)
-For backward compatibility, synchronous APIs are still available but deprecated.
+#### Synchronous API
 
 ```swift
 // Initialize the converter (using default dictionary)
@@ -89,7 +88,7 @@ let converter = KanaKanjiConverter.withDefaultDictionary()
 var c = ComposingText()
 c.insertAtCursorPosition("あずーきーはしんじだいのきーぼーどあぷりです", inputStyle: .direct)
 
-// Synchronous API (deprecated - may block UI thread)
+// Synchronous API
 let results = converter.requestCandidates(c, options: .init(
     N_best: 10,
     requireJapanesePrediction: true,
@@ -118,6 +117,7 @@ The following async APIs are available:
 - `stopCompositionAsync()` - End conversion session asynchronously
 - `resetMemoryAsync()` - Reset learning data asynchronously
 - `predictNextCharacterAsync(leftSideContext:count:options:)` - Predict next character asynchronously (requires zenz-v2 model, available with Zenzai or ZenzaiCoreML trait)
+Synchronous APIs are the primary interface; use the async variants only when you need non-blocking behavior.
 
 
 ### `ConvertRequestOptions`

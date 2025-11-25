@@ -80,8 +80,7 @@ func convertText() async {
 }
 ```
 
-#### 동기 API (레거시)
-기존 코드와의 호환성을 위해 동기 API도 계속 사용 가능하지만 비권장입니다.
+#### 동기 API
 
 ```swift
 // 변환기 초기화 (기본 사전 사용)
@@ -89,7 +88,7 @@ let converter = KanaKanjiConverter.withDefaultDictionary()
 var c = ComposingText()
 c.insertAtCursorPosition("あずーきーはしんじだいのきーぼーどあぷりです", inputStyle: .direct)
 
-// 동기 API (비권장 - UI 스레드를 블로킹할 수 있습니다)
+// 동기 API
 let results = converter.requestCandidates(c, options: .init(
     N_best: 10,
     requireJapanesePrediction: true,
@@ -118,6 +117,7 @@ print(results.mainResults.first!.text)
 - `stopCompositionAsync()` - 변환 세션을 비동기로 종료
 - `resetMemoryAsync()` - 학습 데이터를 비동기로 초기화
 - `predictNextCharacterAsync(leftSideContext:count:options:)` - 다음 문자를 비동기로 예측 (zenz-v2 모델 필요, Zenzai 또는 ZenzaiCoreML trait에서 사용 가능)
+동기 API가 기본이고, 블로킹을 피하고 싶을 때만 비동기 래퍼를 보조로 사용하면 됩니다.
 
 
 ### `ConvertRequestOptions`
