@@ -130,7 +130,7 @@ print(results.mainResults.first!.text)
 - `predictNextCharacterAsync(leftSideContext:count:options:)` - 다음 문자를 비동기로 예측 (zenz-v2 모델 필요, Zenzai 또는 ZenzaiCoreML trait에서 사용 가능)
 
 > [!NOTE]
-> Swift Concurrency의 자세한 마이그레이션 계획은 [Docs/swift_concurrency_migration.md](Docs/swift_concurrency_migration.md)를 참조하세요.
+-> Swift Concurrency 마이그레이션 문서는 이 브랜치에서는 포함하지 않습니다.
 
 
 ### `ConvertRequestOptions`
@@ -190,7 +190,7 @@ dependencies: [
 | `ZenzaiCPU` | llama.cpp (CPU only) | iOS 16+, macOS 13+, Linux | 없음 | GPU를 사용할 수 없는 환경, 디버깅용 |
 
 > [!NOTE]
-> `ZenzaiCoreML`은 Swift Concurrency를 활용한 비동기 실행을 통해 UI 스레드를 블로킹하지 않으면서 Stateful 모델에서 고속 추론을 실현합니다. 자세한 내용은 [Docs/swift_concurrency_migration.md](Docs/swift_concurrency_migration.md)를 참조하세요.
+-> `ZenzaiCoreML`은 Swift Concurrency를 활용한 비동기 실행을 통해 UI 스레드를 블로킹하지 않으면서 Stateful 모델에서 고속 추론을 실현합니다.
 
 `ConvertRequestOptions`의 `zenzaiMode`를 지정합니다. 자세한 인자 정보는 [문서](./Docs/zenzai.ko.md)를 참조하세요.
 

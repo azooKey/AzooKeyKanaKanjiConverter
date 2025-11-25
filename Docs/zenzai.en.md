@@ -142,7 +142,7 @@ For environments without GPU or for debugging.
 * Uses Stateful models and runs fast on CPU/GPU
 * Enables efficient inference by leveraging KV caching
 * Leverages Swift Concurrency for async execution without blocking the UI thread
-* For details, see [Swift Concurrency Migration](swift_concurrency_migration.md)
+* The Swift Concurrency Migration document is not included in this branch.
 * For more information about Stateful models, see [Apple's official documentation](https://apple.github.io/coremltools/docs-guides/source/stateful-models.html)
 
 ## How It Works

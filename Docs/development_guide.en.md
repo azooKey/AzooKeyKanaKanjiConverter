@@ -80,7 +80,7 @@ You can use DevContainer for development. For details, see [devcontainer.md](./d
 
 ## Swift Concurrency Support
 
-AzooKeyKanaKanjiConverter is fully compliant with Swift 6 strict concurrency checking. For details, see [swift_concurrency_migration.md](./swift_concurrency_migration.md).
+AzooKeyKanaKanjiConverter targets Swift 6 strict concurrency checking, but this branch omits the migration document.
 
 ## Zenzai / CoreML Development
 

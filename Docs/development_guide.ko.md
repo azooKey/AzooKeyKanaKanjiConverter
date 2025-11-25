@@ -80,7 +80,7 @@ sh install_cli.sh
 
 ## Swift Concurrency 지원
 
-AzooKeyKanaKanjiConverter는 Swift 6 strict concurrency checking을 완전히 지원합니다. 자세한 내용은 [swift_concurrency_migration.md](./swift_concurrency_migration.md)를 참조하세요.
+AzooKeyKanaKanjiConverter는 Swift 6 strict concurrency checking을 목표로 하지만, 이 브랜치에서는 해당 문서를 포함하지 않습니다.
 
 ## Zenzai / CoreML 개발
 

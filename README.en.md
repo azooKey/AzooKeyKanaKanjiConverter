@@ -130,7 +130,7 @@ The following async APIs are available:
 - `predictNextCharacterAsync(leftSideContext:count:options:)` - Predict next character asynchronously (requires zenz-v2 model, available with Zenzai or ZenzaiCoreML trait)
 
 > [!NOTE]
-> For detailed Swift Concurrency migration plans, see [Docs/swift_concurrency_migration.md](Docs/swift_concurrency_migration.md).
+-> The Swift Concurrency migration document is omitted in this branch.
 
 
 ### `ConvertRequestOptions`
@@ -190,7 +190,7 @@ dependencies: [
 | `ZenzaiCPU` | llama.cpp (CPU only) | iOS 16+, macOS 13+, Linux | None | Environments without GPU, debugging |
 
 > [!NOTE]
-> `ZenzaiCoreML` leverages Swift Concurrency for async execution, enabling fast inference with Stateful models without blocking the UI thread. For details, see [Docs/swift_concurrency_migration.md](Docs/swift_concurrency_migration.md).
+-> `ZenzaiCoreML` leverages Swift Concurrency for async execution, enabling fast inference with Stateful models without blocking the UI thread.
 
 Specify `zenzaiMode` in `ConvertRequestOptions`. For detailed argument information, see [documentation](./Docs/zenzai.en.md).
 

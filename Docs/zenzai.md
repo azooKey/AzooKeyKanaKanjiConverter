@@ -143,7 +143,7 @@ GPUが使えない環境やデバッグ用。
 * Stateful モデルを使用し、CPU/GPU で高速に動作します
 * KV キャッシングを活用することで効率的な推論を実現します
 * Swift Concurrency を活用した非同期実行により、UI スレッドをブロックしません
-* 詳細は [Swift Concurrency Migration](swift_concurrency_migration.md) を参照してください
+* Swift Concurrency Migration ドキュメントはこのブランチでは含めません
 * Stateful モデルの仕組みについては [Apple の公式ドキュメント](https://apple.github.io/coremltools/docs-guides/source/stateful-models.html)を参照してください
 
 ## 仕組み

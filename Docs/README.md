@@ -9,7 +9,7 @@ azooKey本体については[azooKey/docs](https://github.com/ensan-hcl/azooKey/
 ## 開発者向け
 
 - [development_guide.md](./development_guide.md) - 開発ガイド
-- [swift_concurrency_migration.md](./swift_concurrency_migration.md) - Swift Concurrency対応状況
+- (削除) Swift Concurrency対応状況: このブランチでは含めない
 - [learning_data.md](./learning_data.md) - 学習データの保存先とリセット方法
 - [cli.md](./cli.md) - CLIツール（anco）の使い方
 - [devcontainer.md](./devcontainer.md) - DevContainer環境
@@ -26,4 +26,3 @@ azooKey本体については[azooKey/docs](https://github.com/ensan-hcl/azooKey/
 - [conversion_algorithms.md](./conversion_algorithms.md) - 変換アルゴリズム
 - [custom_input_table.md](./custom_input_table.md) - カスタム入力テーブル
 - [dicdata_format.md](./dicdata_format.md) - 辞書データフォーマット
-

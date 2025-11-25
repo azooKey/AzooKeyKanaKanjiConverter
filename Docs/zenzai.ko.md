@@ -142,7 +142,7 @@ GPU를 사용할 수 없는 환경이나 디버깅용.
 * Stateful 모델을 사용하며 CPU/GPU에서 고속으로 동작합니다
 * KV 캐싱을 활용하여 효율적인 추론을 실현합니다
 * Swift Concurrency를 활용한 비동기 실행으로 UI 스레드를 블로킹하지 않습니다
-* 자세한 내용은 [Swift Concurrency Migration](swift_concurrency_migration.md)을 참조하세요
+* 이 브랜치에서는 Swift Concurrency Migration 문서를 포함하지 않습니다
 * Stateful 모델의 구조에 대한 자세한 내용은 [Apple 공식 문서](https://apple.github.io/coremltools/docs-guides/source/stateful-models.html)를 참조하세요
 
 ## 작동 원리
