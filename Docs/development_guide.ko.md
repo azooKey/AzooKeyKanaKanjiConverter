@@ -1,7 +1,5 @@
 # 개발 가이드
 
-[English](./development_guide.en.md) | [日本語](./development_guide.md) | **한국어**
-
 ## 필요한 환경
 
 - Swift 6.1 이상

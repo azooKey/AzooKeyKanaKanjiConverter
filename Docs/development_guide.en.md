@@ -1,7 +1,5 @@
 # Development Guide
 
-**English** | [日本語](./development_guide.md) | [한국어](./development_guide.ko.md)
-
 ## Requirements
 
 - Swift 6.1 or later
