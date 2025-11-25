@@ -65,10 +65,14 @@ else
 fi
 
 # Copy Required Resources
-if [ -d ".build/${CONFIGURATION}/llama.framework" ]; then
-  sudo cp -R ".build/${CONFIGURATION}/llama.framework" /usr/local/lib/
+if [ "$USE_ZENZAI_COREML" -eq 1 ]; then
+  echo "ℹ️  CoreML build: skipping llama.framework copy."
 else
-  echo "ℹ️  llama.framework not found for configuration ${CONFIGURATION}; skipping copy."
+  if [ -d ".build/${CONFIGURATION}/llama.framework" ]; then
+    sudo cp -R ".build/${CONFIGURATION}/llama.framework" /usr/local/lib/
+  else
+    fail "llama.framework not found for configuration ${CONFIGURATION}. Build with --zenzai or --zenzai-cpu first."
+  fi
 fi
 if [ "$USE_ZENZAI_COREML" -eq 1 ]; then
   COREML_FW_PATH=$(find ".build" -type d -path "*/${CONFIGURATION}/ZenzCoreMLStateful8bit.framework" -print -quit)
