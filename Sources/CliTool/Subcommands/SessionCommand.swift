@@ -89,7 +89,7 @@ extension Subcommands {
             composingText: ComposingText,
             options: ConvertRequestOptions
         ) async -> ConversionResult {
-            return await converter.requestCandidatesAsync(composingText, options)
+            return await converter.requestCandidatesAsync(composingText, options: options)
         }
 
         private func predictNextCharacterAsyncBridge(
