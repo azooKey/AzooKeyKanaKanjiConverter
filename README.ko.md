@@ -9,16 +9,6 @@ AzooKeyKanaKanjiConverter는 [azooKey](https://github.com/ensan-hcl/azooKey)를 
 ## 동작 환경
 iOS 16+, macOS 13+, visionOS 1+, Ubuntu 22.04+에서 동작을 확인했습니다. Swift 6.1 이상이 필요합니다.
 
-### Swift Concurrency 지원
-AzooKeyKanaKanjiConverter는 Swift 6 strict concurrency checking을 완전히 지원하며 다음 기능을 제공합니다:
-
-- **MainActor 격리**: Darwin(iOS/macOS/visionOS)에서 `KanaKanjiConverter`가 `@MainActor`로 동작하여 UI 스레드 안전성 보장
-- **비동기 API**: 모든 주요 API에 비동기 버전을 제공하여 UI 스레드 블로킹 방지
-- **크로스 플랫폼**: Linux 환경에서도 동등한 기능 제공 (MainActor 격리 없음)
-
-> [!NOTE]
-> Linux 플랫폼에서는 MainActor 격리가 적용되지 않으므로, 스레드 안전성 보장 메커니즘이 Darwin과 다릅니다.
-
 개발 가이드는 [개발 가이드](Docs/development_guide.md)를 참조하세요.
 학습 데이터 저장 위치 및 초기화 방법은 [Docs/learning_data.md](Docs/learning_data.md)를 참조하세요.
 
@@ -187,8 +177,6 @@ dependencies: [
 | `ZenzaiCPU` | llama.cpp (CPU only) | iOS 16+, macOS 13+, Linux | 없음 | GPU를 사용할 수 없는 환경, 디버깅용 |
 
 > [!NOTE]
--> `ZenzaiCoreML`은 Swift Concurrency를 활용한 비동기 실행을 통해 UI 스레드를 블로킹하지 않으면서 Stateful 모델에서 고속 추론을 실현합니다.
-
 `ConvertRequestOptions`의 `zenzaiMode`를 지정합니다. 자세한 인자 정보는 [문서](./Docs/zenzai.ko.md)를 참조하세요.
 
 ```swift

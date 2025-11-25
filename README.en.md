@@ -9,16 +9,6 @@ AzooKeyKanaKanjiConverter also supports high-precision conversion using the neur
 ## Requirements
 Tested on iOS 16+, macOS 13+, visionOS 1+, and Ubuntu 22.04+. Requires Swift 6.1 or later.
 
-### Swift Concurrency Support
-AzooKeyKanaKanjiConverter is fully compliant with Swift 6 strict concurrency checking and provides:
-
-- **MainActor Isolation**: On Darwin platforms (iOS/macOS/visionOS), `KanaKanjiConverter` operates as `@MainActor`, ensuring UI thread safety
-- **Async APIs**: All major APIs provide async versions to prevent UI thread blocking
-- **Cross-platform**: Provides equivalent functionality on Linux (without MainActor isolation)
-
-> [!NOTE]
-> On Linux platforms, MainActor isolation is not applied, so thread safety guarantees rely on different mechanisms than Darwin.
-
 For development guides, see [Development Guide](Docs/development_guide.md).
 For information on learning data storage and reset methods, see [Docs/learning_data.md](Docs/learning_data.md).
 
@@ -187,9 +177,7 @@ dependencies: [
 | `ZenzaiCPU` | llama.cpp (CPU only) | iOS 16+, macOS 13+, Linux | None | Environments without GPU, debugging |
 
 > [!NOTE]
--> `ZenzaiCoreML` leverages Swift Concurrency for async execution, enabling fast inference with Stateful models without blocking the UI thread.
-
-Specify `zenzaiMode` in `ConvertRequestOptions`. For detailed argument information, see [documentation](./Docs/zenzai.en.md).
+ Specify `zenzaiMode` in `ConvertRequestOptions`. For detailed argument information, see [documentation](./Docs/zenzai.en.md).
 
 ```swift
 let options = ConvertRequestOptions(
