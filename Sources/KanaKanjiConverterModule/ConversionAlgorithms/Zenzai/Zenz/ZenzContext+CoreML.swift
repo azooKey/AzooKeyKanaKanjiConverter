@@ -29,12 +29,6 @@ final class ZenzContext: ZenzContextProtocol {
         return ZenzContext(generator: generator)
     }
 
-    deinit {
-        Task {
-            await self.generator.resetState()
-        }
-    }
-
     func reset_context() async throws {
         try await self.generator.resetState()
         self.prevInput = []
