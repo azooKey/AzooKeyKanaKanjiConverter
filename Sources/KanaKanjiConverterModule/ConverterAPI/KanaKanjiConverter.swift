@@ -62,7 +62,7 @@ public final class KanaKanjiConverter {
     }
 
     @available(iOS 18, macOS 15, *)
-    private func blockingAsync<T>(_ operation: @Sendable @escaping () async -> T) -> T {
+    private func blockingAsync<T: Sendable>(_ operation: @Sendable @escaping () async -> T) -> T {
         let semaphore = DispatchSemaphore(value: 0)
         var result: T?
         Task.detached {
