@@ -11,10 +11,11 @@ var swiftSettings: [SwiftSetting] = [
     .interoperabilityMode(.Cxx, .when(traits: ["Zenzai", "ZenzaiCPU"]))
 ]
 
+var coreMLMacOSLinkFlags: [String] = []
 #if os(macOS)
-// CoreML binary artifacts are built for macOS 15.5+. Bump the deployment target
-// only when the CoreML trait is enabled to silence linker warnings.
-swiftSettings.append(.unsafeFlags(["-mmacosx-version-min=15.0"], .when(traits: ["ZenzaiCoreML"])))
+// CoreML XCFrameworks are built for macOS 15.5+. When the CoreML trait is enabled,
+// apply a platform_version hint at link time to silence version mismatch warnings.
+coreMLMacOSLinkFlags = ["-Xlinker", "-platform_version", "-Xlinker", "macos", "-Xlinker", "15.0", "-Xlinker", "15.0"]
 #endif
 
 var dependencies: [Package.Dependency] = [
@@ -134,7 +135,8 @@ targets.append(
             )
         ],
         resources: [],
-        swiftSettings: swiftSettings
+        swiftSettings: swiftSettings,
+        linkerSettings: coreMLMacOSLinkFlags.isEmpty ? [] : [.unsafeFlags(coreMLMacOSLinkFlags, .when(traits: ["ZenzaiCoreML"]))]
     )
 )
 #endif
@@ -199,7 +201,8 @@ targets.append(
     .target(
         name: "KanaKanjiConverterModule",
         dependencies: kanaKanjiDependencies,
-        swiftSettings: swiftSettings
+        swiftSettings: swiftSettings,
+        linkerSettings: coreMLMacOSLinkFlags.isEmpty ? [] : [.unsafeFlags(coreMLMacOSLinkFlags, .when(traits: ["ZenzaiCoreML"]))]
     )
 )
 
