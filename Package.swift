@@ -4,12 +4,18 @@
 import PackageDescription
 import Foundation
 
-let swiftSettings: [SwiftSetting] = [
+var swiftSettings: [SwiftSetting] = [
     .enableUpcomingFeature("ExistentialAny"),
     .enableUpcomingFeature("MemberImportVisibility"),
     .enableUpcomingFeature("InternalImportsByDefault"),
     .interoperabilityMode(.Cxx, .when(traits: ["Zenzai", "ZenzaiCPU"]))
 ]
+
+#if os(macOS)
+// CoreML binary artifacts are built for macOS 15.5+. Bump the deployment target
+// only when the CoreML trait is enabled to silence linker warnings.
+swiftSettings.append(.unsafeFlags(["-mmacosx-version-min=15.0"], .when(traits: ["ZenzaiCoreML"])))
+#endif
 
 var dependencies: [Package.Dependency] = [
     // Dependencies declare other packages that this package depends on.
