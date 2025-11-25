@@ -47,6 +47,9 @@ public final class KanaKanjiConverter {
     private var zenzaiPersonalization: (mode: ConvertRequestOptions.ZenzaiMode.PersonalizationMode, base: EfficientNGram, personal: EfficientNGram)?
     public private(set) var zenzStatus: String = ""
     var dicdataStoreState: DicdataStoreState
+#if Zenzai
+    private var zenzaiModel: Zenz?
+#endif
 #if ZenzaiCoreML && canImport(CoreML)
     private var coreMLServiceStorage: Any?
     private var zenzaiCoreMLCache: Kana2Kanji.ZenzaiCache?
@@ -84,6 +87,8 @@ public final class KanaKanjiConverter {
             self.coreMLServiceStorage = nil
         }
         self.zenzaiCoreMLCache = nil
+#elseif Zenzai
+        self.zenzaiModel = nil
 #endif
         self.zenzaiPersonalization = nil
         self.previousInputData = nil
@@ -115,6 +120,24 @@ public final class KanaKanjiConverter {
     package func getModel(modelURL: URL) -> Zenz? {
         self.blockingAsync {
             await self.resolvedCoreMLService().getOrLoadModel(modelURL: modelURL)
+        }
+    }
+#elseif Zenzai
+    package func getModel(modelURL: URL) -> Zenz? {
+        if let cached = self.zenzaiModel, cached.resourceURL == modelURL {
+            self.updateZenzStatus("load \(modelURL.absoluteString)")
+            return cached
+        }
+        let model = self.blockingAsync {
+            try? await Zenz(resourceURL: modelURL)
+        }
+        if let model {
+            self.updateZenzStatus("load \(modelURL.absoluteString)")
+            self.zenzaiModel = model
+            return model
+        } else {
+            self.updateZenzStatus("zenz model unavailable")
+            return nil
         }
     }
 #else
@@ -789,6 +812,25 @@ public final class KanaKanjiConverter {
                 }
                 self.zenzaiCoreMLCache = coreMLResult.cache
                 return (coreMLResult.result, coreMLResult.lattice)
+            }
+        }
+#elseif Zenzai
+        if zenzaiMode.enabled, !needTypoCorrection {
+            let personalizationHandle = self.getZenzaiPersonalization(mode: zenzaiMode.personalizationMode)
+            if let zenz = self.getModel(modelURL: zenzaiMode.weightURL) {
+                let zenzResult = self.blockingAsync {
+                    await self.converter.all_zenzai(
+                        inputData,
+                        zenz: zenz,
+                        zenzaiCache: nil,
+                        inferenceLimit: zenzaiMode.inferenceLimit,
+                        requestRichCandidates: zenzaiMode.requestRichCandidates,
+                        personalizationMode: personalizationHandle.map { ($0.mode, $0.base, $0.personal) },
+                        versionDependentConfig: zenzaiMode.versionDependentMode,
+                        dicdataStoreState: self.dicdataStoreState
+                    )
+                }
+                return (zenzResult.result, zenzResult.lattice)
             }
         }
 #endif
