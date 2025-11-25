@@ -78,10 +78,6 @@ For details, see [cli.md](./cli.md).
 
 You can use DevContainer for development. For details, see [devcontainer.md](./devcontainer.md).
 
-## Swift Concurrency Support
-
-AzooKeyKanaKanjiConverter targets Swift 6 strict concurrency checking, but this branch omits the migration document.
-
 ## Zenzai / CoreML Development
 
 For Zenzai and CoreML backend development, refer to the following documents:

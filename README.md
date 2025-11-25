@@ -129,9 +129,6 @@ print(results.mainResults.first!.text)
 - `resetMemoryAsync()` - 学習データを非同期でリセット
 - `predictNextCharacterAsync(leftSideContext:count:options:)` - 次の文字を非同期で予測（zenz-v2モデルが必要、ZenzaiまたはZenzaiCoreML traitで利用可能）
 
-> [!NOTE]
--> Swift Concurrency 移行計画のドキュメントはこのブランチでは含めていません。
-
 
 ### `ConvertRequestOptions`
 `ConvertRequestOptions`は変換リクエストに必要な設定値です。例えば以下のように設定します。

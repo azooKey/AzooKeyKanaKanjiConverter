@@ -129,9 +129,6 @@ The following async APIs are available:
 - `resetMemoryAsync()` - Reset learning data asynchronously
 - `predictNextCharacterAsync(leftSideContext:count:options:)` - Predict next character asynchronously (requires zenz-v2 model, available with Zenzai or ZenzaiCoreML trait)
 
-> [!NOTE]
--> The Swift Concurrency migration document is omitted in this branch.
-
 
 ### `ConvertRequestOptions`
 `ConvertRequestOptions` contains the settings required for conversion requests. Configure as follows:

@@ -9,7 +9,6 @@ For the azooKey main application, see [azooKey/docs](https://github.com/ensan-hc
 ## For Developers
 
 - [development_guide.en.md](./development_guide.en.md) - Development Guide
-- (removed) Swift Concurrency Migration Status
 - [learning_data.md](./learning_data.md) - Learning Data Storage and Reset Methods
 - [cli.md](./cli.md) - CLI Tool (anco) Usage
 - [devcontainer.md](./devcontainer.md) - DevContainer Environment

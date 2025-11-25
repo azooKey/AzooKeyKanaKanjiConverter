@@ -78,10 +78,6 @@ sh install_cli.sh
 
 開発にDevContainerを利用できます。詳しくは[devcontainer.md](./devcontainer.md)をお読みください。
 
-## Swift Concurrency対応
-
-AzooKeyKanaKanjiConverterはSwift 6 strict concurrency checkingへの対応を予定しています（このブランチでは関連ドキュメントを含めません）。
-
 ## Zenzai / CoreML開発
 
 ZenzaiやCoreMLバックエンドの開発については、以下のドキュメントを参照してください：

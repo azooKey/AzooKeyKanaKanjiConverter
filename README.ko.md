@@ -129,9 +129,6 @@ print(results.mainResults.first!.text)
 - `resetMemoryAsync()` - 학습 데이터를 비동기로 초기화
 - `predictNextCharacterAsync(leftSideContext:count:options:)` - 다음 문자를 비동기로 예측 (zenz-v2 모델 필요, Zenzai 또는 ZenzaiCoreML trait에서 사용 가능)
 
-> [!NOTE]
--> Swift Concurrency 마이그레이션 문서는 이 브랜치에서는 포함하지 않습니다.
-
 
 ### `ConvertRequestOptions`
 `ConvertRequestOptions`는 변환 요청에 필요한 설정값입니다. 예를 들어 다음과 같이 설정합니다:

@@ -9,7 +9,6 @@ azooKey 본체에 대해서는 [azooKey/docs](https://github.com/ensan-hcl/azooK
 ## 개발자용
 
 - [development_guide.ko.md](./development_guide.ko.md) - 개발 가이드
-- (제외) Swift Concurrency 마이그레이션 상태
 - [learning_data.md](./learning_data.md) - 학습 데이터 저장 위치 및 초기화 방법
 - [cli.md](./cli.md) - CLI 도구 (anco) 사용법
 - [devcontainer.md](./devcontainer.md) - DevContainer 환경
