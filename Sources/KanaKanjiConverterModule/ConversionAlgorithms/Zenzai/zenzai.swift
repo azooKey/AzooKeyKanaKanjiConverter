@@ -4,7 +4,7 @@ import Foundation
 import SwiftUtils
 
 extension Kana2Kanji {
-    struct ZenzaiCache {
+    struct ZenzaiCache: @unchecked Sendable {
         init(_ inputData: ComposingText, constraint: PrefixConstraint, satisfyingCandidate: Candidate?, lattice: Lattice? = nil) {
             self.inputData = inputData
             self.prefixConstraint = constraint
@@ -55,11 +55,6 @@ extension Kana2Kanji {
             )
         }
     }
-
-    // MARK: - Sendable support
-    /// The cache holds mutable lattice references but never leaves the converter actor.
-    /// We temporarily mark it as `@unchecked Sendable` to unblock CoreML refactors.
-    extension ZenzaiCache: @unchecked Sendable {}
 
     struct PrefixConstraint: Sendable, Equatable, Hashable, CustomStringConvertible {
         init(_ constraint: [UInt8], hasEOS: Bool = false, ignoreMemoryAndUserDictionary: Bool = false) {

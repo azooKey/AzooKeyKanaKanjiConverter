@@ -955,3 +955,6 @@ public final class KanaKanjiConverter {
         return results
     }
 }
+
+// Thin async wrappers capture the converter in detached contexts; mark unchecked for compatibility.
+extension KanaKanjiConverter: @unchecked Sendable {}
