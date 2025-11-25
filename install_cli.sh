@@ -76,6 +76,16 @@ if [ "$USE_ZENZAI_COREML" -eq 1 ]; then
   sudo cp -R "$COREML_FW_PATH" /usr/local/lib/
 fi
 
+# Copy resource bundles needed at runtime (SwiftPM puts them next to the binary)
+BUNDLE_NAME="AzooKeyKanaKanjiConverter_KanaKanjiConverterModuleWithDefaultDictionary.bundle"
+BUNDLE_PATH=$(find ".build" -type d -path "*/${CONFIGURATION}/${BUNDLE_NAME}" -print -quit)
+if [ -z "$BUNDLE_PATH" ]; then
+  BUNDLE_PATH=$(find ".build" -type d -name "${BUNDLE_NAME}" -print -quit)
+fi
+[ -n "$BUNDLE_PATH" ] || fail "${BUNDLE_NAME} not found in .build. Build first, then run install_cli.sh."
+echo "📦 Installing resource bundle from $BUNDLE_PATH"
+sudo cp -R "$BUNDLE_PATH" /usr/local/bin/
+
 # add rpath
 RPATH="/usr/local/lib/"
 BINARY_PATH=".build/${CONFIGURATION}/CliTool"
