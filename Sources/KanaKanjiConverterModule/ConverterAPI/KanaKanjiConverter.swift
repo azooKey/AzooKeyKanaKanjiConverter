@@ -884,6 +884,16 @@ public final class KanaKanjiConverter {
         return self.processResult(inputData: inputData, result: result, options: options)
     }
 
+    /// 非同期版のリクエスト。内部で同期版をバックグラウンドキューに投げる簡易ラッパー。
+    public func requestCandidatesAsync(_ inputData: ComposingText, options: ConvertRequestOptions) async -> ConversionResult {
+        await withCheckedContinuation { continuation in
+            DispatchQueue.global().async {
+                let result = self.requestCandidates(inputData, options: options)
+                continuation.resume(returning: result)
+            }
+        }
+    }
+
     /// 変換確定後の予測変換候補を要求する関数
     public func requestPostCompositionPredictionCandidates(leftSideCandidate: Candidate, options: ConvertRequestOptions) -> [PostCompositionPredictionCandidate] {
         // ゼロヒント予測変換に基づく候補を列挙
