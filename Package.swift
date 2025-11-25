@@ -20,7 +20,7 @@ var dependencies: [Package.Dependency] = [
     .package(url: "https://github.com/Skyline-23/swift-transformers.git", branch: "feature/increase-compatibility")
 ]
 
-#if os(macOS) || os(iOS)
+#if os(macOS) || os(iOS) 
 dependencies.append(
     .package(
         url: "https://github.com/Skyline-23/zenz-CoreML.git",

@@ -67,7 +67,11 @@ package final class Zenz {
         return await zenzContext.predict_next_character(leftSideContext: leftSideContext, count: count)
     }
 
-    package func pureGreedyDecoding(pureInput: String, maxCount: Int = .max) async -> String {
-        await (self.zenzContext?.pure_greedy_decoding(leftSideContext: pureInput, maxCount: maxCount) ?? "")
-    }
+package func pureGreedyDecoding(pureInput: String, maxCount: Int = .max) async -> String {
+    await (self.zenzContext?.pure_greedy_decoding(leftSideContext: pureInput, maxCount: maxCount) ?? "")
 }
+}
+
+// CoreML pipeline uses Zenz across async boundaries; treat it as unchecked sendable for bridging.
+@available(iOS 18, macOS 15, *)
+extension Zenz: @unchecked Sendable {}

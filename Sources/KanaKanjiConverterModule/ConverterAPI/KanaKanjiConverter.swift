@@ -62,10 +62,10 @@ public final class KanaKanjiConverter {
     }
 
     @available(iOS 18, macOS 15, *)
-    private func blockingAsync<T>(_ operation: @escaping () async -> T) -> T {
+    private func blockingAsync<T>(_ operation: @Sendable @escaping () async -> T) -> T {
         let semaphore = DispatchSemaphore(value: 0)
         var result: T?
-        Task {
+        Task.detached {
             result = await operation()
             semaphore.signal()
         }
@@ -782,7 +782,7 @@ public final class KanaKanjiConverter {
                         zenzaiCache: self.zenzaiCoreMLCache,
                         inferenceLimit: zenzaiMode.inferenceLimit,
                         requestRichCandidates: zenzaiMode.requestRichCandidates,
-                        personalizationMode: personalizationHandle?.tuple,
+                        personalizationMode: personalizationHandle.map { ($0.mode, $0.base, $0.personal) },
                         versionDependentConfig: zenzaiMode.versionDependentMode,
                         dicdataStoreState: self.dicdataStoreState
                     )

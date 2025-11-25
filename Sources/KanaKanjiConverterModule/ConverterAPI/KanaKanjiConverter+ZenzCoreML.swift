@@ -4,7 +4,7 @@ import Foundation
 
 extension KanaKanjiConverter {
     @available(iOS 18, macOS 15, *)
-    final class ZenzCoreMLService {
+    final class ZenzCoreMLService: @unchecked Sendable {
         unowned let owner: KanaKanjiConverter
         private let stateLock = NSLock()
         private var zenz: Zenz?
