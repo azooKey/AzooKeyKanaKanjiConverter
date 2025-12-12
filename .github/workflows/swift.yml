@@ -135,7 +135,7 @@ jobs:
       - name: Get cached Termux app
         if: ${{ matrix.arch == 'x86_64' }}
         id: cache-termux
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: ~/termux-debug.apk
           key: termux-app
