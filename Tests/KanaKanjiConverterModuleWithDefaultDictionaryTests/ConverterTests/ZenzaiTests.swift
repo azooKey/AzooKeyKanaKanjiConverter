@@ -15,7 +15,7 @@ final class ZenzaiTests: XCTestCase {
         return .init(
             N_best: 10,
             needTypoCorrection: false,
-            requireJapanesePrediction: false,
+            requireJapanesePrediction: .disabled,
             requireEnglishPrediction: .disabled,
             keyboardLanguage: .ja_JP,
             englishCandidateInRoman2KanaInput: true,

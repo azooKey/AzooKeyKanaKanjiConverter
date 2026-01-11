@@ -318,9 +318,10 @@ extension Subcommands {
             } else {
                 personalizationMode = nil
             }
+            let japanesePredictionMode: ConvertRequestOptions.PredictionMode = (!self.onlyWholeConversion && !self.disablePrediction) ? .autoMix : .disabled
             var option: ConvertRequestOptions = .init(
                 N_best: self.onlyWholeConversion ? max(self.configNBest, self.displayTopN) : self.configNBest,
-                requireJapanesePrediction: !self.onlyWholeConversion && !self.disablePrediction,
+                requireJapanesePrediction: japanesePredictionMode,
                 requireEnglishPrediction: .disabled,
                 keyboardLanguage: .ja_JP,
                 englishCandidateInRoman2KanaInput: self.mixEnglishCandidate,

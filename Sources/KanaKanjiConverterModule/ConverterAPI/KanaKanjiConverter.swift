@@ -499,7 +499,7 @@ public final class KanaKanjiConverter {
         var bestCandidateDataForPrediction: CandidateData?
         // 文章全体を変換した場合の候補上位5件を作る（不要なときはlazyで中間配列を避ける）
         let wholeSentenceUniqueCandidates: [Candidate]
-        if options.requireJapanesePrediction {
+        if options.requireJapanesePrediction.isEnabled {
             let clauseResultCandidates = clauseResult.map { self.converter.processClauseCandidate($0) }
             bestCandidateDataForPrediction = zip(clauseResult, clauseResultCandidates).max {$0.1.value < $1.1.value}!.0
             wholeSentenceUniqueCandidates = self.getUniqueCandidate(clauseResultCandidates)
@@ -558,12 +558,16 @@ public final class KanaKanjiConverter {
         do {
             // 予測変換を最大3件作成する（必要な場合のみsumsを構築）
             let bestThreePredictionCandidates: [Candidate]
-            if options.requireJapanesePrediction, let bestCandidateDataForPrediction {
+            if options.requireJapanesePrediction.isEnabled, let bestCandidateDataForPrediction {
                 let candidates = self.getUniqueCandidate(
                     self.getPredictionCandidate(bestCandidateDataForPrediction, composingText: inputData, options: options)
                 ).min(count: 3, sortedBy: {$0.value > $1.value})
-                bestThreePredictionCandidates = candidates
                 predictionResults = candidates
+                if options.requireJapanesePrediction.shouldMix {
+                    bestThreePredictionCandidates = candidates
+                } else {
+                    bestThreePredictionCandidates = []
+                }
             } else {
                 bestThreePredictionCandidates = []
             }

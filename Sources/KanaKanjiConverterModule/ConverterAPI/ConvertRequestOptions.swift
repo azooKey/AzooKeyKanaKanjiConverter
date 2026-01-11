@@ -26,7 +26,7 @@ public struct ConvertRequestOptions: Sendable {
     ///
     /// - parameters:
     ///   - N_best: 変換候補の数。上位`N`件までの言語モデル上の妥当性を保証します。大きくすると計算量が増加します。
-    ///   - requireJapanesePrediction: 日本語の予測変換候補の必要性。`false`にすると、日本語の予測変換候補を出力しなくなります。
+    ///   - requireJapanesePrediction: 日本語の予測変換候補の扱い。`.autoMix`は候補に混ぜ、`.manualMix`は`ConversionResult`に分離、`.disabled`は生成しません。
     ///   - requireEnglishPrediction: 英語の予測変換候補の扱い。`.autoMix`は候補に混ぜ、`.manualMix`は`ConversionResult`に分離、`.disabled`は生成しません。ローマ字入力を用いた日本語入力では`.disabled`にした方が良いでしょう。
     ///   - keyboardLanguage: キーボードの言語を指定します。
     ///   - englishCandidateInRoman2KanaInput: `true`の場合、日本語ローマ字入力時に英語変換候補を出力します。`false`の場合、ローマ字入力時に英語変換候補を出力しません。
@@ -41,7 +41,7 @@ public struct ConvertRequestOptions: Sendable {
     ///   - textReplacer: 予測変換のための置換機を指定します。
     ///   - specialCandidateProviders: 特殊変換を実施する変換関数を挿入します
     ///   - metadata: メタデータを指定します。詳しくは`ConvertRequestOptions.Metadata`を参照してください。
-    public init(N_best: Int = 10, needTypoCorrection: Bool? = nil, requireJapanesePrediction: Bool, requireEnglishPrediction: PredictionMode, keyboardLanguage: KeyboardLanguage, englishCandidateInRoman2KanaInput: Bool = false, fullWidthRomanCandidate: Bool = false, halfWidthKanaCandidate: Bool = false, learningType: LearningType, maxMemoryCount: Int = 65536, shouldResetMemory: Bool = false, memoryDirectoryURL: URL, sharedContainerURL: URL, textReplacer: TextReplacer, specialCandidateProviders: [any SpecialCandidateProvider]?, zenzaiMode: ZenzaiMode = .off, preloadDictionary: Bool = false, metadata: ConvertRequestOptions.Metadata?) {
+    public init(N_best: Int = 10, needTypoCorrection: Bool? = nil, requireJapanesePrediction: PredictionMode, requireEnglishPrediction: PredictionMode, keyboardLanguage: KeyboardLanguage, englishCandidateInRoman2KanaInput: Bool = false, fullWidthRomanCandidate: Bool = false, halfWidthKanaCandidate: Bool = false, learningType: LearningType, maxMemoryCount: Int = 65536, shouldResetMemory: Bool = false, memoryDirectoryURL: URL, sharedContainerURL: URL, textReplacer: TextReplacer, specialCandidateProviders: [any SpecialCandidateProvider]?, zenzaiMode: ZenzaiMode = .off, preloadDictionary: Bool = false, metadata: ConvertRequestOptions.Metadata?) {
         self.N_best = N_best
         self.needTypoCorrection = needTypoCorrection
         self.requireJapanesePrediction = requireJapanesePrediction
@@ -67,7 +67,7 @@ public struct ConvertRequestOptions: Sendable {
     }
 
     public var N_best: Int
-    public var requireJapanesePrediction: Bool
+    public var requireJapanesePrediction: PredictionMode
     public var requireEnglishPrediction: PredictionMode
     public var keyboardLanguage: KeyboardLanguage
     public var needTypoCorrection: Bool?
@@ -97,7 +97,7 @@ public struct ConvertRequestOptions: Sendable {
         Self(
             N_best: 10,
             needTypoCorrection: nil,
-            requireJapanesePrediction: true,
+            requireJapanesePrediction: .autoMix,
             requireEnglishPrediction: .autoMix,
             keyboardLanguage: .ja_JP,
             englishCandidateInRoman2KanaInput: true,

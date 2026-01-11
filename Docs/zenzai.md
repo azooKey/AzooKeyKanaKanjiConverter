@@ -8,7 +8,7 @@ let converter = KanaKanjiConverter.withDefaultDictionary()
 
 let options = ConvertRequestOptions(
     // ...
-    requireJapanesePrediction: true,
+    requireJapanesePrediction: .autoMix,
     requireEnglishPrediction: .disabled,
     keyboardLanguage: .ja_JP,
     learningType: .nothing,

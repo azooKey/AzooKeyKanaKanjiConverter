@@ -21,7 +21,7 @@ final class ConverterTests: XCTestCase {
         .init(
             N_best: 10,
             needTypoCorrection: needTypoCorrection,
-            requireJapanesePrediction: false,
+            requireJapanesePrediction: .disabled,
             requireEnglishPrediction: .disabled,
             keyboardLanguage: .ja_JP,
             englishCandidateInRoman2KanaInput: true,
@@ -353,7 +353,7 @@ final class ConverterTests: XCTestCase {
 
             // full input
             var options = requestOptions()
-            options.requireJapanesePrediction = false
+            options.requireJapanesePrediction = .disabled
             for (input, expect) in cases {
                 let converter = KanaKanjiConverter.withDefaultDictionary()
                 var c = ComposingText()
@@ -384,7 +384,7 @@ final class ConverterTests: XCTestCase {
 
             // full input
             var options = requestOptions()
-            options.requireJapanesePrediction = false
+            options.requireJapanesePrediction = .disabled
             for (input, expect) in cases {
                 let converter = KanaKanjiConverter.withDefaultDictionary()
                 var c = ComposingText()
@@ -416,7 +416,7 @@ final class ConverterTests: XCTestCase {
 
             // full input
             var options = requestOptions(needTypoCorrection: true)
-            options.requireJapanesePrediction = false
+            options.requireJapanesePrediction = .disabled
             for (input, expect) in cases {
                 let converter = KanaKanjiConverter.withDefaultDictionary()
                 var c = ComposingText()
@@ -849,7 +849,7 @@ final class ConverterTests: XCTestCase {
             var c = ComposingText()
             c.insertAtCursorPosition(input, inputStyle: .direct)
             var options = requestOptions()
-            options.requireJapanesePrediction = false
+            options.requireJapanesePrediction = .disabled
             let results = converter.requestCandidates(c, options: options)
 
             if results.mainResults[0].text == expect {
@@ -922,7 +922,7 @@ final class ConverterTests: XCTestCase {
             var c = ComposingText()
             c.insertAtCursorPosition(input, inputStyle: .direct)
             var options = requestOptions()
-            options.requireJapanesePrediction = false
+            options.requireJapanesePrediction = .disabled
             let results = converter.requestCandidates(c, options: options).mainResults
             cases += 1
             let azooKeyStatus = mozcEvaluation(command: command, argument: argument, results: results)

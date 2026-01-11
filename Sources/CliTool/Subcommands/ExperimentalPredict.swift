@@ -26,7 +26,7 @@ extension Subcommands {
         func requestOptions() -> ConvertRequestOptions {
             .init(
                 N_best: 10,
-                requireJapanesePrediction: true,
+                requireJapanesePrediction: .autoMix,
                 requireEnglishPrediction: .disabled,
                 keyboardLanguage: .ja_JP,
                 englishCandidateInRoman2KanaInput: true,

@@ -107,7 +107,7 @@ extension Subcommands.Dict {
         func requestOptions() -> ConvertRequestOptions {
             .init(
                 N_best: 0,
-                requireJapanesePrediction: false,
+                requireJapanesePrediction: .disabled,
                 requireEnglishPrediction: .disabled,
                 keyboardLanguage: .ja_JP,
                 englishCandidateInRoman2KanaInput: true,

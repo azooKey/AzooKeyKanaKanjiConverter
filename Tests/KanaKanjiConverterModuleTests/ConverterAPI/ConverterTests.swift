@@ -15,7 +15,7 @@ final class ConverterTests: XCTestCase {
     func requestOptions() -> ConvertRequestOptions {
         ConvertRequestOptions(
             N_best: 5,
-            requireJapanesePrediction: true,
+            requireJapanesePrediction: .autoMix,
             requireEnglishPrediction: .disabled,
             keyboardLanguage: .ja_JP,
             englishCandidateInRoman2KanaInput: true,
@@ -85,7 +85,7 @@ final class ConverterTests: XCTestCase {
 
         let opts = ConvertRequestOptions(
             N_best: 5,
-            requireJapanesePrediction: true,
+            requireJapanesePrediction: .autoMix,
             requireEnglishPrediction: .disabled,
             keyboardLanguage: .ja_JP,
             englishCandidateInRoman2KanaInput: true,
