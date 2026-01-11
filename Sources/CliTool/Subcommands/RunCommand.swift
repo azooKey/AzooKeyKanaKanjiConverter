@@ -79,7 +79,7 @@ extension Subcommands {
             var option: ConvertRequestOptions = .init(
                 N_best: self.onlyWholeConversion ? max(self.configNBest, self.displayTopN) : self.configNBest,
                 requireJapanesePrediction: !self.onlyWholeConversion && !self.disablePrediction,
-                requireEnglishPrediction: false,
+                requireEnglishPrediction: .disabled,
                 keyboardLanguage: .ja_JP,
                 englishCandidateInRoman2KanaInput: true,
                 fullWidthRomanCandidate: false,

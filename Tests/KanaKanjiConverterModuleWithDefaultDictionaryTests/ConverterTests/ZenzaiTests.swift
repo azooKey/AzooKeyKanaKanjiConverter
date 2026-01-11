@@ -16,7 +16,7 @@ final class ZenzaiTests: XCTestCase {
             N_best: 10,
             needTypoCorrection: false,
             requireJapanesePrediction: false,
-            requireEnglishPrediction: false,
+            requireEnglishPrediction: .disabled,
             keyboardLanguage: .ja_JP,
             englishCandidateInRoman2KanaInput: true,
             fullWidthRomanCandidate: false,

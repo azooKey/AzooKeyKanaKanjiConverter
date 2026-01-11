@@ -111,7 +111,7 @@ extension Subcommands {
             var option: ConvertRequestOptions = .init(
                 N_best: self.configNBest,
                 requireJapanesePrediction: false,
-                requireEnglishPrediction: false,
+                requireEnglishPrediction: .disabled,
                 keyboardLanguage: .ja_JP,
                 englishCandidateInRoman2KanaInput: false,
                 fullWidthRomanCandidate: false,

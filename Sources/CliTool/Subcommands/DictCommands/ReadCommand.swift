@@ -108,7 +108,7 @@ extension Subcommands.Dict {
             .init(
                 N_best: 0,
                 requireJapanesePrediction: false,
-                requireEnglishPrediction: false,
+                requireEnglishPrediction: .disabled,
                 keyboardLanguage: .ja_JP,
                 englishCandidateInRoman2KanaInput: true,
                 fullWidthRomanCandidate: false,

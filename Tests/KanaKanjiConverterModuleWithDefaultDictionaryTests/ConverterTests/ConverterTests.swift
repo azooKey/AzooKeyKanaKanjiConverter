@@ -22,7 +22,7 @@ final class ConverterTests: XCTestCase {
             N_best: 10,
             needTypoCorrection: needTypoCorrection,
             requireJapanesePrediction: false,
-            requireEnglishPrediction: false,
+            requireEnglishPrediction: .disabled,
             keyboardLanguage: .ja_JP,
             englishCandidateInRoman2KanaInput: true,
             fullWidthRomanCandidate: false,
