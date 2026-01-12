@@ -345,6 +345,7 @@ public final class KanaKanjiConverter {
                 let newlastPart: CandidateData.ClausesUnit = (clause: newUnit, value: newValue)
                 let predictions = converter.getPredictionCandidates(composingText: composingText, prepart: prepart, lastClause: newlastPart.clause, N_best: 5, dicdataStoreState: self.dicdataStoreState)
                 lastpart = newlastPart
+                print(newlastPart.clause.text, predictions)
                 // 結果がemptyでなければ
                 if !predictions.isEmpty {
                     candidates.append(contentsOf: consume predictions)
@@ -356,6 +357,7 @@ public final class KanaKanjiConverter {
                 // 予測変換を受け取る
                 let predictions = converter.getPredictionCandidates(composingText: composingText, prepart: prepart, lastClause: lastpart!.clause, N_best: 5, dicdataStoreState: self.dicdataStoreState)
                 // 結果がemptyでなければ
+                print(lastpart!.clause.text, predictions)
                 if !predictions.isEmpty {
                     // 結果に追加
                     candidates.append(contentsOf: consume predictions)
@@ -365,10 +367,11 @@ public final class KanaKanjiConverter {
         }
         // 入力全体を使って予測候補を作る
         if !prepart.isEmpty, let lastpart {
-            var fullClause = lastpart.clause
-            while let lastUnit = prepart.clauses.popLast() {
-                fullClause.merge(with: lastUnit.clause)
+            var fullClause = prepart.clauses.first!.clause
+            for unit in prepart.clauses.dropFirst() {
+                fullClause.merge(with: unit.clause)
             }
+            fullClause.merge(with: lastpart.clause)
             let emptyPrepart = CandidateData(clauses: [], data: [])
             let predictions = converter.getPredictionCandidates(
                 composingText: composingText,
@@ -377,6 +380,7 @@ public final class KanaKanjiConverter {
                 N_best: 5,
                 dicdataStoreState: self.dicdataStoreState
             )
+            print(fullClause.text, predictions)
             candidates.append(contentsOf: consume predictions)
         }
         return candidates
