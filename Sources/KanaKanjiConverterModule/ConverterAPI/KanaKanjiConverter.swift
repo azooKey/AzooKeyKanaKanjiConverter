@@ -347,7 +347,7 @@ public final class KanaKanjiConverter {
                 lastpart = newlastPart
                 // 結果がemptyでなければ
                 if !predictions.isEmpty {
-                    candidates += predictions
+                    candidates.append(contentsOf: consume predictions)
                     count += 1
                 }
             } else {
@@ -358,10 +358,26 @@ public final class KanaKanjiConverter {
                 // 結果がemptyでなければ
                 if !predictions.isEmpty {
                     // 結果に追加
-                    candidates += predictions
+                    candidates.append(contentsOf: consume predictions)
                     count += 1
                 }
             }
+        }
+        // 入力全体を使って予測候補を作る
+        if !prepart.isEmpty, let lastpart {
+            var fullClause = lastpart.clause
+            while let lastUnit = prepart.clauses.popLast() {
+                fullClause.merge(with: lastUnit.clause)
+            }
+            let emptyPrepart = CandidateData(clauses: [], data: [])
+            let predictions = converter.getPredictionCandidates(
+                composingText: composingText,
+                prepart: emptyPrepart,
+                lastClause: fullClause,
+                N_best: 5,
+                dicdataStoreState: self.dicdataStoreState
+            )
+            candidates.append(contentsOf: consume predictions)
         }
         return candidates
     }
