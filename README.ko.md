@@ -8,6 +8,7 @@ AzooKeyKanaKanjiConverter는 [azooKey](https://github.com/ensan-hcl/azooKey)를 
 
 ## 동작 환경
 iOS 16+, macOS 13+, visionOS 1+, Ubuntu 22.04+에서 동작을 확인했습니다. Swift 6.1 이상이 필요합니다.
+ZenzaiCoreML trait 사용 시 iOS 18+ / macOS 15+가 필요합니다.
 
 개발 가이드는 [개발 가이드](Docs/development_guide.md)를 참조하세요.
 학습 데이터 저장 위치 및 초기화 방법은 [Docs/learning_data.md](Docs/learning_data.md)를 참조하세요.

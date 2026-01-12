@@ -8,6 +8,7 @@ AzooKeyKanaKanjiConverterは[azooKey](https://github.com/ensan-hcl/azooKey)の�
 
 ## 動作環境
 iOS 16以降, macOS 13以降, visionOS 1以降, Ubuntu 22.04以降で動作を確認しています。Swift 6.1以上が必要です。
+ZenzaiCoreML trait を使う場合は iOS 18+ / macOS 15+ が必要です。
 
 AzooKeyKanaKanjiConverterの開発については[開発ガイド](Docs/development_guide.md)をご覧ください。
 学習データの保存先やリセット方法については[Docs/learning_data.md](Docs/learning_data.md)を参照してください。
@@ -117,7 +118,7 @@ print(results.mainResults.first!.text)
 - `stopCompositionAsync()` - 変換セッションを非同期で終了
 - `resetMemoryAsync()` - 学習データを非同期でリセット
 - `predictNextCharacterAsync(leftSideContext:count:options:)` - 次の文字を非同期で予測（zenz-v2モデルが必要、ZenzaiまたはZenzaiCoreML traitで利用可能）
-同期APIが基本です。ノンブロッキングで呼びたい場合にだけ非同期版を補助的に利用できます。
+非同期APIを推奨します。同期APIはレガシーとして必要な場合のみ利用してください。
 
 
 ### `ConvertRequestOptions`

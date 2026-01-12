@@ -8,6 +8,7 @@ AzooKeyKanaKanjiConverter also supports high-precision conversion using the neur
 
 ## Requirements
 Tested on iOS 16+, macOS 13+, visionOS 1+, and Ubuntu 22.04+. Requires Swift 6.1 or later.
+When using the ZenzaiCoreML trait, iOS 18+ / macOS 15+ is required.
 
 For development guides, see [Development Guide](Docs/development_guide.md).
 For information on learning data storage and reset methods, see [Docs/learning_data.md](Docs/learning_data.md).
