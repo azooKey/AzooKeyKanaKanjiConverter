@@ -32,7 +32,7 @@ struct ClauseDataUnit {
     }
 }
 
-extension ClauseDataUnit: Equatable {
+extension ClauseDataUnit: Equatable, Sendable {
     static func == (lhs: ClauseDataUnit, rhs: ClauseDataUnit) -> Bool {
         lhs.mid == rhs.mid && lhs.nextLcid == rhs.nextLcid && lhs.text == rhs.text && lhs.ranges == rhs.ranges
     }
@@ -46,7 +46,7 @@ extension ClauseDataUnit: CustomDebugStringConvertible {
 }
 #endif
 
-struct CandidateData {
+struct CandidateData: Sendable {
     typealias ClausesUnit = (clause: ClauseDataUnit, value: PValue)
     var clauses: [ClausesUnit]
     var data: [DicdataElement]

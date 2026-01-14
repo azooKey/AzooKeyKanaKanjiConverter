@@ -25,6 +25,28 @@ jobs:
         run: swift build -Xswiftc -strict-concurrency=complete -Xcxx -xobjective-c++ -v
       - name: Run tests
         run: swift test -c release -Xswiftc -strict-concurrency=complete -Xcxx -xobjective-c++ -v
+  macos-coreml:
+    name: Swift ${{ matrix.swift-version }} (CoreML) on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [macos-latest]
+        swift-version: ["6.1"]
+    steps:
+      - uses: ensan-hcl/setup-swift@swift-6.1.0
+        with:
+          swift-version: ${{ matrix.swift-version }}
+      - uses: actions/checkout@v5
+        with:
+          submodules: true
+      - name: Build (CoreML)
+        env:
+          CLANG_MODULE_CACHE_PATH: ${{ github.workspace }}/.build/ModuleCache
+        run: swift build --traits ZenzaiCoreML -Xswiftc -strict-concurrency=complete -Xcxx -xobjective-c++ -v
+      - name: Run tests (CoreML)
+        env:
+          CLANG_MODULE_CACHE_PATH: ${{ github.workspace }}/.build/ModuleCache
+        run: swift test --traits ZenzaiCoreML -c release -Xswiftc -strict-concurrency=complete -Xcxx -xobjective-c++ -v
   ubuntu-build:
     name: Swift ${{ matrix.swift-version }} on ${{ matrix.os }}
     runs-on: ${{ matrix.os }}

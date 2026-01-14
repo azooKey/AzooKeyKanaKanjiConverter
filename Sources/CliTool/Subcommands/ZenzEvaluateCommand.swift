@@ -23,6 +23,9 @@ extension Subcommands {
             return try JSONDecoder().decode([EvaluationInputItem].self, from: data)
         }
 
+        #if ZenzaiCoreML && canImport(CoreML)
+        @available(iOS 18, macOS 15, *)
+        #endif
         private func greedyDecoding(query: String, leftContext: String?, zenz: Zenz, maxCount: Int) async -> String {
             var leftContext = if let leftContext {
                 "\u{EE02}" + String(leftContext.suffix(40))
@@ -30,10 +33,16 @@ extension Subcommands {
                 ""
             }
             leftContext = "\u{EE00}\(query)\(leftContext)\u{EE01}"
-            return zenz.pureGreedyDecoding(pureInput: leftContext, maxCount: maxCount)
+            return await zenz.pureGreedyDecoding(pureInput: leftContext, maxCount: maxCount)
         }
 
         mutating func run() async throws {
+            #if ZenzaiCoreML && canImport(CoreML)
+            guard #available(iOS 18, macOS 15, *) else {
+                print("zenz_evaluate requires iOS 18 / macOS 15 when built with the ZenzaiCoreML trait.")
+                return
+            }
+            #endif
             let inputItems = try parseInputFile()
             let converter = KanaKanjiConverter.withDefaultDictionary()
             var executionTime: Double = 0
@@ -63,7 +72,7 @@ extension Subcommands {
                     )
                 )
                 executionTime += Date().timeIntervalSince(start)
-                zenz.endSession()
+                await zenz.endSession()
             }
             var result = EvaluateResult(n_best: 1, execution_time: executionTime, items: resultItems)
             if stable {

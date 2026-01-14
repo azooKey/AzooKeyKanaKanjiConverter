@@ -229,14 +229,14 @@ public struct ConvertRequestOptions: Sendable {
             versionDependentMode: .v3(.init())
         )
 
-        /// activate *Zenzai* - Neural Kana-Kanji Conversiion Engine
+        /// activate *Zenzai* - Neural Kana-Kanji Conversion Engine
         /// - Parameters:
-        ///    - weight: path for model weight (gguf)
+        ///    - weight: path for model weight (gguf). Note: This parameter is ignored when using ZenzaiCoreML trait (CoreML uses bundled model).
         ///    - inferenceLimit: applying inference count limitation. Smaller limit makes conversion faster but quality will be worse. (Default: 10)
         ///    - requestRichCandidates: when this flag is true, the converter spends more time but generate richer N-Best candidates for candidate list view. Usually this option is not recommended for live conversion.
         ///    - personalizationMode: values for personalization.
         ///    - versionDependentMode: specify zenz model version and its configuration.
-        public static func on(weight: URL, inferenceLimit: Int = 10, requestRichCandidates: Bool = false, personalizationMode: PersonalizationMode?, versionDependentMode: ZenzaiVersionDependentMode = .v3(.init())) -> Self {
+        public static func on(weight: URL, inferenceLimit: Int = 10, requestRichCandidates: Bool = false, personalizationMode: PersonalizationMode? = nil, versionDependentMode: ZenzaiVersionDependentMode = .v3(.init())) -> Self {
             ZenzaiMode(
                 enabled: true,
                 weightURL: weight,
@@ -246,6 +246,27 @@ public struct ConvertRequestOptions: Sendable {
                 versionDependentMode: versionDependentMode
             )
         }
+
+        #if ZenzaiCoreML && canImport(CoreML)
+        /// activate *Zenzai* with CoreML backend - Neural Kana-Kanji Conversion Engine
+        /// CoreML backend uses bundled model, so no weight path is required.
+        /// - Parameters:
+        ///    - inferenceLimit: applying inference count limitation. Smaller limit makes conversion faster but quality will be worse. (Default: 10)
+        ///    - requestRichCandidates: when this flag is true, the converter spends more time but generate richer N-Best candidates for candidate list view. Usually this option is not recommended for live conversion.
+        ///    - personalizationMode: values for personalization.
+        ///    - versionDependentMode: specify zenz model version and its configuration.
+        @available(iOS 18, macOS 15, *)
+        public static func coreML(inferenceLimit: Int = 10, requestRichCandidates: Bool = false, personalizationMode: PersonalizationMode? = nil, versionDependentMode: ZenzaiVersionDependentMode = .v3(.init())) -> Self {
+            ZenzaiMode(
+                enabled: true,
+                weightURL: URL(fileURLWithPath: ""), // Unused for CoreML
+                inferenceLimit: inferenceLimit,
+                requestRichCandidates: requestRichCandidates,
+                personalizationMode: personalizationMode,
+                versionDependentMode: versionDependentMode
+            )
+        }
+        #endif
         var enabled: Bool
         var weightURL: URL
         var inferenceLimit: Int

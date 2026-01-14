@@ -83,6 +83,38 @@ extension Subcommands {
             return try JSONDecoder().decode([InputUserDictionaryItem].self, from: data)
         }
 
+        // === Helper to avoid blocking CoreML/MainActor when calling sync APIs ===
+        private func requestCandidatesAsyncBridge(
+            converter: KanaKanjiConverter,
+            composingText: ComposingText,
+            options: ConvertRequestOptions
+        ) async -> ConversionResult {
+            return await converter.requestCandidatesAsync(composingText, options: options)
+        }
+
+        private func predictNextCharacterAsyncBridge(
+            converter: KanaKanjiConverter,
+            leftSideContext: String,
+            count: Int,
+            options: ConvertRequestOptions
+        ) async -> [(character: Character, value: Float)] {
+            return await withCheckedContinuation { continuation in
+                Task.detached {
+                    let result = converter.predictNextCharacter(leftSideContext: leftSideContext, count: count, options: options)
+                    continuation.resume(returning: result)
+                }
+            }
+        }
+
+        private func stopCompositionAsyncBridge(converter: KanaKanjiConverter) async {
+            await withCheckedContinuation { continuation in
+                Task.detached {
+                    converter.stopComposition()
+                    continuation.resume()
+                }
+            }
+        }
+
         @MainActor mutating func run() async {
             if self.zenzV1 || self.zenzV2 {
                 print("\(bold: "We strongly recommend to use zenz-v3 models")")
@@ -135,9 +167,11 @@ extension Subcommands {
 
             var histories = [String]()
 
-            var inputs = self.replayHistory.map {
-                try! String(contentsOfFile: $0, encoding: .utf8)
-            }?.split(by: "\n")
+            var inputs: [String]? = nil
+            if let replayHistory {
+                let history = try! String(contentsOfFile: replayHistory, encoding: .utf8)
+                inputs = history.split(separator: "\n").map(String.init)
+            }
             inputs?.append(":q")
 
             while true {
@@ -166,7 +200,7 @@ extension Subcommands {
                 case ":c", ":clear":
                     // クリア
                     composingText.stopComposition()
-                    converter.stopComposition()
+                    await self.stopCompositionAsyncBridge(converter: converter)
                     leftSideContext = ""
                     print("composition is stopped")
                     continue
@@ -183,7 +217,7 @@ extension Subcommands {
                     continue
                 case ":s", ":save":
                     composingText.stopComposition()
-                    converter.stopComposition()
+                    await self.stopCompositionAsyncBridge(converter: converter)
                     converter.commitUpdateLearningData()
                     if learningType.needUpdateMemory {
                         print("saved")
@@ -193,7 +227,8 @@ extension Subcommands {
                     continue
                 case ":p", ":pred":
                     // 次の文字の予測を取得する
-                    let results = converter.predictNextCharacter(
+                    let results = await self.predictNextCharacterAsyncBridge(
+                        converter: converter,
                         leftSideContext: leftSideContext,
                         count: 10,
                         options: requestOptions(learningType: learningType, memoryDirectory: memoryDirectory, leftSideContext: leftSideContext)
@@ -219,12 +254,12 @@ extension Subcommands {
                     \(bold: ":dump %s") - dump command history to specified file name (default: history.txt).
                     """)
                 default:
-                    if input.hasPrefix(":ctx") {
-                        let ctx = String(input.split(by: ":ctx ").last ?? "")
+                    if input.hasPrefix(":ctx ") {
+                        let ctx = String(input.dropFirst(":ctx ".count))
                         leftSideContext.append(ctx)
                         continue
-                    } else if input.hasPrefix(":input") {
-                        let specialInput = String(input.split(by: ":input ").last ?? "")
+                    } else if input.hasPrefix(":input ") {
+                        let specialInput = String(input.dropFirst(":input ".count))
                         switch specialInput {
                         case "eot":
                             composingText.insertAtCursorPosition([.init(piece: .compositionSeparator, inputStyle: inputStyle)])
@@ -253,7 +288,7 @@ extension Subcommands {
                         composingText.prefixComplete(composingCount: candidate.composingCount)
                         if composingText.isEmpty {
                             composingText.stopComposition()
-                            converter.stopComposition()
+                            await self.stopCompositionAsyncBridge(converter: converter)
                         }
                         leftSideContext += candidate.text
                     } else {
@@ -269,7 +304,11 @@ extension Subcommands {
                 }
                 print(composingText.convertTarget)
                 let start = Date()
-                let result = converter.requestCandidates(composingText, options: requestOptions(learningType: learningType, memoryDirectory: memoryDirectory, leftSideContext: leftSideContext))
+                let result = await self.requestCandidatesAsyncBridge(
+                    converter: converter,
+                    composingText: composingText,
+                    options: requestOptions(learningType: learningType, memoryDirectory: memoryDirectory, leftSideContext: leftSideContext)
+                )
                 let mainResults = result.mainResults.filter {
                     !self.onlyWholeConversion || $0.data.reduce(into: "", {$0.append(contentsOf: $1.ruby)}) == input.toKatakana()
                 }
