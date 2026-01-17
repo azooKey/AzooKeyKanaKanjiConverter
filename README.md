@@ -50,8 +50,8 @@ c.insertAtCursorPosition("あずーきーはしんじだいのきーぼーどあ
 // 変換のためのオプションを指定して、変換を要求
 let results = converter.requestCandidates(c, options: .init(
     N_best: 10,
-    requireJapanesePrediction: true,
-    requireEnglishPrediction: false,
+    requireJapanesePrediction: .autoMix,
+    requireEnglishPrediction: .disabled,
     keyboardLanguage: .ja_JP,
     englishCandidateInRoman2KanaInput: true,
     fullWidthRomanCandidate: false,
@@ -80,9 +80,9 @@ let documents = FileManager.default
     .first!
 let options = ConvertRequestOptions(
     // 日本語予測変換
-    requireJapanesePrediction: true,
+    requireJapanesePrediction: .autoMix,
     // 英語予測変換 
-    requireEnglishPrediction: false,
+    requireEnglishPrediction: .disabled,
     // 入力言語 
     keyboardLanguage: .ja_JP,
     // 学習タイプ 
@@ -120,8 +120,8 @@ dependencies: [
 ```swift
 let options = ConvertRequestOptions(
     // ...
-    requireJapanesePrediction: true,
-    requireEnglishPrediction: false,
+    requireJapanesePrediction: .autoMix,
+    requireEnglishPrediction: .disabled,
     keyboardLanguage: .ja_JP,
     learningType: .nothing,
     memoryDirectoryURL: documents,
@@ -180,8 +180,8 @@ let converter = KanaKanjiConverter(dictionaryURL: dictionaryURL, preloadDictiona
 
 // 変換リクエスト時のオプションを用意
 let options = ConvertRequestOptions(
-    requireJapanesePrediction: true,
-    requireEnglishPrediction: false,
+    requireJapanesePrediction: .autoMix,
+    requireEnglishPrediction: .disabled,
     keyboardLanguage: .ja_JP,
     learningType: .nothing,
     memoryDirectoryURL: documents,

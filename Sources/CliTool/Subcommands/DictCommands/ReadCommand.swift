@@ -40,7 +40,9 @@ extension Subcommands.Dict {
             }
             let start = Date()
             let isMemory = self.target == "memory"
-            guard let louds = LOUDS.load(self.target, dictionaryURL: dictionaryURL) else {
+            let rawTarget = self.target
+            let loudsIdentifier = DictionaryBuilder.escapedIdentifier(self.target)
+            guard let louds = LOUDS.load(loudsIdentifier, dictionaryURL: dictionaryURL) else {
                 print(
                     """
                     \(bold: "=== Summary for target \(self.target) ===")
@@ -56,7 +58,7 @@ extension Subcommands.Dict {
             // ありったけ取り出す
             let nodeIndices = louds.prefixNodeIndices(chars: [], maxDepth: .max, maxCount: .max)
             let store = DicdataStore(dictionaryURL: dictionaryURL)
-            let result = store.getDicdataFromLoudstxt3(identifier: self.target, indices: nodeIndices, state: store.prepareState())
+            let result = store.getDicdataFromLoudstxt3(identifier: rawTarget, indices: nodeIndices, state: store.prepareState())
             var filteredResult = result
             var hasFilter = false
             if !rubyFilter.isEmpty {
@@ -107,8 +109,8 @@ extension Subcommands.Dict {
         func requestOptions() -> ConvertRequestOptions {
             .init(
                 N_best: 0,
-                requireJapanesePrediction: false,
-                requireEnglishPrediction: false,
+                requireJapanesePrediction: .disabled,
+                requireEnglishPrediction: .disabled,
                 keyboardLanguage: .ja_JP,
                 englishCandidateInRoman2KanaInput: true,
                 fullWidthRomanCandidate: false,
