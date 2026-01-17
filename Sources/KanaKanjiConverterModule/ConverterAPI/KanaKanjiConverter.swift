@@ -345,7 +345,6 @@ public final class KanaKanjiConverter {
                 let newlastPart: CandidateData.ClausesUnit = (clause: newUnit, value: newValue)
                 let predictions = converter.getPredictionCandidates(composingText: composingText, prepart: prepart, lastClause: newlastPart.clause, N_best: 5, dicdataStoreState: self.dicdataStoreState)
                 lastpart = newlastPart
-                print(newlastPart.clause.text, predictions)
                 // 結果がemptyでなければ
                 if !predictions.isEmpty {
                     candidates.append(contentsOf: consume predictions)
@@ -357,7 +356,6 @@ public final class KanaKanjiConverter {
                 // 予測変換を受け取る
                 let predictions = converter.getPredictionCandidates(composingText: composingText, prepart: prepart, lastClause: lastpart!.clause, N_best: 5, dicdataStoreState: self.dicdataStoreState)
                 // 結果がemptyでなければ
-                print(lastpart!.clause.text, predictions)
                 if !predictions.isEmpty {
                     // 結果に追加
                     candidates.append(contentsOf: consume predictions)
