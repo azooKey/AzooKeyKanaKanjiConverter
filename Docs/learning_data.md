@@ -23,8 +23,8 @@ let documents = FileManager.default
 
 // 変換リクエスト時のオプションで学習種別等を指定
 let options = ConvertRequestOptions(
-    requireJapanesePrediction: true,
-    requireEnglishPrediction: true,
+    requireJapanesePrediction: .autoMix,
+    requireEnglishPrediction: .autoMix,
     keyboardLanguage: .ja_JP,
     learningType: .inputAndOutput,
     maxMemoryCount: 65536,
