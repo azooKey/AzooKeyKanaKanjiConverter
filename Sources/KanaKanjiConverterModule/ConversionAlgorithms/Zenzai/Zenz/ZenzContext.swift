@@ -466,6 +466,13 @@ final class ZenzContext {
             Array(repeating: ($0.metadata.contains(.isLearned), logf(getLearningPriority(data: $0))), count: self.tokenize(text: $0.word, add_bos: false).count)
         }
 
+        var candidatePrefixBytes: [UInt8] = []
+        if prompt_tokens.count < startOffset + 1 {
+            for token in tokens[prompt_tokens.count ..< (startOffset + 1)] {
+                candidatePrefixBytes.append(contentsOf: token_to_piece(token: token).map(UInt8.init))
+            }
+        }
+
         var score: Float = 0
         let nextTokenTopKCount = 3
         var altTokens = FixedSizeHeap<AlternativeHighProbToken>(size: requestRichCandidates ? 5 : 0)
@@ -568,13 +575,8 @@ final class ZenzContext {
             // ここで最も良い候補であったかをチェックする
             if maxItem.token != token_id {
                 if maxItem.token == llama_vocab_eos(vocab) {
-                    let cchars: [CChar] = tokens[..<i].reduce(into: []) {
-                        $0.append(contentsOf: token_to_piece(token: $1))
-                    }
-                    let data = Data(cchars.map { UInt8(bitPattern: $0) })
-                    let string: String = String(data: data, encoding: .utf8) ?? ""
-                    // 要求するべき制約を記述する
-                    let wholeResult = String(string.dropFirst(prompt.count))
+                    let data = Data(candidatePrefixBytes)
+                    let wholeResult: String = String(data: data, encoding: .utf8) ?? ""
                     return .wholeResult(wholeResult)
                 } else {
                     let actual_logp: Float = logits[startIndex + Int(token_id)] - logsumexp
@@ -582,29 +584,25 @@ final class ZenzContext {
                     let preferLearnedToken = is_learned_token[i].isLearned && actual_logp + is_learned_token[i].priority > maxItem.logprob
                     if !preferLearnedToken {
                         // adding "\0"
-                        let cchars = tokens[..<i].reduce(into: []) {
-                            $0.append(contentsOf: token_to_piece(token: $1))
-                        } + token_to_piece(token: maxItem.token)
-                        return .fixRequired(prefixConstraint: cchars.dropFirst(prompt.utf8.count).map(UInt8.init))
+                        let constraint = candidatePrefixBytes + token_to_piece(token: maxItem.token).map(UInt8.init)
+                        return .fixRequired(prefixConstraint: constraint)
                     }
                 }
             } else if !tokenHeap.isEmpty {
                 tokenHeap.removeMax()
-                let prefix = tokens[..<i].reduce(into: []) {
-                    $0.append(contentsOf: token_to_piece(token: $1))
-                }.dropFirst(prompt.utf8.count)
-
+                let prefix = candidatePrefixBytes
                 for item in tokenHeap.unordered {
                     altTokens.insertIfPossible(
                         AlternativeHighProbToken(
                             token: item.token,
-                            constraint: prefix.map(UInt8.init) + token_to_piece(token: item.token).map(UInt8.init),
+                            constraint: prefix + token_to_piece(token: item.token).map(UInt8.init),
                             probabilityRatioToMaxProb: expf(item.logprob - maxItem.logprob)
                         )
                     )
                 }
             }
             score += maxItem.logprob
+            candidatePrefixBytes.append(contentsOf: token_to_piece(token: token_id).map(UInt8.init))
         }
         return .pass(
             score: score,
