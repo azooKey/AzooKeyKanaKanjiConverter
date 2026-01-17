@@ -231,6 +231,14 @@ final class ZenzContext {
         }
     }
 
+    private struct TokenAndLogprob: Comparable {
+        static func < (lhs: TokenAndLogprob, rhs: TokenAndLogprob) -> Bool {
+            lhs.logprob < rhs.logprob
+        }
+        var token: llama_token
+        var logprob: Float
+    }
+
     func getLearningPriority(data: DicdataElement) -> Float {
         // 文字数の長い候補ほど優先的に適用されるようにする
         // 積極的な複合語化の効果を期待
@@ -332,6 +340,17 @@ final class ZenzContext {
         return minHeap.unordered.sorted { $0.value > $1.value }.map { ($0.character, $0.value / exp_sum) }
     }
 
+    private struct AlternativeHighProbToken: Comparable {
+        static func < (lhs: AlternativeHighProbToken, rhs: AlternativeHighProbToken) -> Bool {
+            lhs.probabilityRatioToMaxProb < rhs.probabilityRatioToMaxProb
+        }
+
+        var token: llama_token
+        var constraint: [UInt8]
+        // 最大probabilityに対しての割合
+        var probabilityRatioToMaxProb: Float
+    }
+
     func evaluate_candidate(
         input: String,
         candidate: Candidate,
@@ -343,87 +362,7 @@ final class ZenzContext {
         debug("Evaluate", candidate)
         // For zenz-v1 model, \u{EE00} is a token used for 'start query', and \u{EE01} is a token used for 'start answer'
         // We assume \u{EE01}\(candidate) is always splitted into \u{EE01}_\(candidate) by zenz-v1 tokenizer
-        var userDictionaryPrompt: String = ""
-        for item in candidate.data where item.metadata.contains(.isFromUserDictionary) {
-            userDictionaryPrompt += "\(item.word)(\(item.ruby.toHiragana()))"
-        }
-        var conditions: [String] = []
-        // ユーザ辞書の内容がある場合はこれを条件に追加
-        if !userDictionaryPrompt.isEmpty {
-            conditions.append("辞書:\(userDictionaryPrompt)")
-        }
-        // プロフィールがある場合はこれを条件に追加
-        switch versionDependentConfig {
-        case .v1: break
-        case .v2(let mode):
-            if let profile = mode.profile, !profile.isEmpty {
-                let pf = profile.suffix(25)
-                conditions.append("プロフィール:\(pf)")
-            }
-        case .v3(let mode):
-            if let profile = mode.profile, !profile.isEmpty {
-                let pf = profile.suffix(25)
-                conditions.append("\u{EE03}\(pf)")
-            }
-            if let topic = mode.topic, !topic.isEmpty {
-                let tp = topic.suffix(25)
-                conditions.append("\u{EE04}\(tp)")
-            }
-            if let style = mode.style, !style.isEmpty {
-                let st = style.suffix(25)
-                conditions.append("\u{EE05}\(st)")
-            }
-            if let preference = mode.preference, !preference.isEmpty {
-                let pr = preference.suffix(25)
-                conditions.append("\u{EE06}\(pr)")
-            }
-        }
-        // 左文脈を取得
-        let leftSideContext: String = switch versionDependentConfig {
-        case .v1: ""
-        case .v2(let mode):
-            if let leftSideContext = mode.leftSideContext {
-                String(leftSideContext.suffix(mode.maxLeftSideContextLength ?? 40))
-            } else {
-                ""
-            }
-        case .v3(let mode):
-            if let leftSideContext = mode.leftSideContext {
-                String(leftSideContext.suffix(mode.maxLeftSideContextLength ?? 40))
-            } else {
-                ""
-            }
-        }
-        let inputTag = "\u{EE00}"
-        let outputTag = "\u{EE01}"
-        let contextTag = "\u{EE02}"
-        // プロンプトを作成
-        var prompt: String = switch versionDependentConfig {
-        case .v1:
-            inputTag + input + outputTag
-        case .v2:
-            if !conditions.isEmpty {
-                // 条件がemptyでない場合は「・」でつなぎ、「発言:」を末尾に追加
-                inputTag + input + contextTag + conditions.joined(separator: "・") + "・発言:\(leftSideContext)" + outputTag
-            } else if !leftSideContext.isEmpty {
-                // 条件がemptyの場合、単にleftSideContextを追加
-                inputTag + input + contextTag + leftSideContext + outputTag
-            } else {
-                // そのまま
-                inputTag + input + outputTag
-            }
-        case .v3:
-            if !leftSideContext.isEmpty {
-                // leftSideContextがEmptyでなければ下記の通り処理
-                // contextがinputに前置されるように変更された(KV-cachingの効率化のため)
-                conditions.joined(separator: "") + contextTag + leftSideContext + inputTag + input + outputTag
-            } else {
-                // そのまま
-                conditions.joined(separator: "") + inputTag + input + outputTag
-            }
-        }
-        // プロンプトの前処理を適用
-        prompt = self.preprocessText(text: prompt)
+        let prompt = self.buildPrompt(input: input, candidate: candidate, versionDependentConfig: versionDependentConfig)
         // Therefore, tokens = prompt_tokens + candidate_tokens is an appropriate operation.
         let prompt_tokens = self.tokenize(text: prompt, add_bos: true, add_eos: false)
         defer {
@@ -508,63 +447,23 @@ final class ZenzContext {
             self.latestFirstStepTopK = firstStepTopK
         }
 
-        struct AlternativeHighProbToken: Comparable {
-            static func < (lhs: AlternativeHighProbToken, rhs: AlternativeHighProbToken) -> Bool {
-                lhs.probabilityRatioToMaxProb < rhs.probabilityRatioToMaxProb
-            }
-
-            var token: llama_token
-            var constraint: [UInt8]
-            // 最大probabilityに対しての割合
-            var probabilityRatioToMaxProb: Float
-        }
-
         for (i, token_id) in tokens.indexed().dropFirst(startOffset + 1) {
             // それぞれのトークンが、一つ前の予測において最も確率の高いトークンであるかをチェックする
             // softmaxはmaxなので、単にlogitsの中で最も大きいものを選べば良い
             // 一方実用的にはlog_probも得ておきたい。このため、ここでは明示的にsoftmaxも計算している
-            struct TokenAndLogprob: Comparable {
-                static func < (lhs: TokenAndLogprob, rhs: TokenAndLogprob) -> Bool {
-                    lhs.logprob < rhs.logprob
-                }
-                var token: llama_token
-                var logprob: Float
-            }
-            var sumexp: Float = 0
             let startIndex = (i - 1 - startOffset) * Int(n_vocab)
             let endIndex = (i - startOffset) * Int(n_vocab)
-            var tokenHeap = FixedSizeHeap<TokenAndLogprob>(size: max(nextTokenTopKCount, requestRichCandidates ? 3 : 1))
-            for index in startIndex ..< endIndex {
-                sumexp += expf(logits[index])
-            }
-            let logsumexp = logf(sumexp)
-
-            if let (mode, baseLM, personalLM) = personalizationMode, mode.alpha > 0 {
-                let prefix = tokens[..<i].dropFirst(prompt_tokens.count).map(Int.init)
-                let baseProb: [Float]
-                let personalProb: [Float]
-                // SwiftNgramのLMは無条件の場合エラーになるため(Unigram確率はサポートしていない)
-                if !prefix.isEmpty {
-                    baseProb = baseLM.bulkPredict(prefix).map { logf(Float($0) + 1e-7) }
-                    personalProb = personalLM.bulkPredict(prefix).map { logf(Float($0) + 1e-7) }
-                } else {
-                    baseProb = Array(repeating: 0, count: Int(n_vocab))
-                    personalProb = baseProb
-                }
-                // p = probabilityBuffer / exp_sum
-                // p' = p / p_b * p_p
-                for (i, (lpb, lpp)) in zip(0 ..< Int(n_vocab), zip(baseProb, personalProb)) {
-                    let logp = logits[startIndex + i] - logsumexp
-                    let logp_ = logp + mode.alpha * (lpp - lpb) // personalized probability
-                    tokenHeap.insertIfPossible(TokenAndLogprob(token: llama_token(i), logprob: logp_))
-                }
-            } else {
-                // p = probabilityBuffer / exp_sum
-                for i in startIndex ..< endIndex {
-                    let logp = logits[i] - logsumexp
-                    tokenHeap.insertIfPossible(TokenAndLogprob(token: llama_token(i - startIndex), logprob: logp))
-                }
-            }
+            var (tokenHeap, logsumexp) = self.buildTokenHeap(
+                tokens: tokens,
+                promptTokenCount: prompt_tokens.count,
+                position: i,
+                logits: logits,
+                startIndex: startIndex,
+                endIndex: endIndex,
+                nVocab: Int(n_vocab),
+                personalizationMode: personalizationMode,
+                heapSize: max(nextTokenTopKCount, requestRichCandidates ? 3 : 1)
+            )
 
             guard let maxItem = tokenHeap.max else {
                 debug("Max Item could not be found for unknown reason")
@@ -611,6 +510,144 @@ final class ZenzContext {
             },
             nextTokenTopK: firstStepTopK.isEmpty ? self.latestFirstStepTopK : firstStepTopK
         )
+    }
+
+    @inline(__always)
+    private func buildPrompt(
+        input: String,
+        candidate: Candidate,
+        versionDependentConfig: ConvertRequestOptions.ZenzaiVersionDependentMode
+    ) -> String {
+        var userDictionaryPrompt: String = ""
+        for item in candidate.data where item.metadata.contains(.isFromUserDictionary) {
+            userDictionaryPrompt += "\(item.word)(\(item.ruby.toHiragana()))"
+        }
+        var conditions: [String] = []
+        // ユーザ辞書の内容がある場合はこれを条件に追加
+        if !userDictionaryPrompt.isEmpty {
+            conditions.append("辞書:\(userDictionaryPrompt)")
+        }
+        // プロフィールがある場合はこれを条件に追加
+        switch versionDependentConfig {
+        case .v1: break
+        case .v2(let mode):
+            if let profile = mode.profile, !profile.isEmpty {
+                let pf = profile.suffix(25)
+                conditions.append("プロフィール:\(pf)")
+            }
+        case .v3(let mode):
+            if let profile = mode.profile, !profile.isEmpty {
+                let pf = profile.suffix(25)
+                conditions.append("\u{EE03}\(pf)")
+            }
+            if let topic = mode.topic, !topic.isEmpty {
+                let tp = topic.suffix(25)
+                conditions.append("\u{EE04}\(tp)")
+            }
+            if let style = mode.style, !style.isEmpty {
+                let st = style.suffix(25)
+                conditions.append("\u{EE05}\(st)")
+            }
+            if let preference = mode.preference, !preference.isEmpty {
+                let pr = preference.suffix(25)
+                conditions.append("\u{EE06}\(pr)")
+            }
+        }
+        // 左文脈を取得
+        let leftSideContext: String = switch versionDependentConfig {
+        case .v1: ""
+        case .v2(let mode):
+            if let leftSideContext = mode.leftSideContext {
+                String(leftSideContext.suffix(mode.maxLeftSideContextLength ?? 40))
+            } else {
+                ""
+            }
+        case .v3(let mode):
+            if let leftSideContext = mode.leftSideContext {
+                String(leftSideContext.suffix(mode.maxLeftSideContextLength ?? 40))
+            } else {
+                ""
+            }
+        }
+        let inputTag = "\u{EE00}"
+        let outputTag = "\u{EE01}"
+        let contextTag = "\u{EE02}"
+        // プロンプトを作成
+        let prompt: String = switch versionDependentConfig {
+        case .v1:
+            inputTag + input + outputTag
+        case .v2:
+            if !conditions.isEmpty {
+                // 条件がemptyでない場合は「・」でつなぎ、「発言:」を末尾に追加
+                inputTag + input + contextTag + conditions.joined(separator: "・") + "・発言:\(leftSideContext)" + outputTag
+            } else if !leftSideContext.isEmpty {
+                // 条件がemptyの場合、単にleftSideContextを追加
+                inputTag + input + contextTag + leftSideContext + outputTag
+            } else {
+                // そのまま
+                inputTag + input + outputTag
+            }
+        case .v3:
+            if !leftSideContext.isEmpty {
+                // leftSideContextがEmptyでなければ下記の通り処理
+                // contextがinputに前置されるように変更された(KV-cachingの効率化のため)
+                conditions.joined(separator: "") + contextTag + leftSideContext + inputTag + input + outputTag
+            } else {
+                // そのまま
+                conditions.joined(separator: "") + inputTag + input + outputTag
+            }
+        }
+        // プロンプトの前処理を適用
+        return self.preprocessText(text: prompt)
+    }
+
+    @inline(__always)
+    private func buildTokenHeap(
+        tokens: [llama_token],
+        promptTokenCount: Int,
+        position: Int,
+        logits: UnsafeMutablePointer<Float>,
+        startIndex: Int,
+        endIndex: Int,
+        nVocab: Int,
+        personalizationMode: (mode: ConvertRequestOptions.ZenzaiMode.PersonalizationMode, base: EfficientNGram, personal: EfficientNGram)?,
+        heapSize: Int
+    ) -> (FixedSizeHeap<TokenAndLogprob>, Float) {
+        var sumexp: Float = 0
+        for index in startIndex ..< endIndex {
+            sumexp += expf(logits[index])
+        }
+        let logsumexp = logf(sumexp)
+        var tokenHeap = FixedSizeHeap<TokenAndLogprob>(size: heapSize)
+
+        if let (mode, baseLM, personalLM) = personalizationMode, mode.alpha > 0 {
+            let prefix = tokens[..<position].dropFirst(promptTokenCount).map(Int.init)
+            let baseProb: [Float]
+            let personalProb: [Float]
+            // SwiftNgramのLMは無条件の場合エラーになるため(Unigram確率はサポートしていない)
+            if !prefix.isEmpty {
+                baseProb = baseLM.bulkPredict(prefix).map { logf(Float($0) + 1e-7) }
+                personalProb = personalLM.bulkPredict(prefix).map { logf(Float($0) + 1e-7) }
+            } else {
+                baseProb = Array(repeating: 0, count: nVocab)
+                personalProb = baseProb
+            }
+            // p = probabilityBuffer / exp_sum
+            // p' = p / p_b * p_p
+            for (index, (lpb, lpp)) in zip(0 ..< nVocab, zip(baseProb, personalProb)) {
+                let logp = logits[startIndex + index] - logsumexp
+                let logp_ = logp + mode.alpha * (lpp - lpb) // personalized probability
+                tokenHeap.insertIfPossible(TokenAndLogprob(token: llama_token(index), logprob: logp_))
+            }
+        } else {
+            // p = probabilityBuffer / exp_sum
+            for index in 0 ..< nVocab {
+                let logp = logits[startIndex + index] - logsumexp
+                tokenHeap.insertIfPossible(TokenAndLogprob(token: llama_token(index), logprob: logp))
+            }
+        }
+
+        return (tokenHeap, logsumexp)
     }
 
     private func llama_batch_add(_ batch: inout llama_batch, _ id: llama_token, _ pos: llama_pos, _ seq_ids: [llama_seq_id], logits: Bool) {
