@@ -77,7 +77,7 @@ extension Kana2Kanji {
                 }
                 let possibleNexts: [Substring] = table.possibleNexts[String(roman), default: []].map {ruby + $0}
                 debug(#function, lastRuby, ruby, roman, possibleNexts, prepart, lastRubyCount)
-                dicdata = possibleNexts.flatMap { self.dicdataStore.getPredictionLOUDSDicdata(key: $0, state: dicdataStoreState) }
+                dicdata = possibleNexts.flatMap { self.dicdataStore.getPredictionLOUDSDicdata(key: $0, state: dicdataStoreState, includeExactMatch: true) }
             } else {
                 debug(#function, lastRuby, "roman == \"\"")
                 dicdata = self.dicdataStore.getPredictionLOUDSDicdata(key: lastRuby, state: dicdataStoreState)
