@@ -328,6 +328,8 @@ public final class KanaKanjiConverter {
         // まず、lastPartがnilであるところから始める
 
         var candidates: [Candidate] = []
+        let fullCandidateData = bestCandidateDataForPrediction
+        let fullCandidate: Candidate? = fullCandidateData.clauses.isEmpty ? nil : converter.processClauseCandidate(fullCandidateData)
         var prepart = consume bestCandidateDataForPrediction
         var lastpart: CandidateData.ClausesUnit?
         var count = 0
@@ -382,6 +384,25 @@ public final class KanaKanjiConverter {
             )
             print(fullClause.text, predictions)
             candidates.append(contentsOf: consume predictions)
+        }
+        if candidates.isEmpty,
+           let lastpart,
+           let nextToken = self.zenzNextTokenTopK?.first?.token,
+           !nextToken.isEmpty,
+           let fullCandidate {
+            let predictions = converter.getPredictionCandidates(
+                composingText: composingText,
+                prepart: prepart,
+                lastClause: lastpart.clause,
+                N_best: 5,
+                dicdataStoreState: self.dicdataStoreState,
+                zenzNextTokenTopK: self.zenzNextTokenTopK,
+                lookupRubyOverride: nextToken,
+                baseCandidateOverride: fullCandidate
+            )
+            if !predictions.isEmpty {
+                candidates.append(contentsOf: consume predictions)
+            }
         }
         return candidates
     }
