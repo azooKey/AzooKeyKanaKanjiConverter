@@ -5,6 +5,10 @@ import SwiftUtils
 package final class Zenz {
     package var resourceURL: URL
     private var zenzContext: ZenzContext?
+    var latestFirstStepTopK: [ZenzContext.CandidateEvaluationResult.NextTokenPrediction] {
+        get { zenzContext?.latestFirstStepTopK ?? [] }
+        set { zenzContext?.latestFirstStepTopK = newValue }
+    }
     init(resourceURL: URL) throws {
         self.resourceURL = resourceURL
         do {

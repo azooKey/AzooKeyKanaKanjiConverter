@@ -5,17 +5,19 @@ import SwiftUtils
 
 extension Kana2Kanji {
     struct ZenzaiCache {
-        init(_ inputData: ComposingText, constraint: PrefixConstraint, satisfyingCandidate: Candidate?, lattice: Lattice? = nil) {
+        init(_ inputData: ComposingText, constraint: PrefixConstraint, satisfyingCandidate: Candidate?, lattice: Lattice? = nil, nextTokenTopK: [ZenzContext.CandidateEvaluationResult.NextTokenPrediction]? = nil) {
             self.inputData = inputData
             self.prefixConstraint = constraint
             self.satisfyingCandidate = satisfyingCandidate
             self.cachedLattice = lattice
+            self.nextTokenTopK = nextTokenTopK
         }
 
         private var prefixConstraint: PrefixConstraint
         private var satisfyingCandidate: Candidate?
         private var inputData: ComposingText
         private var cachedLattice: Lattice?
+        var nextTokenTopK: [ZenzContext.CandidateEvaluationResult.NextTokenPrediction]?
 
         func getNewConstraint(for newInputData: ComposingText) -> PrefixConstraint {
             if let satisfyingCandidate {
@@ -135,7 +137,7 @@ extension Kana2Kanji {
                 debug("best was not found!")
                 // Emptyの場合
                 // 制約が満たせない場合は無視する
-                return (eosNode, lattice, ZenzaiCache(inputData, constraint: PrefixConstraint([]), satisfyingCandidate: nil, lattice: lattice))
+                return (eosNode, lattice, ZenzaiCache(inputData, constraint: PrefixConstraint([]), satisfyingCandidate: nil, lattice: lattice, nextTokenTopK: zenz.latestFirstStepTopK.isEmpty ? nil : zenz.latestFirstStepTopK))
             }
 
             debug("Constrained draft modeling", -start.timeIntervalSinceNow)
@@ -146,7 +148,7 @@ extension Kana2Kanji {
                 if inferenceLimit == 0 {
                     debug("inference limit! \(candidate.text) is used for excuse")
                     // When inference occurs more than maximum times, then just return result at this point
-                    return (eosNode, lattice, ZenzaiCache(inputData, constraint: constraint, satisfyingCandidate: candidate, lattice: lattice))
+                    return (eosNode, lattice, ZenzaiCache(inputData, constraint: constraint, satisfyingCandidate: candidate, lattice: lattice, nextTokenTopK: zenz.latestFirstStepTopK.isEmpty ? nil : zenz.latestFirstStepTopK))
                 }
                 let reviewResult = zenz.candidateEvaluate(
                     convertTarget: inputData.convertTarget,
@@ -164,7 +166,7 @@ extension Kana2Kanji {
                     constraint: &constraint
                 )
                 switch nextAction {
-                case .return(let constraint, let alternativeConstraints, let satisfied):
+                case .return(let constraint, let alternativeConstraints, let satisfied, let nextTokenTopK):
                     if requestRichCandidates {
                         // alternativeConstraintsに従い、insertedCandidatesにデータを追加する
                         for alternativeConstraint in alternativeConstraints.reversed() where alternativeConstraint.probabilityRatio > 0.25 {
@@ -195,10 +197,15 @@ extension Kana2Kanji {
                             }
                         }
                     }
+                    let nt: [ZenzContext.CandidateEvaluationResult.NextTokenPrediction]? = {
+                        if let ntc = nextTokenTopK, !ntc.isEmpty { return ntc }
+                        if !zenz.latestFirstStepTopK.isEmpty { return zenz.latestFirstStepTopK }
+                        return nil
+                    }()
                     if satisfied {
-                        return (eosNode, lattice, ZenzaiCache(inputData, constraint: constraint, satisfyingCandidate: candidate, lattice: lattice))
+                        return (eosNode, lattice, ZenzaiCache(inputData, constraint: constraint, satisfyingCandidate: candidate, lattice: lattice, nextTokenTopK: nt))
                     } else {
-                        return (eosNode, lattice, ZenzaiCache(inputData, constraint: constraint, satisfyingCandidate: nil, lattice: lattice))
+                        return (eosNode, lattice, ZenzaiCache(inputData, constraint: constraint, satisfyingCandidate: nil, lattice: lattice, nextTokenTopK: nt))
                     }
                 case .continue:
                     break reviewLoop
@@ -211,7 +218,7 @@ extension Kana2Kanji {
     }
 
     private enum NextAction {
-        case `return`(constraint: PrefixConstraint, alternativeConstraints: [ZenzContext.CandidateEvaluationResult.AlternativeConstraint], satisfied: Bool)
+        case `return`(constraint: PrefixConstraint, alternativeConstraints: [ZenzContext.CandidateEvaluationResult.AlternativeConstraint], satisfied: Bool, nextTokenTopK: [ZenzContext.CandidateEvaluationResult.NextTokenPrediction]?)
         case `continue`
         case `retry`(candidateIndex: Int)
     }
@@ -226,11 +233,11 @@ extension Kana2Kanji {
         case .error:
             // 何らかのエラーが発生
             debug("error")
-            return .return(constraint: constraint, alternativeConstraints: [], satisfied: false)
-        case .pass(let score, let alternativeConstraints):
+            return .return(constraint: constraint, alternativeConstraints: [], satisfied: false, nextTokenTopK: nil)
+        case .pass(let score, let alternativeConstraints, let nextTokenTopK):
             // 合格
             debug("passed:", score)
-            return .return(constraint: constraint, alternativeConstraints: alternativeConstraints, satisfied: true)
+            return .return(constraint: constraint, alternativeConstraints: alternativeConstraints, satisfied: true, nextTokenTopK: nextTokenTopK)
         case .fixRequired(let prefixConstraint):
             if constraint.constraint == prefixConstraint {
                 if !constraint.ignoreMemoryAndUserDictionary, candidates[candidateIndex].data.contains(where: { !$0.metadata.isDisjoint(with: [.isLearned, .isFromUserDictionary])}) {
@@ -247,8 +254,8 @@ extension Kana2Kanji {
                 } else {
                     // それ以外の場合で同じ制約が2回連続で出てきたら諦める
                     debug("same constraint (fixRequired):", prefixConstraint)
-                    return .return(constraint: PrefixConstraint([]), alternativeConstraints: [], satisfied: false)
-                }
+                    return .return(constraint: PrefixConstraint([]), alternativeConstraints: [], satisfied: false, nextTokenTopK: nil)
+            }
             }
             // 制約が得られたので、更新する
             let isIncrementalUpdate = prefixConstraint.hasPrefix(constraint.constraint)
@@ -284,8 +291,8 @@ extension Kana2Kanji {
                 } else {
                     // それ以外の場合で同じ制約が2回連続で出てきたら諦める
                     debug("same constraint (wholeResult):", constraint)
-                    return .return(constraint: PrefixConstraint([]), alternativeConstraints: [], satisfied: false)
-                }
+                    return .return(constraint: PrefixConstraint([]), alternativeConstraints: [], satisfied: false, nextTokenTopK: nil)
+            }
             }
             // 制約が得られたので、更新する
             debug("update whole constraint:", wholeConstraint)

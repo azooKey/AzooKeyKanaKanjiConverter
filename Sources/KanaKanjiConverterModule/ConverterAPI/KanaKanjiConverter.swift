@@ -48,6 +48,7 @@ public final class KanaKanjiConverter {
     private var zenzaiCache: Kana2Kanji.ZenzaiCache?
     private var zenzaiPersonalization: (mode: ConvertRequestOptions.ZenzaiMode.PersonalizationMode, base: EfficientNGram, personal: EfficientNGram)?
     public private(set) var zenzStatus: String = ""
+    private var zenzNextTokenTopK: [ZenzContext.CandidateEvaluationResult.NextTokenPrediction]?
     private var dicdataStoreState: DicdataStoreState
 
     /// リセットする関数
@@ -59,6 +60,7 @@ public final class KanaKanjiConverter {
         self.lattice = .init()
         self.completedData = nil
         self.lastData = nil
+        self.zenzNextTokenTopK = nil
     }
 
     private func getZenzaiPersonalization(mode: ConvertRequestOptions.ZenzaiMode.PersonalizationMode?) -> (mode: ConvertRequestOptions.ZenzaiMode.PersonalizationMode, base: EfficientNGram, personal: EfficientNGram)? {
@@ -326,6 +328,8 @@ public final class KanaKanjiConverter {
         // まず、lastPartがnilであるところから始める
 
         var candidates: [Candidate] = []
+        let fullCandidateData = bestCandidateDataForPrediction
+        let fullCandidate: Candidate? = fullCandidateData.clauses.isEmpty ? nil : converter.processClauseCandidate(fullCandidateData)
         var prepart = consume bestCandidateDataForPrediction
         var lastpart: CandidateData.ClausesUnit?
         var count = 0
@@ -343,7 +347,7 @@ public final class KanaKanjiConverter {
                 newUnit.merge(with: oldlastPart.clause)     // マージする。(最終文節の範囲を広げたことになる)
                 let newValue = lastUnit.value + oldlastPart.value
                 let newlastPart: CandidateData.ClausesUnit = (clause: newUnit, value: newValue)
-                let predictions = converter.getPredictionCandidates(composingText: composingText, prepart: prepart, lastClause: newlastPart.clause, N_best: 5, dicdataStoreState: self.dicdataStoreState)
+                let predictions = converter.getPredictionCandidates(composingText: composingText, prepart: prepart, lastClause: newlastPart.clause, N_best: 5, dicdataStoreState: self.dicdataStoreState, zenzNextTokenTopK: self.zenzNextTokenTopK)
                 lastpart = newlastPart
                 // 結果がemptyでなければ
                 if !predictions.isEmpty {
@@ -354,7 +358,7 @@ public final class KanaKanjiConverter {
                 // 最終分節を取得
                 lastpart = prepart.clauses.popLast()
                 // 予測変換を受け取る
-                let predictions = converter.getPredictionCandidates(composingText: composingText, prepart: prepart, lastClause: lastpart!.clause, N_best: 5, dicdataStoreState: self.dicdataStoreState)
+                let predictions = converter.getPredictionCandidates(composingText: composingText, prepart: prepart, lastClause: lastpart!.clause, N_best: 5, dicdataStoreState: self.dicdataStoreState, zenzNextTokenTopK: self.zenzNextTokenTopK)
                 // 結果がemptyでなければ
                 if !predictions.isEmpty {
                     // 結果に追加
@@ -380,6 +384,25 @@ public final class KanaKanjiConverter {
             )
             print(fullClause.text, predictions)
             candidates.append(contentsOf: consume predictions)
+        }
+        if candidates.isEmpty,
+           let lastpart,
+           let nextToken = self.zenzNextTokenTopK?.first?.token,
+           !nextToken.isEmpty,
+           let fullCandidate {
+            let predictions = converter.getPredictionCandidates(
+                composingText: composingText,
+                prepart: prepart,
+                lastClause: lastpart.clause,
+                N_best: 5,
+                dicdataStoreState: self.dicdataStoreState,
+                zenzNextTokenTopK: self.zenzNextTokenTopK,
+                lookupRubyOverride: nextToken,
+                baseCandidateOverride: fullCandidate
+            )
+            if !predictions.isEmpty {
+                candidates.append(contentsOf: consume predictions)
+            }
         }
         return candidates
     }
@@ -725,6 +748,7 @@ public final class KanaKanjiConverter {
         if inputData.convertTarget.isEmpty {
             return nil
         }
+        self.zenzNextTokenTopK = nil
 
         // FIXME: enable cache based zenzai
         if zenzaiMode.enabled, let model = self.getModel(modelURL: zenzaiMode.weightURL) {
@@ -739,6 +763,7 @@ public final class KanaKanjiConverter {
                 dicdataStoreState: self.dicdataStoreState
             )
             self.zenzaiCache = cache
+            self.zenzNextTokenTopK = cache.nextTokenTopK
             self.previousInputData = inputData
             return (result, nodes)
         }
@@ -862,7 +887,8 @@ public final class KanaKanjiConverter {
         let predictionResults = self.converter.getPredictionCandidates(
             prepart: leftSideCandidate,
             N_best: 15,
-            dicdataStoreState: self.dicdataStoreState
+            dicdataStoreState: self.dicdataStoreState,
+            zenzNextTokenTopK: self.zenzNextTokenTopK
         )
         // 絵文字を追加
         let replacer = options.textReplacer

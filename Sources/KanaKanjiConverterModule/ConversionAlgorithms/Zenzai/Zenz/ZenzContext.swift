@@ -76,6 +76,8 @@ final class ZenzContext {
     private var vocab: OpaquePointer
     private var prevInput: [llama_token] = []
     private var prevPrompt: [llama_token] = []
+    // 直近のevaluate_candidateで得た入力末尾トップK
+    var latestFirstStepTopK: [CandidateEvaluationResult.NextTokenPrediction] = []
 
     private let n_len: Int32 = 512
 
@@ -212,7 +214,7 @@ final class ZenzContext {
 
     enum CandidateEvaluationResult: Sendable, Equatable, Hashable {
         case error
-        case pass(score: Float, alternativeConstraints: [AlternativeConstraint])
+        case pass(score: Float, alternativeConstraints: [AlternativeConstraint], nextTokenTopK: [NextTokenPrediction])
         case fixRequired(prefixConstraint: [UInt8])
         case wholeResult(String)
 
@@ -220,6 +222,21 @@ final class ZenzContext {
             var probabilityRatio: Float
             var prefixConstraint: [UInt8]
         }
+
+        struct NextTokenPrediction: Sendable, Equatable, Hashable {
+            /// UTF-8のトークン文字列（必ずしも1文字とは限らない）
+            var token: String
+            /// そのトークンの確率を最大値で割った比率
+            var probabilityRatio: Float
+        }
+    }
+
+    private struct TokenAndLogprob: Comparable {
+        static func < (lhs: TokenAndLogprob, rhs: TokenAndLogprob) -> Bool {
+            lhs.logprob < rhs.logprob
+        }
+        var token: llama_token
+        var logprob: Float
     }
 
     func getLearningPriority(data: DicdataElement) -> Float {
@@ -323,6 +340,17 @@ final class ZenzContext {
         return minHeap.unordered.sorted { $0.value > $1.value }.map { ($0.character, $0.value / exp_sum) }
     }
 
+    private struct AlternativeHighProbToken: Comparable {
+        static func < (lhs: AlternativeHighProbToken, rhs: AlternativeHighProbToken) -> Bool {
+            lhs.probabilityRatioToMaxProb < rhs.probabilityRatioToMaxProb
+        }
+
+        var token: llama_token
+        var constraint: [UInt8]
+        // 最大probabilityに対しての割合
+        var probabilityRatioToMaxProb: Float
+    }
+
     func evaluate_candidate(
         input: String,
         candidate: Candidate,
@@ -334,6 +362,162 @@ final class ZenzContext {
         debug("Evaluate", candidate)
         // For zenz-v1 model, \u{EE00} is a token used for 'start query', and \u{EE01} is a token used for 'start answer'
         // We assume \u{EE01}\(candidate) is always splitted into \u{EE01}_\(candidate) by zenz-v1 tokenizer
+        let prompt = self.buildPrompt(input: input, candidate: candidate, versionDependentConfig: versionDependentConfig)
+        // Therefore, tokens = prompt_tokens + candidate_tokens is an appropriate operation.
+        let prompt_tokens = self.tokenize(text: prompt, add_bos: true, add_eos: false)
+        defer {
+            self.prevPrompt = prompt_tokens
+        }
+
+        let candidate_tokens = self.tokenize(text: self.preprocessText(text: candidate.text), add_bos: false, add_eos: false)
+        // prefixConstraintをすでに満たしているトークンを調査する
+        let addressed_tokens: [llama_token]
+        if self.prevPrompt == prompt_tokens, !requestRichCandidates {
+            var string = ""
+            for character in candidate.text {
+                let newString = string + String(character)
+                if prefixConstraint.constraint.hasPrefix(newString.utf8) {
+                    string = newString
+                } else {
+                    break
+                }
+            }
+            // addressedTokensについてはそのまま扱えばよい
+            addressed_tokens = self.tokenize(text: self.preprocessText(text: string), add_bos: false, add_eos: false)
+        } else {
+            // rich candidatesのため、logit全体を得る必要がある
+            addressed_tokens = []
+        }
+
+        let tokens = prompt_tokens + candidate_tokens
+
+        // すでにprefixConstraintを満たしている部分については、計算をしない
+        let startOffset = prompt_tokens.count - 1 + addressed_tokens.count
+        // 入力末尾（\u{EE01}＝3トークン）直前でログitsを計算させる
+        let logitsStartIndex = max(prompt_tokens.count - 4, 0)
+        guard let logits = self.get_logits(tokens: tokens, logits_start_index: logitsStartIndex) else {
+            debug("logits unavailable")
+            return .error
+        }
+        let n_vocab = llama_vocab_n_tokens(vocab)
+        let is_learned_token: [(isLearned: Bool, priority: Float)] = Array(repeating: (false, 0), count: prompt_tokens.count) + candidate.data.flatMap {
+            // priorityは文字数にする→文字数が長いほど優先される
+            Array(repeating: ($0.metadata.contains(.isLearned), logf(getLearningPriority(data: $0))), count: self.tokenize(text: $0.word, add_bos: false).count)
+        }
+
+        var candidatePrefixBytes: [UInt8] = []
+        if prompt_tokens.count < startOffset + 1 {
+            for token in tokens[prompt_tokens.count ..< (startOffset + 1)] {
+                candidatePrefixBytes.append(contentsOf: token_to_piece(token: token).map(UInt8.init))
+            }
+        }
+
+        var score: Float = 0
+        let nextTokenTopKCount = 3
+        var altTokens = FixedSizeHeap<AlternativeHighProbToken>(size: requestRichCandidates ? 5 : 0)
+        var firstStepTopK: [CandidateEvaluationResult.NextTokenPrediction] = []
+
+        // 入力末尾（\u{EE01}直前。EE01は3トークンなので-4）での分布をあらかじめ取得
+        do {
+            let rowOffset = max(prompt_tokens.count - 4 - logitsStartIndex, 0)
+            let base = rowOffset * Int(n_vocab) // logitsStartIndex行からのオフセット行
+            var sumexpInput: Float = 0
+            for idx in base ..< base + Int(n_vocab) { sumexpInput += expf(logits[idx]) }
+            let logsumexpInput = logf(sumexpInput)
+            struct TokenProb: Comparable {
+                static func < (lhs: TokenProb, rhs: TokenProb) -> Bool { lhs.logprob < rhs.logprob }
+                var token: llama_token
+                var logprob: Float
+            }
+            var heapInput = FixedSizeHeap<TokenProb>(size: nextTokenTopKCount)
+            for idx in 0 ..< Int(n_vocab) {
+                let logp = logits[base + idx] - logsumexpInput
+                heapInput.insertIfPossible(TokenProb(token: llama_token(idx), logprob: logp))
+            }
+            if let maxItemInput = heapInput.max {
+                let maxLogprob = maxItemInput.logprob
+                firstStepTopK = heapInput.unordered.compactMap { item -> CandidateEvaluationResult.NextTokenPrediction? in
+                    let piece = token_to_piece(token: item.token)
+                    let data = Data(piece.map { UInt8(bitPattern: $0) })
+                    guard let tokenString = String(data: data, encoding: .utf8), !tokenString.isEmpty else { return nil }
+                    return .init(token: tokenString, probabilityRatio: expf(item.logprob - maxLogprob))
+                }.sorted { $0.probabilityRatio > $1.probabilityRatio }.prefix(nextTokenTopKCount).map { $0 }
+            }
+            // キャッシュ用に保持
+            self.latestFirstStepTopK = firstStepTopK
+        }
+
+        for (i, token_id) in tokens.indexed().dropFirst(startOffset + 1) {
+            // それぞれのトークンが、一つ前の予測において最も確率の高いトークンであるかをチェックする
+            // softmaxはmaxなので、単にlogitsの中で最も大きいものを選べば良い
+            // 一方実用的にはlog_probも得ておきたい。このため、ここでは明示的にsoftmaxも計算している
+            let startIndex = (i - 1 - startOffset) * Int(n_vocab)
+            let endIndex = (i - startOffset) * Int(n_vocab)
+            var (tokenHeap, logsumexp) = self.buildTokenHeap(
+                tokens: tokens,
+                promptTokenCount: prompt_tokens.count,
+                position: i,
+                logits: logits,
+                startIndex: startIndex,
+                endIndex: endIndex,
+                nVocab: Int(n_vocab),
+                personalizationMode: personalizationMode,
+                heapSize: max(nextTokenTopKCount, requestRichCandidates ? 3 : 1)
+            )
+
+            guard let maxItem = tokenHeap.max else {
+                debug("Max Item could not be found for unknown reason")
+                return .error
+            }
+            // firstStepTopK は入力行で算出済み
+
+            // ここで最も良い候補であったかをチェックする
+            if maxItem.token != token_id {
+                if maxItem.token == llama_vocab_eos(vocab) {
+                    let data = Data(candidatePrefixBytes)
+                    let wholeResult: String = String(data: data, encoding: .utf8) ?? ""
+                    return .wholeResult(wholeResult)
+                } else {
+                    let actual_logp: Float = logits[startIndex + Int(token_id)] - logsumexp
+                    // 学習されたトークンであり、なおかつactual_expのある程度大きければ、学習されたトークンを優先する
+                    let preferLearnedToken = is_learned_token[i].isLearned && actual_logp + is_learned_token[i].priority > maxItem.logprob
+                    if !preferLearnedToken {
+                        // adding "\0"
+                        let constraint = candidatePrefixBytes + token_to_piece(token: maxItem.token).map(UInt8.init)
+                        return .fixRequired(prefixConstraint: constraint)
+                    }
+                }
+            } else if !tokenHeap.isEmpty {
+                tokenHeap.removeMax()
+                let prefix = candidatePrefixBytes
+                for item in tokenHeap.unordered {
+                    altTokens.insertIfPossible(
+                        AlternativeHighProbToken(
+                            token: item.token,
+                            constraint: prefix + token_to_piece(token: item.token).map(UInt8.init),
+                            probabilityRatioToMaxProb: expf(item.logprob - maxItem.logprob)
+                        )
+                    )
+                }
+            }
+            score += maxItem.logprob
+            candidatePrefixBytes.append(contentsOf: token_to_piece(token: token_id).map(UInt8.init))
+        }
+        return .pass(
+            score: score,
+            alternativeConstraints: altTokens.unordered.sorted(by: >).map {
+                .init(probabilityRatio: $0.probabilityRatioToMaxProb, prefixConstraint: $0.constraint)
+            },
+            nextTokenTopK: firstStepTopK.isEmpty ? self.latestFirstStepTopK : firstStepTopK
+        )
+    }
+
+    @inline(__always)
+    private func buildPrompt(
+        input: String,
+        candidate: Candidate,
+        versionDependentConfig: ConvertRequestOptions.ZenzaiVersionDependentMode
+    ) -> String {
         var userDictionaryPrompt: String = ""
         for item in candidate.data where item.metadata.contains(.isFromUserDictionary) {
             userDictionaryPrompt += "\(item.word)(\(item.ruby.toHiragana()))"
@@ -389,7 +573,7 @@ final class ZenzContext {
         let outputTag = "\u{EE01}"
         let contextTag = "\u{EE02}"
         // プロンプトを作成
-        var prompt: String = switch versionDependentConfig {
+        let prompt: String = switch versionDependentConfig {
         case .v1:
             inputTag + input + outputTag
         case .v2:
@@ -414,154 +598,56 @@ final class ZenzContext {
             }
         }
         // プロンプトの前処理を適用
-        prompt = self.preprocessText(text: prompt)
-        // Therefore, tokens = prompt_tokens + candidate_tokens is an appropriate operation.
-        let prompt_tokens = self.tokenize(text: prompt, add_bos: true, add_eos: false)
-        defer {
-            self.prevPrompt = prompt_tokens
+        return self.preprocessText(text: prompt)
+    }
+
+    @inline(__always)
+    private func buildTokenHeap(
+        tokens: [llama_token],
+        promptTokenCount: Int,
+        position: Int,
+        logits: UnsafeMutablePointer<Float>,
+        startIndex: Int,
+        endIndex: Int,
+        nVocab: Int,
+        personalizationMode: (mode: ConvertRequestOptions.ZenzaiMode.PersonalizationMode, base: EfficientNGram, personal: EfficientNGram)?,
+        heapSize: Int
+    ) -> (FixedSizeHeap<TokenAndLogprob>, Float) {
+        var sumexp: Float = 0
+        for index in startIndex ..< endIndex {
+            sumexp += expf(logits[index])
         }
+        let logsumexp = logf(sumexp)
+        var tokenHeap = FixedSizeHeap<TokenAndLogprob>(size: heapSize)
 
-        let candidate_tokens = self.tokenize(text: self.preprocessText(text: candidate.text), add_bos: false, add_eos: false)
-        // prefixConstraintをすでに満たしているトークンを調査する
-        let addressed_tokens: [llama_token]
-        if self.prevPrompt == prompt_tokens, !requestRichCandidates {
-            var string = ""
-            for character in candidate.text {
-                let newString = string + String(character)
-                if prefixConstraint.constraint.hasPrefix(newString.utf8) {
-                    string = newString
-                } else {
-                    break
-                }
-            }
-            // addressedTokensについてはそのまま扱えばよい
-            addressed_tokens = self.tokenize(text: self.preprocessText(text: string), add_bos: false, add_eos: false)
-        } else {
-            // rich candidatesのため、logit全体を得る必要がある
-            addressed_tokens = []
-        }
-
-        let tokens = prompt_tokens + candidate_tokens
-
-        // すでにprefixConstraintを満たしている部分については、計算をしない
-        let startOffset = prompt_tokens.count - 1 + addressed_tokens.count
-        guard let logits = self.get_logits(tokens: tokens, logits_start_index: startOffset) else {
-            debug("logits unavailable")
-            return .error
-        }
-        let n_vocab = llama_vocab_n_tokens(vocab)
-        let is_learned_token: [(isLearned: Bool, priority: Float)] = Array(repeating: (false, 0), count: prompt_tokens.count) + candidate.data.flatMap {
-            // priorityは文字数にする→文字数が長いほど優先される
-            Array(repeating: ($0.metadata.contains(.isLearned), logf(getLearningPriority(data: $0))), count: self.tokenize(text: $0.word, add_bos: false).count)
-        }
-
-        var score: Float = 0
-
-        struct AlternativeHighProbToken: Comparable {
-            static func < (lhs: AlternativeHighProbToken, rhs: AlternativeHighProbToken) -> Bool {
-                lhs.probabilityRatioToMaxProb < rhs.probabilityRatioToMaxProb
-            }
-
-            var token: llama_token
-            var constraint: [UInt8]
-            // 最大probabilityに対しての割合
-            var probabilityRatioToMaxProb: Float
-        }
-
-        var altTokens = FixedSizeHeap<AlternativeHighProbToken>(size: requestRichCandidates ? 5 : 0)
-        for (i, token_id) in tokens.indexed().dropFirst(startOffset + 1) {
-            // それぞれのトークンが、一つ前の予測において最も確率の高いトークンであるかをチェックする
-            // softmaxはmaxなので、単にlogitsの中で最も大きいものを選べば良い
-            // 一方実用的にはlog_probも得ておきたい。このため、ここでは明示的にsoftmaxも計算している
-            struct TokenAndLogprob: Comparable {
-                static func < (lhs: TokenAndLogprob, rhs: TokenAndLogprob) -> Bool {
-                    lhs.logprob < rhs.logprob
-                }
-                var token: llama_token
-                var logprob: Float
-            }
-            var sumexp: Float = 0
-            let startIndex = (i - 1 - startOffset) * Int(n_vocab)
-            let endIndex = (i - startOffset) * Int(n_vocab)
-            var tokenHeap = FixedSizeHeap<TokenAndLogprob>(size: requestRichCandidates ? 3 : 1)
-            for index in startIndex ..< endIndex {
-                sumexp += expf(logits[index])
-            }
-            let logsumexp = logf(sumexp)
-
-            if let (mode, baseLM, personalLM) = personalizationMode, mode.alpha > 0 {
-                let prefix = tokens[..<i].dropFirst(prompt_tokens.count).map(Int.init)
-                let baseProb: [Float]
-                let personalProb: [Float]
-                // SwiftNgramのLMは無条件の場合エラーになるため(Unigram確率はサポートしていない)
-                if !prefix.isEmpty {
-                    baseProb = baseLM.bulkPredict(prefix).map { logf(Float($0) + 1e-7) }
-                    personalProb = personalLM.bulkPredict(prefix).map { logf(Float($0) + 1e-7) }
-                } else {
-                    baseProb = Array(repeating: 0, count: Int(n_vocab))
-                    personalProb = baseProb
-                }
-                // p = probabilityBuffer / exp_sum
-                // p' = p / p_b * p_p
-                for (i, (lpb, lpp)) in zip(0 ..< Int(n_vocab), zip(baseProb, personalProb)) {
-                    let logp = logits[startIndex + i] - logsumexp
-                    let logp_ = logp + mode.alpha * (lpp - lpb) // personalized probability
-                    tokenHeap.insertIfPossible(TokenAndLogprob(token: llama_token(i), logprob: logp_))
-                }
+        if let (mode, baseLM, personalLM) = personalizationMode, mode.alpha > 0 {
+            let prefix = tokens[..<position].dropFirst(promptTokenCount).map(Int.init)
+            let baseProb: [Float]
+            let personalProb: [Float]
+            // SwiftNgramのLMは無条件の場合エラーになるため(Unigram確率はサポートしていない)
+            if !prefix.isEmpty {
+                baseProb = baseLM.bulkPredict(prefix).map { logf(Float($0) + 1e-7) }
+                personalProb = personalLM.bulkPredict(prefix).map { logf(Float($0) + 1e-7) }
             } else {
-                // p = probabilityBuffer / exp_sum
-                for i in startIndex ..< endIndex {
-                    let logp = logits[i] - logsumexp
-                    tokenHeap.insertIfPossible(TokenAndLogprob(token: llama_token(i - startIndex), logprob: logp))
-                }
+                baseProb = Array(repeating: 0, count: nVocab)
+                personalProb = baseProb
             }
-
-            guard let maxItem = tokenHeap.max else {
-                debug("Max Item could not be found for unknown reason")
-                return .error
+            // p = probabilityBuffer / exp_sum
+            // p' = p / p_b * p_p
+            for (index, (lpb, lpp)) in zip(0 ..< nVocab, zip(baseProb, personalProb)) {
+                let logp = logits[startIndex + index] - logsumexp
+                let logp_ = logp + mode.alpha * (lpp - lpb) // personalized probability
+                tokenHeap.insertIfPossible(TokenAndLogprob(token: llama_token(index), logprob: logp_))
             }
-            // ここで最も良い候補であったかをチェックする
-            if maxItem.token != token_id {
-                if maxItem.token == llama_vocab_eos(vocab) {
-                    let cchars: [CChar] = tokens[..<i].reduce(into: []) {
-                        $0.append(contentsOf: token_to_piece(token: $1))
-                    }
-                    let data = Data(cchars.map { UInt8(bitPattern: $0) })
-                    let string: String = String(data: data, encoding: .utf8) ?? ""
-                    // 要求するべき制約を記述する
-                    let wholeResult = String(string.dropFirst(prompt.count))
-                    return .wholeResult(wholeResult)
-                } else {
-                    let actual_logp: Float = logits[startIndex + Int(token_id)] - logsumexp
-                    // 学習されたトークンであり、なおかつactual_expのある程度大きければ、学習されたトークンを優先する
-                    let preferLearnedToken = is_learned_token[i].isLearned && actual_logp + is_learned_token[i].priority > maxItem.logprob
-                    if !preferLearnedToken {
-                        // adding "\0"
-                        let cchars = tokens[..<i].reduce(into: []) {
-                            $0.append(contentsOf: token_to_piece(token: $1))
-                        } + token_to_piece(token: maxItem.token)
-                        return .fixRequired(prefixConstraint: cchars.dropFirst(prompt.utf8.count).map(UInt8.init))
-                    }
-                }
-            } else if !tokenHeap.isEmpty {
-                tokenHeap.removeMax()
-                let prefix = tokens[..<i].reduce(into: []) {
-                    $0.append(contentsOf: token_to_piece(token: $1))
-                }.dropFirst(prompt.utf8.count)
-
-                for item in tokenHeap.unordered {
-                    altTokens.insertIfPossible(
-                        AlternativeHighProbToken(
-                            token: item.token,
-                            constraint: prefix.map(UInt8.init) + token_to_piece(token: item.token).map(UInt8.init),
-                            probabilityRatioToMaxProb: expf(item.logprob - maxItem.logprob)
-                        )
-                    )
-                }
+        } else {
+            // p = probabilityBuffer / exp_sum
+            for index in 0 ..< nVocab {
+                let logp = logits[startIndex + index] - logsumexp
+                tokenHeap.insertIfPossible(TokenAndLogprob(token: llama_token(index), logprob: logp))
             }
-            score += maxItem.logprob
         }
-        return .pass(score: score, alternativeConstraints: altTokens.unordered.sorted(by: >).map {.init(probabilityRatio: $0.probabilityRatioToMaxProb, prefixConstraint: $0.constraint)})
+
+        return (tokenHeap, logsumexp)
     }
 
     private func llama_batch_add(_ batch: inout llama_batch, _ id: llama_token, _ pos: llama_pos, _ seq_ids: [llama_seq_id], logits: Bool) {
