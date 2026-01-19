@@ -4,7 +4,7 @@ import Foundation
 import SwiftUtils
 
 extension Kana2Kanji {
-    struct ZenzaiCache {
+    struct ZenzaiCache: @unchecked Sendable {
         init(_ inputData: ComposingText, constraint: PrefixConstraint, satisfyingCandidate: Candidate?, lattice: Lattice? = nil) {
             self.inputData = inputData
             self.prefixConstraint = constraint
@@ -77,6 +77,9 @@ extension Kana2Kanji {
     }
 
     /// zenzaiシステムによる完全変換。
+    #if ZenzaiCoreML && canImport(CoreML)
+    @available(iOS 18, macOS 15, *)
+    #endif
     func all_zenzai(
         _ inputData: ComposingText,
         zenz: Zenz,
@@ -86,7 +89,7 @@ extension Kana2Kanji {
         personalizationMode: (mode: ConvertRequestOptions.ZenzaiMode.PersonalizationMode, base: EfficientNGram, personal: EfficientNGram)?,
         versionDependentConfig: ConvertRequestOptions.ZenzaiVersionDependentMode,
         dicdataStoreState: DicdataStoreState
-    ) -> (result: LatticeNode, lattice: Lattice, cache: ZenzaiCache) {
+    ) async -> (result: LatticeNode, lattice: Lattice, cache: ZenzaiCache) {
         var constraint = zenzaiCache?.getNewConstraint(for: inputData) ?? PrefixConstraint([])
         debug("initial constraint", constraint)
         let eosNode = LatticeNode.EOSNode
@@ -148,7 +151,7 @@ extension Kana2Kanji {
                     // When inference occurs more than maximum times, then just return result at this point
                     return (eosNode, lattice, ZenzaiCache(inputData, constraint: constraint, satisfyingCandidate: candidate, lattice: lattice))
                 }
-                let reviewResult = zenz.candidateEvaluate(
+                let reviewResult = await zenz.candidateEvaluate(
                     convertTarget: inputData.convertTarget,
                     candidates: [candidate],
                     requestRichCandidates: requestRichCandidates,
@@ -210,16 +213,22 @@ extension Kana2Kanji {
         }
     }
 
+    #if ZenzaiCoreML && canImport(CoreML)
+    @available(iOS 18, macOS 15, *)
+    #endif
     private enum NextAction {
-        case `return`(constraint: PrefixConstraint, alternativeConstraints: [ZenzContext.CandidateEvaluationResult.AlternativeConstraint], satisfied: Bool)
+        case `return`(constraint: PrefixConstraint, alternativeConstraints: [ZenzCandidateEvaluationResult.AlternativeConstraint], satisfied: Bool)
         case `continue`
         case `retry`(candidateIndex: Int)
     }
 
+    #if ZenzaiCoreML && canImport(CoreML)
+    @available(iOS 18, macOS 15, *)
+    #endif
     private func review(
         candidateIndex: Int,
         candidates: [Candidate],
-        reviewResult: consuming ZenzContext.CandidateEvaluationResult,
+        reviewResult: consuming ZenzCandidateEvaluationResult,
         constraint: inout PrefixConstraint
     ) -> NextAction {
         switch reviewResult {

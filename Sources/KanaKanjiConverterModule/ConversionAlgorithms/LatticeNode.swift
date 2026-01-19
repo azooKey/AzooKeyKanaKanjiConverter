@@ -43,3 +43,9 @@ public final class LatticeNode {
         self.prevs.map {$0.getCandidateData()}
     }
 }
+
+// MARK: - Sendable support
+/// `LatticeNode` stores mutable references that are confined to the converter actor.
+/// Until the CoreML bridge returns fully value-typed snapshots (Session 2 plan),
+/// we mark it as `@unchecked Sendable` so it can cross async boundaries via DTO wrappers.
+extension LatticeNode: @unchecked Sendable {}

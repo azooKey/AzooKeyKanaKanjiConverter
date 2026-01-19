@@ -1,3 +1,4 @@
+#if !ZenzaiCoreML || !canImport(CoreML)
 #if Zenzai || ZenzaiCPU
 // Zenzai/ZenzaiCPU が有効でない場合、llama-mock.swift の実装が利用される
 import llama
@@ -8,53 +9,11 @@ import EfficientNGram
 import Foundation
 import HeapModule
 import SwiftUtils
-
-struct FixedSizeHeap<Element: Comparable> {
-    private var size: Int
-    private var heap: Heap<Element>
-
-    init(size: Int) {
-        self.size = size
-        self.heap = []
-    }
-
-    mutating func removeMax() {
-        self.heap.removeMax()
-    }
-
-    mutating func removeMin() {
-        self.heap.removeMin()
-    }
-
-    @discardableResult
-    mutating func insertIfPossible(_ element: Element) -> Bool {
-        if self.heap.count < self.size {
-            self.heap.insert(element)
-            return true
-        } else if let min = self.heap.min, element > min {
-            self.heap.replaceMin(with: element)
-            return true
-        } else {
-            return false
-        }
-    }
-
-    var unordered: [Element] {
-        self.heap.unordered
-    }
-
-    var max: Element? {
-        self.heap.max
-    }
-
-    var min: Element? {
-        self.heap.min
-    }
-
-    var isEmpty: Bool {
-        self.heap.isEmpty
-    }
-}
+#if canImport(Darwin)
+import Darwin
+#elseif canImport(Glibc)
+import Glibc
+#endif
 
 enum ZenzError: LocalizedError {
     case couldNotLoadModel(path: String)
@@ -69,8 +28,7 @@ enum ZenzError: LocalizedError {
         }
     }
 }
-
-final class ZenzContext {
+final class ZenzContext: ZenzContextProtocol {
     private var model: OpaquePointer
     private var context: OpaquePointer
     private var vocab: OpaquePointer
@@ -102,7 +60,7 @@ final class ZenzContext {
         return ctx_params
     }
 
-    static func createContext(path: String) throws -> ZenzContext {
+    static func createContext(path: String) async throws -> ZenzContext {
         llama_backend_init()
         var model_params = llama_model_default_params()
         model_params.use_mmap = true
@@ -137,7 +95,7 @@ final class ZenzContext {
         return ZenzContext(model: model, context: context, vocab: vocab)
     }
 
-    func reset_context() throws {
+    func reset_context() async throws {
         llama_free(self.context)
         var params = Self.ctx_params
         #if ZenzaiCPU
@@ -210,18 +168,6 @@ final class ZenzContext {
         return sum
     }
 
-    enum CandidateEvaluationResult: Sendable, Equatable, Hashable {
-        case error
-        case pass(score: Float, alternativeConstraints: [AlternativeConstraint])
-        case fixRequired(prefixConstraint: [UInt8])
-        case wholeResult(String)
-
-        struct AlternativeConstraint: Sendable, Equatable, Hashable {
-            var probabilityRatio: Float
-            var prefixConstraint: [UInt8]
-        }
-    }
-
     func getLearningPriority(data: DicdataElement) -> Float {
         // 文字数の長い候補ほど優先的に適用されるようにする
         // 積極的な複合語化の効果を期待
@@ -235,7 +181,7 @@ final class ZenzContext {
     }
 
     /// ピュアな貪欲法による生成を行って返す
-    func pure_greedy_decoding(leftSideContext: String, maxCount: Int = .max) -> String {
+    func pure_greedy_decoding(leftSideContext: String, maxCount: Int = .max) async -> String {
         var prompt_tokens = self.tokenize(text: leftSideContext, add_bos: false)
         let initial_count = prompt_tokens.count
         let eos_token = llama_vocab_eos(vocab)
@@ -271,7 +217,7 @@ final class ZenzContext {
         return String(data: data, encoding: .utf8) ?? "" as String
     }
 
-    func predict_next_character(leftSideContext: String, count: Int) -> [(character: Character, value: Float)] {
+    func predict_next_character(leftSideContext: String, count: Int) async -> [(character: Character, value: Float)] {
         struct NextCharacterCandidate: Comparable {
             static func < (lhs: NextCharacterCandidate, rhs: NextCharacterCandidate) -> Bool {
                 lhs.value < rhs.value
@@ -330,98 +276,22 @@ final class ZenzContext {
         prefixConstraint: Kana2Kanji.PrefixConstraint,
         personalizationMode: (mode: ConvertRequestOptions.ZenzaiMode.PersonalizationMode, base: EfficientNGram, personal: EfficientNGram)?,
         versionDependentConfig: ConvertRequestOptions.ZenzaiVersionDependentMode
-    ) -> CandidateEvaluationResult {
+    ) async -> ZenzCandidateEvaluationResult {
         debug("Evaluate", candidate)
         // For zenz-v1 model, \u{EE00} is a token used for 'start query', and \u{EE01} is a token used for 'start answer'
         // We assume \u{EE01}\(candidate) is always splitted into \u{EE01}_\(candidate) by zenz-v1 tokenizer
-        var userDictionaryPrompt: String = ""
-        for item in candidate.data where item.metadata.contains(.isFromUserDictionary) {
-            userDictionaryPrompt += "\(item.word)(\(item.ruby.toHiragana()))"
-        }
-        var conditions: [String] = []
-        // ユーザ辞書の内容がある場合はこれを条件に追加
-        if !userDictionaryPrompt.isEmpty {
-            conditions.append("辞書:\(userDictionaryPrompt)")
-        }
-        // プロフィールがある場合はこれを条件に追加
-        switch versionDependentConfig {
-        case .v1: break
-        case .v2(let mode):
-            if let profile = mode.profile, !profile.isEmpty {
-                let pf = profile.suffix(25)
-                conditions.append("プロフィール:\(pf)")
-            }
-        case .v3(let mode):
-            if let profile = mode.profile, !profile.isEmpty {
-                let pf = profile.suffix(25)
-                conditions.append("\u{EE03}\(pf)")
-            }
-            if let topic = mode.topic, !topic.isEmpty {
-                let tp = topic.suffix(25)
-                conditions.append("\u{EE04}\(tp)")
-            }
-            if let style = mode.style, !style.isEmpty {
-                let st = style.suffix(25)
-                conditions.append("\u{EE05}\(st)")
-            }
-            if let preference = mode.preference, !preference.isEmpty {
-                let pr = preference.suffix(25)
-                conditions.append("\u{EE06}\(pr)")
-            }
-        }
-        // 左文脈を取得
-        let leftSideContext: String = switch versionDependentConfig {
-        case .v1: ""
-        case .v2(let mode):
-            if let leftSideContext = mode.leftSideContext {
-                String(leftSideContext.suffix(mode.maxLeftSideContextLength ?? 40))
-            } else {
-                ""
-            }
-        case .v3(let mode):
-            if let leftSideContext = mode.leftSideContext {
-                String(leftSideContext.suffix(mode.maxLeftSideContextLength ?? 40))
-            } else {
-                ""
-            }
-        }
-        let inputTag = "\u{EE00}"
-        let outputTag = "\u{EE01}"
-        let contextTag = "\u{EE02}"
-        // プロンプトを作成
-        var prompt: String = switch versionDependentConfig {
-        case .v1:
-            inputTag + input + outputTag
-        case .v2:
-            if !conditions.isEmpty {
-                // 条件がemptyでない場合は「・」でつなぎ、「発言:」を末尾に追加
-                inputTag + input + contextTag + conditions.joined(separator: "・") + "・発言:\(leftSideContext)" + outputTag
-            } else if !leftSideContext.isEmpty {
-                // 条件がemptyの場合、単にleftSideContextを追加
-                inputTag + input + contextTag + leftSideContext + outputTag
-            } else {
-                // そのまま
-                inputTag + input + outputTag
-            }
-        case .v3:
-            if !leftSideContext.isEmpty {
-                // leftSideContextがEmptyでなければ下記の通り処理
-                // contextがinputに前置されるように変更された(KV-cachingの効率化のため)
-                conditions.joined(separator: "") + contextTag + leftSideContext + inputTag + input + outputTag
-            } else {
-                // そのまま
-                conditions.joined(separator: "") + inputTag + input + outputTag
-            }
-        }
-        // プロンプトの前処理を適用
-        prompt = self.preprocessText(text: prompt)
+        var prompt = ZenzPromptBuilder.buildPrompt(
+            convertTarget: input,
+            candidate: candidate,
+            versionDependentConfig: versionDependentConfig
+        )
         // Therefore, tokens = prompt_tokens + candidate_tokens is an appropriate operation.
         let prompt_tokens = self.tokenize(text: prompt, add_bos: true, add_eos: false)
         defer {
             self.prevPrompt = prompt_tokens
         }
 
-        let candidate_tokens = self.tokenize(text: self.preprocessText(text: candidate.text), add_bos: false, add_eos: false)
+        let candidate_tokens = self.tokenize(text: ZenzPromptBuilder.preprocess(candidate.text), add_bos: false, add_eos: false)
         // prefixConstraintをすでに満たしているトークンを調査する
         let addressed_tokens: [llama_token]
         if self.prevPrompt == prompt_tokens, !requestRichCandidates {
@@ -435,7 +305,7 @@ final class ZenzContext {
                 }
             }
             // addressedTokensについてはそのまま扱えばよい
-            addressed_tokens = self.tokenize(text: self.preprocessText(text: string), add_bos: false, add_eos: false)
+            addressed_tokens = self.tokenize(text: ZenzPromptBuilder.preprocess(string), add_bos: false, add_eos: false)
         } else {
             // rich candidatesのため、logit全体を得る必要がある
             addressed_tokens = []
@@ -575,11 +445,6 @@ final class ZenzContext {
         batch.n_tokens += 1
     }
 
-    private func preprocessText(text: String) -> String {
-        // replace space into ideographic space (\u3000) for zenz tokenizer
-        // replace newline into null for zenz tokenizer
-        text.replacingOccurrences(of: " ", with: "\u{3000}").replacingOccurrences(of: "\n", with: "")
-    }
     private func tokenize(text: String, add_bos: Bool, add_eos: Bool = false) -> [llama_token] {
         let utf8Count = text.utf8.count
         let n_tokens = utf8Count + (add_bos ? 1 : 0)
@@ -621,3 +486,4 @@ final class ZenzContext {
         }
     }
 }
+#endif
