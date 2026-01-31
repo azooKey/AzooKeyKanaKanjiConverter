@@ -103,6 +103,42 @@ public final class KanaKanjiConverter {
         return zenz.predictNextCharacter(leftSideContext: leftSideContext, count: count)
     }
 
+    public func predictNextInputCharacter(leftSideContext: String, composingText: String, count: Int, options: ConvertRequestOptions) -> [(character: Character, value: Float)] {
+        guard let zenz = self.getModel(modelURL: options.zenzaiMode.weightURL) else {
+            print("zenz-v3 model unavailable")
+            return []
+        }
+        guard options.zenzaiMode.versionDependentMode.version == .v3 else {
+            print("input prediction requires zenz-v3 models")
+            return []
+        }
+        return zenz.predictNextInputCharacter(
+            leftSideContext: leftSideContext,
+            composingText: composingText,
+            count: count,
+            versionDependentConfig: options.zenzaiMode.versionDependentMode
+        )
+    }
+
+    public func predictNextInputText(leftSideContext: String, composingText: String, count: Int, minLength: Int = 1, maxEntropy: Float?, options: ConvertRequestOptions) -> String {
+        guard let zenz = self.getModel(modelURL: options.zenzaiMode.weightURL) else {
+            print("zenz-v3 model unavailable")
+            return ""
+        }
+        guard options.zenzaiMode.versionDependentMode.version == .v3 else {
+            print("input prediction requires zenz-v3 models")
+            return ""
+        }
+        return zenz.predictNextInputText(
+            leftSideContext: leftSideContext,
+            composingText: composingText,
+            count: count,
+            minLength: minLength,
+            maxEntropy: maxEntropy,
+            versionDependentConfig: options.zenzaiMode.versionDependentMode
+        )
+    }
+
     /// 入力する言語が分かったらこの関数をなるべく早い段階で呼ぶことで、SpellCheckerの初期化が行われ、変換がスムーズになる
     public func setKeyboardLanguage(_ language: KeyboardLanguage) {
         self.dicdataStoreState.updateKeyboardLanguage(language)
@@ -320,13 +356,14 @@ public final class KanaKanjiConverter {
     ///   - sums: 変換対象のデータ。
     /// - Returns:
     ///   予測変換候補
-    private func getPredictionCandidate(_ bestCandidateDataForPrediction: consuming CandidateData, composingText: ComposingText, options _: ConvertRequestOptions) -> [Candidate] {
+    private func getPredictionCandidate(_ bestCandidateDataForPrediction: consuming CandidateData, composingText: ComposingText, options: ConvertRequestOptions) -> [Candidate] {
         // 予測変換は次の方針で行う。
         // prepart: 前半文節 lastPart: 最終文節とする。
         // まず、lastPartがnilであるところから始める
 
         var candidates: [Candidate] = []
         var prepart = consume bestCandidateDataForPrediction
+        let fullCandidate = self.converter.processClauseCandidate(prepart)
         var lastpart: CandidateData.ClausesUnit?
         var count = 0
         while true {
@@ -381,7 +418,57 @@ public final class KanaKanjiConverter {
             print(fullClause.text, predictions)
             candidates.append(contentsOf: consume predictions)
         }
-        return candidates
+        if !candidates.isEmpty {
+            return candidates
+        }
+        guard options.zenzaiMode.enabled, options.experimentalZenzaiPredictiveInput else {
+            return []
+        }
+        let leftSideContext: String = switch options.zenzaiMode.versionDependentMode {
+        case .v1:
+            ""
+        case .v2(let mode):
+            mode.leftSideContext ?? ""
+        case .v3(let mode):
+            mode.leftSideContext ?? ""
+        }
+        let predictedText = self.predictNextInputText(
+            leftSideContext: leftSideContext,
+            composingText: composingText.convertTarget,
+            count: 10,
+            minLength: 1,
+            maxEntropy: 3.0,
+            options: options
+        )
+        guard !predictedText.isEmpty else {
+            return []
+        }
+
+        let inputStyle = composingText.input.last?.inputStyle ?? .direct
+        let insertText = (inputStyle == .roman2kana) ? predictedText.toHiragana() : predictedText
+        var predictedComposingText = composingText
+        predictedComposingText.insertAtCursorPosition(insertText, inputStyle: inputStyle)
+
+        var fallbackOptions = options
+        fallbackOptions.requireJapanesePrediction = .disabled
+        fallbackOptions.requireEnglishPrediction = .disabled
+
+        let savedPreviousInputData = self.previousInputData
+        let savedLattice = self.lattice
+        let savedZenzaiCache = self.zenzaiCache
+        let savedZenzaiPersonalization = self.zenzaiPersonalization
+        defer {
+            self.previousInputData = savedPreviousInputData
+            self.lattice = savedLattice
+            self.zenzaiCache = savedZenzaiCache
+            self.zenzaiPersonalization = savedZenzaiPersonalization
+        }
+
+        let predictedResult = self.requestCandidates(predictedComposingText, options: fallbackOptions)
+        guard let firstCandidate = predictedResult.mainResults.first else {
+            return []
+        }
+        return [firstCandidate]
     }
 
     /// トップレベルに追加する付加的な変換候補を生成する関数

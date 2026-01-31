@@ -41,7 +41,7 @@ public struct ConvertRequestOptions: Sendable {
     ///   - textReplacer: 予測変換のための置換機を指定します。
     ///   - specialCandidateProviders: 特殊変換を実施する変換関数を挿入します
     ///   - metadata: メタデータを指定します。詳しくは`ConvertRequestOptions.Metadata`を参照してください。
-    public init(N_best: Int = 10, needTypoCorrection: Bool? = nil, requireJapanesePrediction: PredictionMode, requireEnglishPrediction: PredictionMode, keyboardLanguage: KeyboardLanguage, englishCandidateInRoman2KanaInput: Bool = false, fullWidthRomanCandidate: Bool = false, halfWidthKanaCandidate: Bool = false, learningType: LearningType, maxMemoryCount: Int = 65536, shouldResetMemory: Bool = false, memoryDirectoryURL: URL, sharedContainerURL: URL, textReplacer: TextReplacer, specialCandidateProviders: [any SpecialCandidateProvider]?, zenzaiMode: ZenzaiMode = .off, preloadDictionary: Bool = false, metadata: ConvertRequestOptions.Metadata?) {
+    public init(N_best: Int = 10, needTypoCorrection: Bool? = nil, requireJapanesePrediction: PredictionMode, requireEnglishPrediction: PredictionMode, keyboardLanguage: KeyboardLanguage, englishCandidateInRoman2KanaInput: Bool = false, fullWidthRomanCandidate: Bool = false, halfWidthKanaCandidate: Bool = false, learningType: LearningType, maxMemoryCount: Int = 65536, shouldResetMemory: Bool = false, memoryDirectoryURL: URL, sharedContainerURL: URL, textReplacer: TextReplacer, specialCandidateProviders: [any SpecialCandidateProvider]?, zenzaiMode: ZenzaiMode = .off, preloadDictionary: Bool = false, experimentalZenzaiPredictiveInput: Bool = false, metadata: ConvertRequestOptions.Metadata?) {
         self.N_best = N_best
         self.needTypoCorrection = needTypoCorrection
         self.requireJapanesePrediction = requireJapanesePrediction
@@ -60,6 +60,7 @@ public struct ConvertRequestOptions: Sendable {
         self.specialCandidateProviders = specialCandidateProviders ?? KanaKanjiConverter.defaultSpecialCandidateProviders
         self.zenzaiMode = zenzaiMode
         self.preloadDictionary = preloadDictionary
+        self.experimentalZenzaiPredictiveInput = experimentalZenzaiPredictiveInput
 
         if shouldResetMemory {
             print("Warning: Passing `shouldResetMemory: true` in `ConvertRequestOptions` is deprecated. Use `KanaKanjiConverter.resetMemory` instead.")
@@ -87,6 +88,8 @@ public struct ConvertRequestOptions: Sendable {
     public var specialCandidateProviders: [any SpecialCandidateProvider]
     public var zenzaiMode: ZenzaiMode
     public var preloadDictionary: Bool
+    /// Enable experimental predictive input for Zenzai fallback candidates.
+    public var experimentalZenzaiPredictiveInput: Bool
     // メタデータ
     public var metadata: Metadata?
 

@@ -60,6 +60,27 @@ package final class Zenz {
         return zenzContext.predict_next_character(leftSideContext: leftSideContext, count: count)
     }
 
+    func predictNextInputCharacter(leftSideContext: String, composingText: String, count: Int, versionDependentConfig: ConvertRequestOptions.ZenzaiVersionDependentMode) -> [(character: Character, value: Float)] {
+        guard let zenzContext else {
+            return []
+        }
+        return zenzContext.predict_next_input_character(leftSideContext: leftSideContext, composingText: composingText, count: count, versionDependentConfig: versionDependentConfig)
+    }
+
+    func predictNextInputText(leftSideContext: String, composingText: String, count: Int, minLength: Int = 1, maxEntropy: Float?, versionDependentConfig: ConvertRequestOptions.ZenzaiVersionDependentMode) -> String {
+        guard let zenzContext else {
+            return ""
+        }
+        return zenzContext.predict_next_input_text(
+            leftSideContext: leftSideContext,
+            composingText: composingText,
+            count: count,
+            minLength: minLength,
+            maxEntropy: maxEntropy,
+            versionDependentConfig: versionDependentConfig
+        )
+    }
+
     package func pureGreedyDecoding(pureInput: String, maxCount: Int = .max) -> String {
         self.zenzContext?.pure_greedy_decoding(leftSideContext: pureInput, maxCount: maxCount) ?? ""
     }
