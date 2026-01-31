@@ -202,6 +202,33 @@ extension Subcommands {
                         leftSideContext.append(firstCandidate.character)
                     }
                     continue
+                case let command where command == ":ip" || command.hasPrefix(":ip "):
+                    // 入力中の次の文字の予測を取得する (zenz-v3)
+                    let parts = command.split(separator: " ")
+                    let requestedCount = parts.count >= 2 ? Int(parts[1]) ?? 1 : 1
+                    let predictCount = max(1, min(requestedCount, 50))
+                    let ipStart = Date()
+                    var predictedText = ""
+                    for _ in 0..<predictCount {
+                        let results = converter.predictNextInputCharacter(
+                            leftSideContext: leftSideContext,
+                            composingText: composingText.convertTarget,
+                            count: 10,
+                            options: requestOptions(learningType: learningType, memoryDirectory: memoryDirectory, leftSideContext: leftSideContext)
+                        )
+                        guard let firstCandidate = results.first else {
+                            break
+                        }
+                        let predicted = String(firstCandidate.character)
+                        let insertText = (inputStyle == .roman2kana) ? predicted.toHiragana() : predicted
+                        composingText.insertAtCursorPosition(insertText, inputStyle: inputStyle)
+                        predictedText.append(contentsOf: insertText)
+                    }
+                    guard !predictedText.isEmpty else {
+                        continue
+                    }
+                    print("\(bold: "Time (ip):") \(-ipStart.timeIntervalSinceNow)")
+                    input = predictedText
                 case ":h", ":help":
                     // ヘルプ
                     print("""
@@ -212,6 +239,7 @@ extension Subcommands {
                     \(bold: ":n, :next") - see more candidates
                     \(bold: ":s, :save") - save memory to temporary directory
                     \(bold: ":p, :pred") - predict next one character
+                    \(bold: ":ip [n]") - predict next input character(s) (zenz-v3)
                     \(bold: ":%d") - select candidate at that index (like :3 to select 3rd candidate)
                     \(bold: ":ctx %s") - set the string as context
                     \(bold: ":input %s") - insert special characters to input. Supported special characters:

@@ -323,6 +323,91 @@ final class ZenzContext {
         return minHeap.unordered.sorted { $0.value > $1.value }.map { ($0.character, $0.value / exp_sum) }
     }
 
+    func predict_next_input_character(leftSideContext: String, composingText: String, count: Int, versionDependentConfig: ConvertRequestOptions.ZenzaiVersionDependentMode) -> [(character: Character, value: Float)] {
+        struct NextCharacterCandidate: Comparable {
+            static func < (lhs: NextCharacterCandidate, rhs: NextCharacterCandidate) -> Bool {
+                lhs.value < rhs.value
+            }
+            var character: Character
+            var value: Float
+        }
+
+        guard count > 0 else {
+            return []
+        }
+        guard case let .v3(mode) = versionDependentConfig else {
+            return []
+        }
+
+        let inputTag = "\u{EE00}"
+        let contextTag = "\u{EE02}"
+
+        var conditions: [String] = []
+        if let profile = mode.profile, !profile.isEmpty {
+            let pf = profile.suffix(25)
+            conditions.append("\u{EE03}\(pf)")
+        }
+        if let topic = mode.topic, !topic.isEmpty {
+            let tp = topic.suffix(25)
+            conditions.append("\u{EE04}\(tp)")
+        }
+        if let style = mode.style, !style.isEmpty {
+            let st = style.suffix(25)
+            conditions.append("\u{EE05}\(st)")
+        }
+        if let preference = mode.preference, !preference.isEmpty {
+            let pr = preference.suffix(25)
+            conditions.append("\u{EE06}\(pr)")
+        }
+
+        let maxLeftSideContextLength = mode.maxLeftSideContextLength ?? 40
+        let trimmedLeftContext = leftSideContext.isEmpty ? "" : String(leftSideContext.suffix(maxLeftSideContextLength))
+        let input = composingText.toKatakana()
+
+        let prompt: String = if trimmedLeftContext.isEmpty {
+            conditions.joined(separator: "") + inputTag + input
+        } else {
+            conditions.joined(separator: "") + contextTag + trimmedLeftContext + inputTag + input
+        }
+        let prompt_tokens = self.tokenize(text: self.preprocessText(text: prompt), add_bos: true, add_eos: false)
+        let startOffset = prompt_tokens.count - 1
+
+        guard let logits = self.get_logits(tokens: prompt_tokens, logits_start_index: startOffset) else {
+            debug("logits unavailable")
+            return []
+        }
+
+        let n_vocab = llama_vocab_n_tokens(vocab)
+        var exp_sum: Float = 0
+        let startIndex = (prompt_tokens.count - 1 - startOffset) * Int(n_vocab)
+        let endIndex = (prompt_tokens.count - startOffset) * Int(n_vocab)
+
+        var minHeap: FixedSizeHeap<NextCharacterCandidate> = .init(size: count)
+        let token_to_penalty_weight: [llama_token: Float] = prompt_tokens.indexed().reduce(into: [:]) { dict, item in
+            let (index, token) = item
+            // 現在位置から遠いほど減衰させる
+            dict[token, default: 0] += 2 / Float(prompt_tokens.count - index)
+        }
+
+        for index in startIndex..<endIndex {
+            let token = llama_token(index - startIndex)
+            let repeat_penalty = Float(1.0 + token_to_penalty_weight[token, default: 0])
+            let v = expf(logits[index] / repeat_penalty)
+            exp_sum += v
+
+            let tokenPieceData = Data((token_to_piece(token: token)).map(UInt8.init))
+            let character: Character
+            if let validCharacter = String(data: tokenPieceData, encoding: .utf8), let c = validCharacter.first {
+                character = c
+            } else {
+                continue
+            }
+            minHeap.insertIfPossible(NextCharacterCandidate(character: character, value: v))
+        }
+
+        return minHeap.unordered.sorted { $0.value > $1.value }.map { ($0.character, $0.value / exp_sum) }
+    }
+
     func evaluate_candidate(
         input: String,
         candidate: Candidate,
