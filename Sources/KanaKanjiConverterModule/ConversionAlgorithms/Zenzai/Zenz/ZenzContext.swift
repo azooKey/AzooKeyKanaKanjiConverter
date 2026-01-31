@@ -475,6 +475,7 @@ final class ZenzContext {
         var prompt_tokens = self.tokenize(text: self.preprocessText(text: prompt), add_bos: true, add_eos: false)
 
         let minLength = max(1, min(minLength, count))
+        let stopCharacters: Set<Character> = ["、", "。", "！", "？"]
         var predictedCharacters: [Character] = []
         predictedCharacters.reserveCapacity(count)
 
@@ -524,6 +525,10 @@ final class ZenzContext {
             }
 
             guard let bestCharacter else {
+                break
+            }
+
+            if stopCharacters.contains(bestCharacter), predictedCharacters.count >= minLength {
                 break
             }
 

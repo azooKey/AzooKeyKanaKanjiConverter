@@ -48,6 +48,8 @@ extension Subcommands {
         var zenzV2 = false
         @Flag(name: [.customLong("zenz_v3")], help: "Use zenz_v3 model.")
         var zenzV3 = false
+        @Flag(name: [.customLong("experimental_zenzai_predictive_input")], help: "Enable experimental zenzai predictive input.")
+        var experimentalZenzaiPredictiveInput = false
         @Option(name: [.customLong("config_zenzai_base_lm")], help: "Marisa files for Base LM.")
         var configZenzaiBaseLM: String?
         @Option(name: [.customLong("config_zenzai_personal_lm")], help: "Marisa files for Personal LM.")
@@ -384,6 +386,7 @@ extension Subcommands {
                     personalizationMode: personalizationMode,
                     versionDependentMode: zenzaiVersionDependentMode
                 ),
+                experimentalZenzaiPredictiveInput: self.experimentalZenzaiPredictiveInput,
                 metadata: .init(versionString: "anco for debugging")
             )
             if self.onlyWholeConversion {

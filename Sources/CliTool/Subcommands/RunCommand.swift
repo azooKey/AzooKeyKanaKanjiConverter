@@ -22,6 +22,8 @@ extension Subcommands {
         var configZenzaiPersonalLM: String?
         @Option(name: [.customLong("config_zenzai_personalization_alpha")], help: "Strength of personalization (0.5 by default)")
         var configZenzaiPersonalizationAlpha: Float = 0.5
+        @Flag(name: [.customLong("experimental_zenzai_predictive_input")], help: "Enable experimental zenzai predictive input.")
+        var experimentalZenzaiPredictiveInput = false
 
         @Flag(name: [.customLong("disable_prediction")], help: "Disable producing prediction candidates.")
         var disablePrediction = false
@@ -93,6 +95,7 @@ extension Subcommands {
                 textReplacer: .withDefaultEmojiDictionary(),
                 specialCandidateProviders: KanaKanjiConverter.defaultSpecialCandidateProviders,
                 zenzaiMode: self.zenzWeightPath.isEmpty ? .off : .on(weight: URL(string: self.zenzWeightPath)!, inferenceLimit: self.configZenzaiInferenceLimit, personalizationMode: personalizationMode),
+                experimentalZenzaiPredictiveInput: self.experimentalZenzaiPredictiveInput,
                 metadata: .init(versionString: "anco for debugging")
             )
             if self.onlyWholeConversion {
