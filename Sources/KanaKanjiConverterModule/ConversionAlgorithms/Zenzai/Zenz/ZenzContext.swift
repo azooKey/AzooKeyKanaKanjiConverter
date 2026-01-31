@@ -74,10 +74,12 @@ final class ZenzContext {
     private var model: OpaquePointer
     private var context: OpaquePointer
     private var vocab: OpaquePointer
-    private var prevInput: [llama_token] = []
-    private var prevPrompt: [llama_token] = []
+    private var prevInputBySeq: [llama_seq_id: [llama_token]] = [:]
+    private var prevPromptBySeq: [llama_seq_id: [llama_token]] = [:]
 
     private let n_len: Int32 = 512
+    private let evalSeqId: llama_seq_id = 0
+    private let inputPredictionSeqId: llama_seq_id = 1
 
     init(model: OpaquePointer, context: OpaquePointer, vocab: OpaquePointer) {
         self.model = model
@@ -149,22 +151,46 @@ final class ZenzContext {
             throw ZenzError.couldNotLoadContext
         }
         self.context = context
-        self.prevInput = []
-        self.prevPrompt = []
+        self.prevInputBySeq = [:]
+        self.prevPromptBySeq = [:]
     }
 
-    private func get_logits(tokens: [llama_token], logits_start_index: Int = 0) -> UnsafeMutablePointer<Float>? {
+    private func get_logits(tokens: [llama_token], logits_start_index: Int = 0, seqId: llama_seq_id = 0) -> UnsafeMutablePointer<Float>? {
+        let currentPrevInput = self.prevInputBySeq[seqId] ?? []
+        var effectivePrevInput = currentPrevInput
+
+        // Try to copy KV cache from the other sequence if it gives a longer prefix match.
+        let otherSeqId: llama_seq_id? = if seqId == evalSeqId {
+            inputPredictionSeqId
+        } else if seqId == inputPredictionSeqId {
+            evalSeqId
+        } else {
+            nil
+        }
+        if let otherSeqId, let otherPrevInput = self.prevInputBySeq[otherSeqId] {
+            let currentPrefix = currentPrevInput.commonPrefix(with: tokens).count
+            let otherPrefix = otherPrevInput.commonPrefix(with: tokens).count
+            if otherPrefix > currentPrefix {
+                let prefixCacheCount = min(otherPrefix, logits_start_index)
+                if prefixCacheCount > 0 {
+                    llama_kv_cache_seq_rm(context, seqId, 0, -1)
+                    llama_kv_cache_seq_cp(context, otherSeqId, seqId, 0, llama_pos(prefixCacheCount))
+                    effectivePrevInput = otherPrevInput
+                }
+            }
+        }
+
         // Manage KV cache: remove entries that differ from previous input
         let prefixCacheCount: Int
         do {
-            let pos_max = llama_kv_cache_seq_pos_max(self.context, 0)
-            debug("pos max:", pos_max, "prevInput count:", self.prevInput.count, "tokens count:", tokens.count)
-            let commonTokens = self.prevInput.commonPrefix(with: tokens)
+            let pos_max = llama_kv_cache_seq_pos_max(self.context, seqId)
+            debug("pos max:", pos_max, "prevInput count:", effectivePrevInput.count, "tokens count:", tokens.count)
+            let commonTokens = effectivePrevInput.commonPrefix(with: tokens)
             // Remove KV cache from position commonTokens.count onwards to recompute divergent part
             // removed range: [llama_pos(commonTokens.count), inf)
             prefixCacheCount = min(commonTokens.count, logits_start_index)
-            llama_kv_cache_seq_rm(context, -1, llama_pos(prefixCacheCount), -1)
-            debug("new pos max:", llama_kv_cache_seq_pos_max(self.context, 0), "commonTokens:", commonTokens.count)
+            llama_kv_cache_seq_rm(context, seqId, llama_pos(prefixCacheCount), -1)
+            debug("new pos max:", llama_kv_cache_seq_pos_max(self.context, seqId), "commonTokens:", commonTokens.count)
         }
         var batch = llama_batch_init(512, 0, 1)
         defer { llama_batch_free(batch) }
@@ -174,7 +200,7 @@ final class ZenzContext {
             debug("error: n_kv_req > n_ctx, the required KV cache size is not big enough")
         }
         for i in tokens.indices.dropFirst(prefixCacheCount) {
-            llama_batch_add(&batch, tokens[i], Int32(i), [0], logits: logits_start_index <= i)
+            llama_batch_add(&batch, tokens[i], Int32(i), [seqId], logits: logits_start_index <= i)
         }
         // 評価
         if llama_decode(context, batch) != 0 {
@@ -182,13 +208,13 @@ final class ZenzContext {
             return nil
         }
         // update cached input for next call (for KV cache management)
-        self.prevInput = tokens
+        self.prevInputBySeq[seqId] = tokens
         return llama_get_logits(context)
     }
 
     func evaluate(text: String, ignorePrompt: String = "") -> Float {
         let tokens_list = self.tokenize(text: text, add_bos: true, add_eos: true)
-        guard let logits = self.get_logits(tokens: tokens_list) else {
+        guard let logits = self.get_logits(tokens: tokens_list, seqId: evalSeqId) else {
             debug("logits unavailable")
             return .nan
         }
@@ -241,7 +267,7 @@ final class ZenzContext {
         let eos_token = llama_vocab_eos(vocab)
         while prompt_tokens.count - initial_count < maxCount {
             let startOffset = prompt_tokens.count - 1
-            guard let logits = self.get_logits(tokens: prompt_tokens, logits_start_index: startOffset) else {
+            guard let logits = self.get_logits(tokens: prompt_tokens, logits_start_index: startOffset, seqId: evalSeqId) else {
                 debug("logits unavailable")
                 return ""
             }
@@ -285,7 +311,7 @@ final class ZenzContext {
         let prompt_tokens = self.tokenize(text: "\u{EE00}。\u{EE02}\(leftSideContext)", add_bos: false)
         let startOffset = prompt_tokens.count - 1
 
-        guard let logits = self.get_logits(tokens: prompt_tokens, logits_start_index: startOffset) else {
+        guard let logits = self.get_logits(tokens: prompt_tokens, logits_start_index: startOffset, seqId: inputPredictionSeqId) else {
             debug("logits unavailable")
             return []
         }
@@ -372,7 +398,7 @@ final class ZenzContext {
         let prompt_tokens = self.tokenize(text: self.preprocessText(text: prompt), add_bos: true, add_eos: false)
         let startOffset = prompt_tokens.count - 1
 
-        guard let logits = self.get_logits(tokens: prompt_tokens, logits_start_index: startOffset) else {
+        guard let logits = self.get_logits(tokens: prompt_tokens, logits_start_index: startOffset, seqId: inputPredictionSeqId) else {
             debug("logits unavailable")
             return []
         }
@@ -406,6 +432,110 @@ final class ZenzContext {
         }
 
         return minHeap.unordered.sorted { $0.value > $1.value }.map { ($0.character, $0.value / exp_sum) }
+    }
+
+    func predict_next_input_text(leftSideContext: String, composingText: String, count: Int, minLength: Int = 1, maxEntropy: Float?, versionDependentConfig: ConvertRequestOptions.ZenzaiVersionDependentMode) -> String {
+        guard count > 0 else {
+            return ""
+        }
+        guard case let .v3(mode) = versionDependentConfig else {
+            return ""
+        }
+
+        let inputTag = "\u{EE00}"
+        let contextTag = "\u{EE02}"
+
+        var conditions: [String] = []
+        if let profile = mode.profile, !profile.isEmpty {
+            let pf = profile.suffix(25)
+            conditions.append("\u{EE03}\(pf)")
+        }
+        if let topic = mode.topic, !topic.isEmpty {
+            let tp = topic.suffix(25)
+            conditions.append("\u{EE04}\(tp)")
+        }
+        if let style = mode.style, !style.isEmpty {
+            let st = style.suffix(25)
+            conditions.append("\u{EE05}\(st)")
+        }
+        if let preference = mode.preference, !preference.isEmpty {
+            let pr = preference.suffix(25)
+            conditions.append("\u{EE06}\(pr)")
+        }
+
+        let maxLeftSideContextLength = mode.maxLeftSideContextLength ?? 40
+        let trimmedLeftContext = leftSideContext.isEmpty ? "" : String(leftSideContext.suffix(maxLeftSideContextLength))
+        let input = composingText.toKatakana()
+
+        let prompt: String = if trimmedLeftContext.isEmpty {
+            conditions.joined(separator: "") + inputTag + input
+        } else {
+            conditions.joined(separator: "") + contextTag + trimmedLeftContext + inputTag + input
+        }
+        var prompt_tokens = self.tokenize(text: self.preprocessText(text: prompt), add_bos: true, add_eos: false)
+
+        let minLength = max(1, min(minLength, count))
+        var predictedCharacters: [Character] = []
+        predictedCharacters.reserveCapacity(count)
+
+        for _ in 0..<count {
+            let startOffset = prompt_tokens.count - 1
+            guard let logits = self.get_logits(tokens: prompt_tokens, logits_start_index: startOffset, seqId: inputPredictionSeqId) else {
+                debug("logits unavailable")
+                break
+            }
+            let n_vocab = llama_vocab_n_tokens(vocab)
+            let startIndex = (prompt_tokens.count - 1 - startOffset) * Int(n_vocab)
+            let endIndex = (prompt_tokens.count - startOffset) * Int(n_vocab)
+            let token_to_penalty_weight: [llama_token: Float] = prompt_tokens.indexed().reduce(into: [:]) { dict, item in
+                let (index, token) = item
+                // 現在位置から遠いほど減衰させる
+                dict[token, default: 0] += 2 / Float(prompt_tokens.count - index)
+            }
+
+            var sumexp: Float = 0
+            var sumexpX: Float = 0
+            var bestValue: Float = -Float.infinity
+            var bestCharacter: Character?
+            for index in startIndex..<endIndex {
+                let token = llama_token(index - startIndex)
+                let repeat_penalty = Float(1.0 + token_to_penalty_weight[token, default: 0])
+                let value = logits[index] / repeat_penalty
+                let expValue = expf(value)
+                sumexp += expValue
+                sumexpX += expValue * value
+                if value <= bestValue {
+                    continue
+                }
+
+                let tokenPieceData = Data((token_to_piece(token: token)).map(UInt8.init))
+                guard let validCharacter = String(data: tokenPieceData, encoding: .utf8), let c = validCharacter.first else {
+                    continue
+                }
+                bestValue = value
+                bestCharacter = c
+            }
+
+            if let maxEntropy, predictedCharacters.count >= minLength, sumexp > 0 {
+                let entropy = logf(sumexp) - (sumexpX / sumexp)
+                if entropy >= maxEntropy {
+                    break
+                }
+            }
+
+            guard let bestCharacter else {
+                break
+            }
+
+            predictedCharacters.append(bestCharacter)
+            let appendedTokens = self.tokenize(text: self.preprocessText(text: String(bestCharacter)), add_bos: false, add_eos: false)
+            if appendedTokens.isEmpty {
+                break
+            }
+            prompt_tokens.append(contentsOf: appendedTokens)
+        }
+
+        return String(predictedCharacters)
     }
 
     func evaluate_candidate(
@@ -503,13 +633,14 @@ final class ZenzContext {
         // Therefore, tokens = prompt_tokens + candidate_tokens is an appropriate operation.
         let prompt_tokens = self.tokenize(text: prompt, add_bos: true, add_eos: false)
         defer {
-            self.prevPrompt = prompt_tokens
+            self.prevPromptBySeq[evalSeqId] = prompt_tokens
         }
+        let prevPrompt = self.prevPromptBySeq[evalSeqId] ?? []
 
         let candidate_tokens = self.tokenize(text: self.preprocessText(text: candidate.text), add_bos: false, add_eos: false)
         // prefixConstraintをすでに満たしているトークンを調査する
         let addressed_tokens: [llama_token]
-        if self.prevPrompt == prompt_tokens, !requestRichCandidates {
+        if prevPrompt == prompt_tokens, !requestRichCandidates {
             var string = ""
             for character in candidate.text {
                 let newString = string + String(character)
@@ -530,7 +661,7 @@ final class ZenzContext {
 
         // すでにprefixConstraintを満たしている部分については、計算をしない
         let startOffset = prompt_tokens.count - 1 + addressed_tokens.count
-        guard let logits = self.get_logits(tokens: tokens, logits_start_index: startOffset) else {
+        guard let logits = self.get_logits(tokens: tokens, logits_start_index: startOffset, seqId: evalSeqId) else {
             debug("logits unavailable")
             return .error
         }

@@ -205,30 +205,46 @@ extension Subcommands {
                 case let command where command == ":ip" || command.hasPrefix(":ip "):
                     // 入力中の次の文字の予測を取得する (zenz-v3)
                     let parts = command.split(separator: " ")
-                    let requestedCount = parts.count >= 2 ? Int(parts[1]) ?? 1 : 1
-                    let predictCount = max(1, min(requestedCount, 50))
-                    let ipStart = Date()
-                    var predictedText = ""
-                    for _ in 0..<predictCount {
-                        let results = converter.predictNextInputCharacter(
-                            leftSideContext: leftSideContext,
-                            composingText: composingText.convertTarget,
-                            count: 10,
-                            options: requestOptions(learningType: learningType, memoryDirectory: memoryDirectory, leftSideContext: leftSideContext)
-                        )
-                        guard let firstCandidate = results.first else {
-                            break
+                    var requestedCount: Int = 1
+                    var maxEntropy: Float?
+                    var minLength: Int = 1
+                    for part in parts.dropFirst() {
+                        if let count = Int(part) {
+                            requestedCount = count
+                            continue
                         }
-                        let predicted = String(firstCandidate.character)
-                        let insertText = (inputStyle == .roman2kana) ? predicted.toHiragana() : predicted
-                        composingText.insertAtCursorPosition(insertText, inputStyle: inputStyle)
-                        predictedText.append(contentsOf: insertText)
+                        if part.hasPrefix("max_entropy=") {
+                            let value = part.dropFirst("max_entropy=".count)
+                            if let parsed = Float(value) {
+                                maxEntropy = parsed
+                            }
+                            continue
+                        }
+                        if part.hasPrefix("min_length=") {
+                            let value = part.dropFirst("min_length=".count)
+                            if let parsed = Int(value) {
+                                minLength = parsed
+                            }
+                        }
                     }
+                    let predictCount = max(1, min(requestedCount, 50))
+                    let predictMinLength = max(1, min(minLength, predictCount))
+                    let ipStart = Date()
+                    let predictedText = converter.predictNextInputText(
+                        leftSideContext: leftSideContext,
+                        composingText: composingText.convertTarget,
+                        count: predictCount,
+                        minLength: predictMinLength,
+                        maxEntropy: maxEntropy,
+                        options: requestOptions(learningType: learningType, memoryDirectory: memoryDirectory, leftSideContext: leftSideContext)
+                    )
                     guard !predictedText.isEmpty else {
                         continue
                     }
                     print("\(bold: "Time (ip):") \(-ipStart.timeIntervalSinceNow)")
-                    input = predictedText
+                    let insertText = (inputStyle == .roman2kana) ? predictedText.toHiragana() : predictedText
+                    composingText.insertAtCursorPosition(insertText, inputStyle: inputStyle)
+                    input = insertText
                 case ":h", ":help":
                     // ヘルプ
                     print("""
@@ -239,7 +255,7 @@ extension Subcommands {
                     \(bold: ":n, :next") - see more candidates
                     \(bold: ":s, :save") - save memory to temporary directory
                     \(bold: ":p, :pred") - predict next one character
-                    \(bold: ":ip [n]") - predict next input character(s) (zenz-v3)
+                    \(bold: ":ip [n] [max_entropy=F] [min_length=N]") - predict next input character(s) (zenz-v3)
                     \(bold: ":%d") - select candidate at that index (like :3 to select 3rd candidate)
                     \(bold: ":ctx %s") - set the string as context
                     \(bold: ":input %s") - insert special characters to input. Supported special characters:

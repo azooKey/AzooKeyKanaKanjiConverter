@@ -438,7 +438,6 @@ public final class DicdataStore {
         return louds.prefixNodeIndices(chars: charIDs, maxDepth: depth, maxCount: maxCount)
     }
 
-
     package func getDicdataFromLoudstxt3(identifier: String, indices: some Sequence<Int>, state: DicdataStoreState) -> [DicdataElement] {
         // Group indices by shard
         let dict = [Int: [Int]].init(grouping: indices, by: { $0 >> DictionaryBuilder.shardShift })

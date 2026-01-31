@@ -120,6 +120,25 @@ public final class KanaKanjiConverter {
         )
     }
 
+    public func predictNextInputText(leftSideContext: String, composingText: String, count: Int, minLength: Int = 1, maxEntropy: Float?, options: ConvertRequestOptions) -> String {
+        guard let zenz = self.getModel(modelURL: options.zenzaiMode.weightURL) else {
+            print("zenz-v3 model unavailable")
+            return ""
+        }
+        guard options.zenzaiMode.versionDependentMode.version == .v3 else {
+            print("input prediction requires zenz-v3 models")
+            return ""
+        }
+        return zenz.predictNextInputText(
+            leftSideContext: leftSideContext,
+            composingText: composingText,
+            count: count,
+            minLength: minLength,
+            maxEntropy: maxEntropy,
+            versionDependentConfig: options.zenzaiMode.versionDependentMode
+        )
+    }
+
     /// 入力する言語が分かったらこの関数をなるべく早い段階で呼ぶことで、SpellCheckerの初期化が行われ、変換がスムーズになる
     public func setKeyboardLanguage(_ language: KeyboardLanguage) {
         self.dicdataStoreState.updateKeyboardLanguage(language)
