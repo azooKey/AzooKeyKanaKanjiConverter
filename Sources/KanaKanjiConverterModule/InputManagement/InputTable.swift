@@ -186,8 +186,7 @@ public struct InputTable: Sendable {
         }
         var best: (node: TrieNode, state: TrieNode.State, depth: Int, any1: Int, keyExact: Int)?
 
-        @inline(__always) func
-        better(_ cand: (depth: Int, any1: Int, keyExact: Int), than cur: (depth: Int, any1: Int, keyExact: Int)?) -> Bool {
+        @inline(__always) func better(_ cand: (depth: Int, any1: Int, keyExact: Int), than cur: (depth: Int, any1: Int, keyExact: Int)?) -> Bool {
             guard let cur else {
                 return true
             }
