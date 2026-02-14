@@ -33,17 +33,10 @@ jobs:
         os: [ubuntu-22.04]
         swift-version: ["6.1"]
     steps:
-      - name: Setup Swift toolchain
-        run: |
-          curl -sL "https://download.swift.org/swift-${{ matrix.swift-version }}-release/ubuntu22.04/swift-${{ matrix.swift-version }}-RELEASE/swift-${{ matrix.swift-version }}-RELEASE-ubuntu22.04.tar.gz" -o swift-toolchain.tar.gz
-          tar xf swift-toolchain.tar.gz
-          TOOLCHAIN_DIR=$(ls -d swift-${{ matrix.swift-version }}-RELEASE-*/usr | head -n 1)
-          echo "Resolved toolchain: $TOOLCHAIN_DIR"
-          TOOLCHAIN=$PWD/${TOOLCHAIN_DIR%/usr}
-          echo "TOOLCHAIN=$TOOLCHAIN" >> "$GITHUB_ENV"
-          echo "$TOOLCHAIN/bin" >> "$GITHUB_PATH"
-      - name: Verify swift toolchain
-        run: swift --version
+      - uses: compnerd/gha-setup-swift@main
+        with:
+          branch: swift-${{ matrix.swift-version }}-release
+          tag: ${{ matrix.swift-version }}-RELEASE
       - uses: actions/checkout@v6
         with:
           submodules: true
