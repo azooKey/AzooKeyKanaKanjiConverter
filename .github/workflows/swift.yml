@@ -33,7 +33,14 @@ jobs:
         os: [ubuntu-22.04]
         swift-version: ["6.1"]
     steps:
-      - name: Setup Swift toolchain
+      - name: Setup Swift toolchain (action)
+        id: swift_setup_action
+        continue-on-error: true
+        uses: swift-actions/setup-swift@v3
+        with:
+          swift-version: ${{ matrix.swift-version }}
+      - name: Setup Swift toolchain (fallback)
+        if: ${{ steps.swift_setup_action.outcome != 'success' }}
         run: |
           curl -sL "https://download.swift.org/swift-${{ matrix.swift-version }}-release/ubuntu22.04/swift-${{ matrix.swift-version }}-RELEASE/swift-${{ matrix.swift-version }}-RELEASE-ubuntu22.04.tar.gz" -o swift-toolchain.tar.gz
           tar xf swift-toolchain.tar.gz
