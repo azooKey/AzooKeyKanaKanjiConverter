@@ -434,7 +434,15 @@ final class ZenzContext {
         return minHeap.unordered.sorted { $0.value > $1.value }.map { ($0.character, $0.value / exp_sum) }
     }
 
-    func predict_next_input_text(leftSideContext: String, composingText: String, count: Int, minLength: Int = 1, maxEntropy: Float?, versionDependentConfig: ConvertRequestOptions.ZenzaiVersionDependentMode) -> String {
+    func predict_next_input_text(
+        leftSideContext: String,
+        composingText: String,
+        count: Int,
+        minLength: Int = 1,
+        maxEntropy: Float?,
+        versionDependentConfig: ConvertRequestOptions.ZenzaiVersionDependentMode,
+        possibleNexts: [String] = []
+    ) -> String {
         guard count > 0 else {
             return ""
         }
@@ -466,6 +474,18 @@ final class ZenzContext {
         let maxLeftSideContextLength = mode.maxLeftSideContextLength ?? 40
         let trimmedLeftContext = leftSideContext.isEmpty ? "" : String(leftSideContext.suffix(maxLeftSideContextLength))
         let input = composingText.toKatakana()
+        let allowedPrefixes: [String] = possibleNexts.filter { !$0.isEmpty }
+
+        @inline(__always)
+        func isAllowedPrefix(_ candidate: String) -> Bool {
+            guard !allowedPrefixes.isEmpty else {
+                return true
+            }
+            let normalized = candidate.toKatakana()
+            return allowedPrefixes.contains(where: {
+                $0.hasPrefix(normalized)
+            })
+        }
 
         let prompt: String = if trimmedLeftContext.isEmpty {
             conditions.joined(separator: "") + inputTag + input
@@ -478,6 +498,7 @@ final class ZenzContext {
         let stopCharacters: Set<Character> = ["、", "。", "！", "？"]
         var predictedCharacters: [Character] = []
         predictedCharacters.reserveCapacity(count)
+        var predictedText = ""
 
         for _ in 0..<count {
             let startOffset = prompt_tokens.count - 1
@@ -498,6 +519,7 @@ final class ZenzContext {
             var sumexpX: Float = 0
             var bestValue: Float = -Float.infinity
             var bestCharacter: Character?
+            var bestNextText: String = ""
             for index in startIndex..<endIndex {
                 let token = llama_token(index - startIndex)
                 let repeat_penalty = Float(1.0 + token_to_penalty_weight[token, default: 0])
@@ -513,8 +535,15 @@ final class ZenzContext {
                 guard let validCharacter = String(data: tokenPieceData, encoding: .utf8), let c = validCharacter.first else {
                     continue
                 }
+
+                let nextText = predictedText + String(c)
+                guard isAllowedPrefix(nextText) else {
+                    continue
+                }
+
                 bestValue = value
                 bestCharacter = c
+                bestNextText = nextText
             }
 
             if let maxEntropy, predictedCharacters.count >= minLength, sumexp > 0 {
@@ -532,7 +561,12 @@ final class ZenzContext {
                 break
             }
 
+            if !isAllowedPrefix(bestNextText) {
+                break
+            }
+
             predictedCharacters.append(bestCharacter)
+            predictedText = bestNextText
             let appendedTokens = self.tokenize(text: self.preprocessText(text: String(bestCharacter)), add_bos: false, add_eos: false)
             if appendedTokens.isEmpty {
                 break

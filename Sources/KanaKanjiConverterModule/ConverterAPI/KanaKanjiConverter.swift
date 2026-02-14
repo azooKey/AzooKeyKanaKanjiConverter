@@ -120,22 +120,59 @@ public final class KanaKanjiConverter {
         )
     }
 
-    public func predictNextInputText(leftSideContext: String, composingText: String, count: Int, minLength: Int = 1, maxEntropy: Float?, options: ConvertRequestOptions) -> String {
+    package func predictNextInputText(
+        leftSideContext: String,
+        composingText: ComposingText,
+        count: Int,
+        minLength: Int = 1,
+        maxEntropy: Float?,
+        options: ConvertRequestOptions,
+        inputStyle: InputStyle = .direct,
+        debugPossibleNexts: Bool = false
+    ) -> (predictedText: String, suffixCount: Int) {
         guard let zenz = self.getModel(modelURL: options.zenzaiMode.weightURL) else {
             print("zenz-v3 model unavailable")
-            return ""
+            return ("", 0)
         }
         guard options.zenzaiMode.versionDependentMode.version == .v3 else {
             print("input prediction requires zenz-v3 models")
-            return ""
+            return ("", 0)
         }
-        return zenz.predictNextInputText(
-            leftSideContext: leftSideContext,
-            composingText: composingText,
-            count: count,
-            minLength: minLength,
-            maxEntropy: maxEntropy,
-            versionDependentConfig: options.zenzaiMode.versionDependentMode
+        let (baseComposeText, resolvedPossibleNexts, suffixCount): (
+            baseConvertTarget: String,
+            resolvedPossibleNexts: [String],
+            droppedSuffixCount: Int
+        ) = {
+            if inputStyle == .direct {
+                return (composingText.convertTarget, [], 0)
+            }
+            let table: InputTable
+            if case .roman2kana = inputStyle {
+                table = InputStyleManager.shared.table(for: .defaultRomanToKana)
+            } else if case .mapped(let id) = inputStyle {
+                table = InputStyleManager.shared.table(for: id)
+            } else {
+                return (composingText.convertTarget, [], 0)
+            }
+            if let suffixInfo = self.romanSuffixAndPossibleNexts(composingText: composingText, table: table) {
+                return (suffixInfo.baseConvertTarget, suffixInfo.possibleNexts, composingText.convertTarget.count - suffixInfo.baseConvertTarget.count)
+            }
+            return (composingText.convertTarget, [], 0)
+        }()
+        if debugPossibleNexts {
+            print("possibleNexts:", resolvedPossibleNexts)
+        }
+        return (
+            zenz.predictNextInputText(
+                leftSideContext: leftSideContext,
+                composingText: baseComposeText,
+                count: count,
+                minLength: minLength,
+                maxEntropy: maxEntropy,
+                versionDependentConfig: options.zenzaiMode.versionDependentMode,
+                possibleNexts: resolvedPossibleNexts
+            ),
+            suffixCount
         )
     }
 
@@ -432,21 +469,26 @@ public final class KanaKanjiConverter {
         case .v3(let mode):
             mode.leftSideContext ?? ""
         }
-        let predictedText = self.predictNextInputText(
+
+        let inputStyle = composingText.input.last?.inputStyle ?? .direct
+        let (predictedText, suffixCount) = self.predictNextInputText(
             leftSideContext: leftSideContext,
-            composingText: composingText.convertTarget,
+            composingText: composingText,
             count: 10,
             minLength: 1,
             maxEntropy: 3.0,
-            options: options
+            options: options,
+            inputStyle: inputStyle
         )
         guard !predictedText.isEmpty else {
             return []
         }
 
-        let inputStyle = composingText.input.last?.inputStyle ?? .direct
         let insertText = (inputStyle == .roman2kana) ? predictedText.toHiragana() : predictedText
         var predictedComposingText = composingText
+        if suffixCount > 0 {
+            predictedComposingText.deleteBackwardFromCursorPosition(count: suffixCount)
+        }
         predictedComposingText.insertAtCursorPosition(insertText, inputStyle: inputStyle)
 
         var fallbackOptions = options
@@ -469,6 +511,18 @@ public final class KanaKanjiConverter {
             return []
         }
         return [firstCandidate]
+    }
+
+    private func romanSuffixAndPossibleNexts(composingText: ComposingText, table: InputTable) -> (baseConvertTarget: String, possibleNexts: [String])? {
+        let romanSuffix = composingText.convertTarget.suffix(while: {String($0).onlyRomanAlphabet})
+        guard !romanSuffix.isEmpty else {
+            return nil
+        }
+        let possibleNexts = table.possibleNexts[String(romanSuffix), default: []]
+        guard !possibleNexts.isEmpty else {
+            return nil
+        }
+        return (String(composingText.convertTarget.dropLast(romanSuffix.count)), possibleNexts)
     }
 
     /// トップレベルに追加する付加的な変換候補を生成する関数

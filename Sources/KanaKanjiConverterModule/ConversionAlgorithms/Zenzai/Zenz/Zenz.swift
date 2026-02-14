@@ -67,7 +67,15 @@ package final class Zenz {
         return zenzContext.predict_next_input_character(leftSideContext: leftSideContext, composingText: composingText, count: count, versionDependentConfig: versionDependentConfig)
     }
 
-    func predictNextInputText(leftSideContext: String, composingText: String, count: Int, minLength: Int = 1, maxEntropy: Float?, versionDependentConfig: ConvertRequestOptions.ZenzaiVersionDependentMode) -> String {
+    func predictNextInputText(
+        leftSideContext: String,
+        composingText: String,
+        count: Int,
+        minLength: Int = 1,
+        maxEntropy: Float?,
+        versionDependentConfig: ConvertRequestOptions.ZenzaiVersionDependentMode,
+        possibleNexts: [String] = []
+    ) -> String {
         guard let zenzContext else {
             return ""
         }
@@ -77,7 +85,8 @@ package final class Zenz {
             count: count,
             minLength: minLength,
             maxEntropy: maxEntropy,
-            versionDependentConfig: versionDependentConfig
+            versionDependentConfig: versionDependentConfig,
+            possibleNexts: possibleNexts
         )
     }
 
