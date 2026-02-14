@@ -30,7 +30,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os: [ubuntu-22.04]
+        os: [ubuntu-24.04]
         swift-version: ["6.1"]
     steps:
       - uses: compnerd/gha-setup-swift@main
