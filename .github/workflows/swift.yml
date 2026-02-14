@@ -33,9 +33,15 @@ jobs:
         os: [ubuntu-22.04]
         swift-version: ["6.1"]
     steps:
-      - uses: swift-actions/setup-swift@v3
-        with:
-          swift-version: ${{ matrix.swift-version }}
+      - name: Setup Swift toolchain
+        run: |
+          curl -sL "https://download.swift.org/swift-${{ matrix.swift-version }}-release/ubuntu22.04/swift-${{ matrix.swift-version }}-RELEASE/swift-${{ matrix.swift-version }}-RELEASE-ubuntu22.04.tar.gz" -o swift-toolchain.tar.gz
+          tar xf swift-toolchain.tar.gz
+          TOOLCHAIN=$PWD/swift-${{ matrix.swift-version }}-RELEASE-ubuntu22.04/usr
+          echo "TOOLCHAIN=$TOOLCHAIN" >> "$GITHUB_ENV"
+          echo "$TOOLCHAIN/bin" >> "$GITHUB_PATH"
+      - name: Verify swift toolchain
+        run: swift --version
       - uses: actions/checkout@v6
         with:
           submodules: true
