@@ -232,18 +232,25 @@ extension Subcommands {
                     let predictCount = max(1, min(requestedCount, 50))
                     let predictMinLength = max(1, min(minLength, predictCount))
                     let ipStart = Date()
-                    let predictedText = converter.predictNextInputText(
+                    let (predictedText, suffixCount) = converter.predictNextInputText(
                         leftSideContext: leftSideContext,
-                        composingText: composingText.convertTarget,
+                        composingText: composingText,
                         count: predictCount,
                         minLength: predictMinLength,
                         maxEntropy: maxEntropy,
-                        options: requestOptions(learningType: learningType, memoryDirectory: memoryDirectory, leftSideContext: leftSideContext)
+                        options: requestOptions(learningType: learningType, memoryDirectory: memoryDirectory, leftSideContext: leftSideContext),
+                        inputStyle: inputStyle,
+                        debugPossibleNexts: true
                     )
                     guard !predictedText.isEmpty else {
                         continue
                     }
                     print("\(bold: "Time (ip):") \(-ipStart.timeIntervalSinceNow)")
+
+                    if suffixCount > 0 {
+                        composingText.deleteBackwardFromCursorPosition(count: suffixCount)
+                    }
+
                     let insertText = (inputStyle == .roman2kana) ? predictedText.toHiragana() : predictedText
                     composingText.insertAtCursorPosition(insertText, inputStyle: inputStyle)
                     input = insertText
