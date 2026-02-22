@@ -6,55 +6,8 @@ import llama
 import Algorithms
 import EfficientNGram
 import Foundation
-import HeapModule
 import SwiftUtils
 
-struct FixedSizeHeap<Element: Comparable> {
-    private var size: Int
-    private var heap: Heap<Element>
-
-    init(size: Int) {
-        self.size = size
-        self.heap = []
-    }
-
-    mutating func removeMax() {
-        self.heap.removeMax()
-    }
-
-    mutating func removeMin() {
-        self.heap.removeMin()
-    }
-
-    @discardableResult
-    mutating func insertIfPossible(_ element: Element) -> Bool {
-        if self.heap.count < self.size {
-            self.heap.insert(element)
-            return true
-        } else if let min = self.heap.min, element > min {
-            self.heap.replaceMin(with: element)
-            return true
-        } else {
-            return false
-        }
-    }
-
-    var unordered: [Element] {
-        self.heap.unordered
-    }
-
-    var max: Element? {
-        self.heap.max
-    }
-
-    var min: Element? {
-        self.heap.min
-    }
-
-    var isEmpty: Bool {
-        self.heap.isEmpty
-    }
-}
 
 enum ZenzError: LocalizedError {
     case couldNotLoadModel(path: String)
@@ -361,39 +314,12 @@ final class ZenzContext {
         guard count > 0 else {
             return []
         }
-        guard case let .v3(mode) = versionDependentConfig else {
+        guard let prompt = ZenzPromptBuilder.inputPredictionPrompt(
+            leftSideContext: leftSideContext,
+            composingText: composingText,
+            versionDependentConfig: versionDependentConfig
+        ) else {
             return []
-        }
-
-        let inputTag = "\u{EE00}"
-        let contextTag = "\u{EE02}"
-
-        var conditions: [String] = []
-        if let profile = mode.profile, !profile.isEmpty {
-            let pf = profile.suffix(25)
-            conditions.append("\u{EE03}\(pf)")
-        }
-        if let topic = mode.topic, !topic.isEmpty {
-            let tp = topic.suffix(25)
-            conditions.append("\u{EE04}\(tp)")
-        }
-        if let style = mode.style, !style.isEmpty {
-            let st = style.suffix(25)
-            conditions.append("\u{EE05}\(st)")
-        }
-        if let preference = mode.preference, !preference.isEmpty {
-            let pr = preference.suffix(25)
-            conditions.append("\u{EE06}\(pr)")
-        }
-
-        let maxLeftSideContextLength = mode.maxLeftSideContextLength ?? 40
-        let trimmedLeftContext = leftSideContext.isEmpty ? "" : String(leftSideContext.suffix(maxLeftSideContextLength))
-        let input = composingText.toKatakana()
-
-        let prompt: String = if trimmedLeftContext.isEmpty {
-            conditions.joined(separator: "") + inputTag + input
-        } else {
-            conditions.joined(separator: "") + contextTag + trimmedLeftContext + inputTag + input
         }
         let prompt_tokens = self.tokenize(text: self.preprocessText(text: prompt), add_bos: true, add_eos: false)
         let startOffset = prompt_tokens.count - 1
@@ -446,34 +372,13 @@ final class ZenzContext {
         guard count > 0 else {
             return ""
         }
-        guard case let .v3(mode) = versionDependentConfig else {
+        guard let prompt = ZenzPromptBuilder.inputPredictionPrompt(
+            leftSideContext: leftSideContext,
+            composingText: composingText,
+            versionDependentConfig: versionDependentConfig
+        ) else {
             return ""
         }
-
-        let inputTag = "\u{EE00}"
-        let contextTag = "\u{EE02}"
-
-        var conditions: [String] = []
-        if let profile = mode.profile, !profile.isEmpty {
-            let pf = profile.suffix(25)
-            conditions.append("\u{EE03}\(pf)")
-        }
-        if let topic = mode.topic, !topic.isEmpty {
-            let tp = topic.suffix(25)
-            conditions.append("\u{EE04}\(tp)")
-        }
-        if let style = mode.style, !style.isEmpty {
-            let st = style.suffix(25)
-            conditions.append("\u{EE05}\(st)")
-        }
-        if let preference = mode.preference, !preference.isEmpty {
-            let pr = preference.suffix(25)
-            conditions.append("\u{EE06}\(pr)")
-        }
-
-        let maxLeftSideContextLength = mode.maxLeftSideContextLength ?? 40
-        let trimmedLeftContext = leftSideContext.isEmpty ? "" : String(leftSideContext.suffix(maxLeftSideContextLength))
-        let input = composingText.toKatakana()
         let allowedPrefixes: [String] = possibleNexts.filter { !$0.isEmpty }
 
         @inline(__always)
@@ -487,11 +392,6 @@ final class ZenzContext {
             })
         }
 
-        let prompt: String = if trimmedLeftContext.isEmpty {
-            conditions.joined(separator: "") + inputTag + input
-        } else {
-            conditions.joined(separator: "") + contextTag + trimmedLeftContext + inputTag + input
-        }
         var prompt_tokens = self.tokenize(text: self.preprocessText(text: prompt), add_bos: true, add_eos: false)
 
         let minLength = max(1, min(minLength, count))
@@ -592,81 +492,11 @@ final class ZenzContext {
         for item in candidate.data where item.metadata.contains(.isFromUserDictionary) {
             userDictionaryPrompt += "\(item.word)(\(item.ruby.toHiragana()))"
         }
-        var conditions: [String] = []
-        // ユーザ辞書の内容がある場合はこれを条件に追加
-        if !userDictionaryPrompt.isEmpty {
-            conditions.append("辞書:\(userDictionaryPrompt)")
-        }
-        // プロフィールがある場合はこれを条件に追加
-        switch versionDependentConfig {
-        case .v1: break
-        case .v2(let mode):
-            if let profile = mode.profile, !profile.isEmpty {
-                let pf = profile.suffix(25)
-                conditions.append("プロフィール:\(pf)")
-            }
-        case .v3(let mode):
-            if let profile = mode.profile, !profile.isEmpty {
-                let pf = profile.suffix(25)
-                conditions.append("\u{EE03}\(pf)")
-            }
-            if let topic = mode.topic, !topic.isEmpty {
-                let tp = topic.suffix(25)
-                conditions.append("\u{EE04}\(tp)")
-            }
-            if let style = mode.style, !style.isEmpty {
-                let st = style.suffix(25)
-                conditions.append("\u{EE05}\(st)")
-            }
-            if let preference = mode.preference, !preference.isEmpty {
-                let pr = preference.suffix(25)
-                conditions.append("\u{EE06}\(pr)")
-            }
-        }
-        // 左文脈を取得
-        let leftSideContext: String = switch versionDependentConfig {
-        case .v1: ""
-        case .v2(let mode):
-            if let leftSideContext = mode.leftSideContext {
-                String(leftSideContext.suffix(mode.maxLeftSideContextLength ?? 40))
-            } else {
-                ""
-            }
-        case .v3(let mode):
-            if let leftSideContext = mode.leftSideContext {
-                String(leftSideContext.suffix(mode.maxLeftSideContextLength ?? 40))
-            } else {
-                ""
-            }
-        }
-        let inputTag = "\u{EE00}"
-        let outputTag = "\u{EE01}"
-        let contextTag = "\u{EE02}"
-        // プロンプトを作成
-        var prompt: String = switch versionDependentConfig {
-        case .v1:
-            inputTag + input + outputTag
-        case .v2:
-            if !conditions.isEmpty {
-                // 条件がemptyでない場合は「・」でつなぎ、「発言:」を末尾に追加
-                inputTag + input + contextTag + conditions.joined(separator: "・") + "・発言:\(leftSideContext)" + outputTag
-            } else if !leftSideContext.isEmpty {
-                // 条件がemptyの場合、単にleftSideContextを追加
-                inputTag + input + contextTag + leftSideContext + outputTag
-            } else {
-                // そのまま
-                inputTag + input + outputTag
-            }
-        case .v3:
-            if !leftSideContext.isEmpty {
-                // leftSideContextがEmptyでなければ下記の通り処理
-                // contextがinputに前置されるように変更された(KV-cachingの効率化のため)
-                conditions.joined(separator: "") + contextTag + leftSideContext + inputTag + input + outputTag
-            } else {
-                // そのまま
-                conditions.joined(separator: "") + inputTag + input + outputTag
-            }
-        }
+        var prompt = ZenzPromptBuilder.candidateEvaluationPrompt(
+            input: input,
+            userDictionaryPrompt: userDictionaryPrompt,
+            versionDependentConfig: versionDependentConfig
+        )
         // プロンプトの前処理を適用
         prompt = self.preprocessText(text: prompt)
         // Therefore, tokens = prompt_tokens + candidate_tokens is an appropriate operation.
