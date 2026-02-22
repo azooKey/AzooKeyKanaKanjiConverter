@@ -124,7 +124,7 @@ public final class KanaKanjiConverter {
             print("zenz-v3 model unavailable")
             return []
         }
-        guard options.zenzaiMode.versionDependentMode.version == .v3 else {
+        guard case .v3 = options.zenzaiMode.versionDependentMode else {
             print("input prediction requires zenz-v3 models")
             return []
         }
@@ -150,7 +150,7 @@ public final class KanaKanjiConverter {
             print("zenz-v3 model unavailable")
             return ("", 0)
         }
-        guard options.zenzaiMode.versionDependentMode.version == .v3 else {
+        guard case .v3 = options.zenzaiMode.versionDependentMode else {
             print("input prediction requires zenz-v3 models")
             return ("", 0)
         }
@@ -480,8 +480,6 @@ public final class KanaKanjiConverter {
             return []
         }
         let leftSideContext: String = switch options.zenzaiMode.versionDependentMode {
-        case .v1:
-            ""
         case .v2(let mode):
             mode.leftSideContext ?? ""
         case .v3(let mode):

@@ -71,8 +71,6 @@ enum ZenzPromptBuilder {
 
         let leftSideContext: String
         switch versionDependentConfig {
-        case .v1:
-            leftSideContext = ""
         case .v2(let mode):
             if let profile = mode.profile, !profile.isEmpty {
                 let pf = profile.suffix(25)
@@ -85,8 +83,6 @@ enum ZenzPromptBuilder {
         }
 
         switch versionDependentConfig {
-        case .v1:
-            return inputTag + input + outputTag
         case .v2:
             if !conditions.isEmpty {
                 return inputTag + input + contextTag + conditions.joined(separator: "・") + "・発言:\(leftSideContext)" + outputTag

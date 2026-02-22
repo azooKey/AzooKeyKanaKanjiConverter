@@ -42,8 +42,6 @@ extension Subcommands {
         var configZenzaiProfile: String?
         @Option(name: [.customLong("config_topic")], help: "enable topic prompting for zenz-v3 and later.")
         var configZenzaiTopic: String?
-        @Flag(name: [.customLong("zenz_v1")], help: "Use zenz_v1 model.")
-        var zenzV1 = false
         @Flag(name: [.customLong("zenz_v2")], help: "Use zenz_v2 model.")
         var zenzV2 = false
         @Flag(name: [.customLong("zenz_v3")], help: "Use zenz_v3 model.")
@@ -86,13 +84,13 @@ extension Subcommands {
         }
 
         @MainActor mutating func run() async {
-            if self.zenzV1 || self.zenzV2 {
+            if self.zenzV2 {
                 print("\(bold: "We strongly recommend to use zenz-v3 models")")
             }
-            if (self.zenzV1 || self.zenzV2 || self.zenzV3) && self.zenzWeightPath.isEmpty {
+            if (self.zenzV2 || self.zenzV3) && self.zenzWeightPath.isEmpty {
                 preconditionFailure("\(bold: "zenz version is specified but --zenz weight is not specified")")
             }
-            if !self.zenzWeightPath.isEmpty && (!self.zenzV1 && !self.zenzV2 && !self.zenzV3) {
+            if !self.zenzWeightPath.isEmpty && (!self.zenzV2 && !self.zenzV3) {
                 print("zenz version is not specified. By default, zenz-v3 will be used.")
             }
 
@@ -338,9 +336,7 @@ extension Subcommands {
         }
 
         func requestOptions(learningType: LearningType, memoryDirectory: URL, leftSideContext: String?) -> ConvertRequestOptions {
-            let zenzaiVersionDependentMode: ConvertRequestOptions.ZenzaiVersionDependentMode = if self.zenzV1 {
-                .v1
-            } else if self.zenzV2 {
+            let zenzaiVersionDependentMode: ConvertRequestOptions.ZenzaiVersionDependentMode = if self.zenzV2 {
                 .v2(.init(profile: self.configZenzaiProfile, leftSideContext: leftSideContext))
             } else {
                 .v3(.init(profile: self.configZenzaiProfile, topic: self.configZenzaiTopic, leftSideContext: leftSideContext))
