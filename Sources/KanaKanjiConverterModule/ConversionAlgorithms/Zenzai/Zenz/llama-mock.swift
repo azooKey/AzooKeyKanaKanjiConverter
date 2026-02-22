@@ -54,7 +54,7 @@ package func llama_batch_init(_: Int, _: Int, _: Int) -> llama_batch { unimpleme
 package func llama_batch_free(_: llama_batch) {}
 
 package func llama_n_ctx(_: llama_context) -> Int { unimplemented() }
-package func llama_vocab_n_tokens(_: llama_vocab) -> Int { unimplemented() }
+package func llama_vocab_n_tokens(_: llama_vocab) -> Int32 { unimplemented() }
 
 package func llama_tokenize(_: llama_model, _: String, _: Int32, _: UnsafeMutablePointer<llama_token>, _: Int32, _: Bool, _: Bool) -> Int { unimplemented() }
 package func llama_vocab_eos(_: llama_vocab) -> llama_token { unimplemented() }
