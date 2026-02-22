@@ -14,6 +14,14 @@ import SwiftUtils
 /// かな漢字変換の管理を受け持つクラス
 public final class KanaKanjiConverter {
     private let converter: Kana2Kanji
+    private struct ConversionSessionState {
+        var previousInputData: ComposingText?
+        var lattice: Lattice = .init()
+        var completedData: Candidate?
+        var zenzaiCache: Kana2Kanji.ZenzaiCache?
+    }
+    private typealias SessionID = String
+    private static let defaultSessionID: SessionID = "default"
 
     public init(dicdataStore: DicdataStore) {
         self.converter = .init(dicdataStore: dicdataStore)
@@ -39,25 +47,45 @@ public final class KanaKanjiConverter {
     private var checkerInitialized: [KeyboardLanguage: Bool] = [.none: true, .ja_JP: true]
 
     // 前回の変換や確定の情報を取っておく部分。
-    private var previousInputData: ComposingText?
-    private var lattice: Lattice = Lattice()
-    private var completedData: Candidate?
+    private var sessions: [SessionID: ConversionSessionState] = ["default": .init()]
+    private var activeSessionID: SessionID = "default"
     private var lastData: DicdataElement?
     /// Zenzaiのためのzenzモデル
     private var zenz: Zenz?
-    private var zenzaiCache: Kana2Kanji.ZenzaiCache?
     private var zenzaiPersonalization: (mode: ConvertRequestOptions.ZenzaiMode.PersonalizationMode, base: EfficientNGram, personal: EfficientNGram)?
     public private(set) var zenzStatus: String = ""
     private var dicdataStoreState: DicdataStoreState
+
+    private var currentSessionState: ConversionSessionState {
+        self.sessions[self.activeSessionID] ?? .init()
+    }
+
+    private func updateCurrentSessionState(_ update: (inout ConversionSessionState) -> Void) {
+        var state = self.currentSessionState
+        update(&state)
+        self.sessions[self.activeSessionID] = state
+    }
+
+    private func withScratchSession<T>(_ body: () -> T) -> T {
+        let scratchID: SessionID = "scratch-\(UUID().uuidString)"
+        self.sessions[scratchID] = self.currentSessionState
+        let previousSessionID = self.activeSessionID
+        let savedPersonalization = self.zenzaiPersonalization
+        self.activeSessionID = scratchID
+        defer {
+            self.activeSessionID = previousSessionID
+            self.zenzaiPersonalization = savedPersonalization
+            self.sessions[scratchID] = nil
+        }
+        return body()
+    }
 
     /// リセットする関数
     public func stopComposition() {
         self.zenz?.endSession()
         self.zenzaiPersonalization = nil
-        self.zenzaiCache = nil
-        self.previousInputData = nil
-        self.lattice = .init()
-        self.completedData = nil
+        self.sessions = [Self.defaultSessionID: .init()]
+        self.activeSessionID = Self.defaultSessionID
         self.lastData = nil
     }
 
@@ -213,7 +241,9 @@ public final class KanaKanjiConverter {
     /// - Parameters:
     ///   - candidate: 確定された候補。
     public func setCompletedData(_ candidate: Candidate) {
-        self.completedData = candidate
+        self.updateCurrentSessionState {
+            $0.completedData = candidate
+        }
     }
 
     /// 確定操作後、学習メモリをアップデートする関数。
@@ -494,19 +524,10 @@ public final class KanaKanjiConverter {
         var fallbackOptions = options
         fallbackOptions.requireJapanesePrediction = .disabled
         fallbackOptions.requireEnglishPrediction = .disabled
-
-        let savedPreviousInputData = self.previousInputData
-        let savedLattice = self.lattice
-        let savedZenzaiCache = self.zenzaiCache
-        let savedZenzaiPersonalization = self.zenzaiPersonalization
-        defer {
-            self.previousInputData = savedPreviousInputData
-            self.lattice = savedLattice
-            self.zenzaiCache = savedZenzaiCache
-            self.zenzaiPersonalization = savedZenzaiPersonalization
+        // 別セッションで変換候補を生成
+        let predictedResult = self.withScratchSession {
+            self.requestCandidates(predictedComposingText, options: fallbackOptions)
         }
-
-        let predictedResult = self.requestCandidates(predictedComposingText, options: fallbackOptions)
         guard let firstCandidate = predictedResult.mainResults.first else {
             return []
         }
@@ -645,8 +666,10 @@ public final class KanaKanjiConverter {
     /// - Note:
     ///   現在の実装は非常に複雑な方法で候補の順序を決定している。
     private func processResult(inputData: ComposingText, result: (result: LatticeNode, lattice: Lattice), options: ConvertRequestOptions) -> ConversionResult {
-        self.previousInputData = inputData
-        self.lattice = result.lattice
+        self.updateCurrentSessionState {
+            $0.previousInputData = inputData
+            $0.lattice = result.lattice
+        }
         // 比較的大きい配列（〜1000、2000程度の候補が含まれることがある）
         let clauseResult = result.result.getCandidateData()
         if clauseResult.isEmpty {
@@ -872,19 +895,21 @@ public final class KanaKanjiConverter {
             let (result, nodes, cache) = self.converter.all_zenzai(
                 inputData,
                 zenz: model,
-                zenzaiCache: self.zenzaiCache,
+                zenzaiCache: self.currentSessionState.zenzaiCache,
                 inferenceLimit: zenzaiMode.inferenceLimit,
                 requestRichCandidates: zenzaiMode.requestRichCandidates,
                 personalizationMode: self.getZenzaiPersonalization(mode: zenzaiMode.personalizationMode),
                 versionDependentConfig: zenzaiMode.versionDependentMode,
                 dicdataStoreState: self.dicdataStoreState
             )
-            self.zenzaiCache = cache
-            self.previousInputData = inputData
+            self.updateCurrentSessionState {
+                $0.previousInputData = inputData
+                $0.zenzaiCache = cache
+            }
             return (result, nodes)
         }
 
-        guard let previousInputData else {
+        guard let previousInputData = self.currentSessionState.previousInputData else {
             debug("\(#function): 新規計算用の関数を呼びますA")
             let result = converter.kana2lattice_all(
                 inputData,
@@ -892,7 +917,9 @@ public final class KanaKanjiConverter {
                 needTypoCorrection: needTypoCorrection,
                 dicdataStoreState: self.dicdataStoreState
             )
-            self.previousInputData = inputData
+            self.updateCurrentSessionState {
+                $0.previousInputData = inputData
+            }
             return result
         }
 
@@ -900,17 +927,21 @@ public final class KanaKanjiConverter {
 
         // 完全一致の場合
         if previousInputData == inputData {
-            let result = converter.kana2lattice_no_change(N_best: N_best, previousResult: (inputData: previousInputData, lattice: self.lattice))
-            self.previousInputData = inputData
+            let result = converter.kana2lattice_no_change(N_best: N_best, previousResult: (inputData: previousInputData, lattice: self.currentSessionState.lattice))
+            self.updateCurrentSessionState {
+                $0.previousInputData = inputData
+            }
             return result
         }
 
         // 文節確定の後の場合
-        if let completedData, previousInputData.inputHasSuffix(inputOf: inputData) {
+        if let completedData = self.currentSessionState.completedData, previousInputData.inputHasSuffix(inputOf: inputData) {
             debug("\(#function): 文節確定用の関数を呼びます、確定された文節は\(completedData)")
-            let result = converter.kana2lattice_afterComplete(inputData, completedData: completedData, N_best: N_best, previousResult: (inputData: previousInputData, lattice: self.lattice), needTypoCorrection: needTypoCorrection)
-            self.previousInputData = inputData
-            self.completedData = nil
+            let result = converter.kana2lattice_afterComplete(inputData, completedData: completedData, N_best: N_best, previousResult: (inputData: previousInputData, lattice: self.currentSessionState.lattice), needTypoCorrection: needTypoCorrection)
+            self.updateCurrentSessionState {
+                $0.previousInputData = inputData
+                $0.completedData = nil
+            }
             return result
         }
 
@@ -924,11 +955,14 @@ public final class KanaKanjiConverter {
             inputData,
             N_best: N_best,
             counts: diff,
-            previousResult: (inputData: previousInputData, lattice: self.lattice),
+            previousResult: (inputData: previousInputData, lattice: self.currentSessionState.lattice),
             needTypoCorrection: needTypoCorrection,
             dicdataStoreState: self.dicdataStoreState
         )
-        self.previousInputData = inputData
+        self.updateCurrentSessionState {
+            $0.previousInputData = inputData
+        }
+
         return result
     }
 
