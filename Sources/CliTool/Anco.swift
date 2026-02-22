@@ -11,7 +11,6 @@ struct Anco: AsyncParsableCommand {
             Subcommands.Evaluate.self,
             Subcommands.ZenzEvaluate.self,
             Subcommands.Session.self,
-            Subcommands.ExperimentalPredict.self,
             Subcommands.NGram.self
         ],
         defaultSubcommand: Subcommands.Run.self

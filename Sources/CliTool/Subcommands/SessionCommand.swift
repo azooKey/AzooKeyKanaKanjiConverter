@@ -193,17 +193,6 @@ extension Subcommands {
                         print("anything should not be saved because the learning type is not for update memory")
                     }
                     continue
-                case ":p", ":pred":
-                    // 次の文字の予測を取得する
-                    let results = converter.predictNextCharacter(
-                        leftSideContext: leftSideContext,
-                        count: 10,
-                        options: requestOptions(learningType: learningType, memoryDirectory: memoryDirectory, leftSideContext: leftSideContext)
-                    )
-                    if let firstCandidate = results.first {
-                        leftSideContext.append(firstCandidate.character)
-                    }
-                    continue
                 case let command where command == ":ip" || command.hasPrefix(":ip "):
                     // 入力中の次の文字の予測を取得する (zenz-v3)
                     let parts = command.split(separator: " ")
@@ -263,7 +252,6 @@ extension Subcommands {
                     \(bold: ":d, :del") - delete one character
                     \(bold: ":n, :next") - see more candidates
                     \(bold: ":s, :save") - save memory to temporary directory
-                    \(bold: ":p, :pred") - predict next one character
                     \(bold: ":ip [n] [max_entropy=F] [min_length=N]") - predict next input character(s) (zenz-v3)
                     \(bold: ":%d") - select candidate at that index (like :3 to select 3rd candidate)
                     \(bold: ":ctx %s") - set the string as context

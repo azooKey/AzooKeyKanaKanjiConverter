@@ -119,18 +119,6 @@ public final class KanaKanjiConverter {
         }
     }
 
-    public func predictNextCharacter(leftSideContext: String, count: Int, options: ConvertRequestOptions) -> [(character: Character, value: Float)] {
-        guard let zenz = self.getModel(modelURL: options.zenzaiMode.weightURL) else {
-            print("zenz-v2 model unavailable")
-            return []
-        }
-        guard options.zenzaiMode.versionDependentMode.version == .v2 else {
-            print("next character prediction requires zenz-v2 models, not zenz-v1 nor zenz-v3 and later")
-            return []
-        }
-        return zenz.predictNextCharacter(leftSideContext: leftSideContext, count: count)
-    }
-
     public func predictNextInputCharacter(leftSideContext: String, composingText: String, count: Int, options: ConvertRequestOptions) -> [(character: Character, value: Float)] {
         guard let zenz = self.getModel(modelURL: options.zenzaiMode.weightURL) else {
             print("zenz-v3 model unavailable")
