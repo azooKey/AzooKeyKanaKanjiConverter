@@ -53,13 +53,6 @@ package final class Zenz {
         return .error
     }
 
-    func predictNextInputCharacter(leftSideContext: String, composingText: String, count: Int, versionDependentConfig: ConvertRequestOptions.ZenzaiVersionDependentMode) -> [(character: Character, value: Float)] {
-        guard let zenzContext else {
-            return []
-        }
-        return zenzContext.predict_next_input_character(leftSideContext: leftSideContext, composingText: composingText, count: count, versionDependentConfig: versionDependentConfig)
-    }
-
     func predictNextInputText(
         leftSideContext: String,
         composingText: String,
