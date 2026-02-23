@@ -4,6 +4,7 @@ import llama
 
 import Algorithms
 import Foundation
+import OrderedCollections
 import SwiftUtils
 
 package struct ZenzaiTypoSearchConfig: Sendable, Equatable, Hashable {
@@ -63,14 +64,33 @@ enum ZenzaiTypoCandidateGenerator {
     private static let boi: Character = "\u{EE00}"
     private static let boc: Character = "\u{EE02}"
 
-    private enum InputMode {
-        case flick
-        case roman2kana
+    private enum TypoChannel {
+        case qwerty
+        case tenkey
     }
 
-    private struct RomanGeneratorState: Sendable, Equatable, Hashable {
+    private enum ObservedSource {
+        case convertTarget
+        case composingInput
+    }
+
+    private struct InputMode {
+        var table: InputTable
+        var channel: TypoChannel
+        var observedSource: ObservedSource
+        var usesInputCharacterLMFilter: Bool {
+            self.observedSource == .convertTarget
+        }
+    }
+
+    private struct ObservedElement: Sendable {
+        var inputPiece: InputPiece
+        var character: Character
+    }
+
+    private struct GeneratorState: Sendable, Equatable, Hashable {
         var pending: String
-        var prevInputChar: Character?
+        var prevInputPiece: InputPiece?
         var proxyLogp: Float
     }
 
@@ -83,7 +103,7 @@ enum ZenzaiTypoCandidateGenerator {
         var score: Float
         var lmScore: Float
         var channelCost: Float
-        var romanState: RomanGeneratorState?
+        var generatorState: GeneratorState?
     }
 
     private struct ScoredHypothesis: Comparable {
@@ -104,15 +124,15 @@ enum ZenzaiTypoCandidateGenerator {
         var score: Float
     }
 
-    private struct RomanDeferredRequest {
+    private struct DeferredRequest {
         var parent: Hypothesis
-        var baseState: RomanGeneratorState
+        var baseState: GeneratorState
         var correctedAppend: String
         var observedCount: Int
         var channelAdd: Float
         var emitted: String
         var pending: String
-        var lastInputChar: Character
+        var lastInputPiece: InputPiece
         var upperBoundScore: Float
     }
 
@@ -262,7 +282,7 @@ enum ZenzaiTypoCandidateGenerator {
         }
     }
 
-    private static let flickGroups: [String] = [
+    private static let tenkeyGroups: [String] = [
         "アイウエオ",
         "カキクケコ",
         "ガギグゲゴ",
@@ -294,7 +314,7 @@ enum ZenzaiTypoCandidateGenerator {
         "j": ["h", "i", "k", "m", "n", "u", "y"],
         "k": ["i", "j", "l", "m", "o", "u"],
         "l": ["i", "k", "o", "p"],
-        "m": ["h", "j", "k", "n"],
+        "m": ["j", "k", "n"],
         "n": ["b", "g", "h", "j", "m"],
         "o": ["i", "k", "l", "p"],
         "p": ["l", "o"],
@@ -310,47 +330,9 @@ enum ZenzaiTypoCandidateGenerator {
         "z": ["a", "s", "x"]
     ]
 
-    private static let romanVowels: Set<Character> = ["a", "e", "i", "o", "u"]
-    private static let romanChars: Set<Character> = Set("abcdefghijklmnopqrstuvwxyz")
-    private static let romanConsonants: Set<Character> = Self.romanChars.subtracting(Self.romanVowels)
-    private static let romanPunctMap: [Character: String] = [
-        "-": "ー",
-        ",": "、",
-        ".": "。"
-    ]
-    private static let romanProbeChars: [Character] = Array(Self.romanChars).sorted() + Array(Self.romanPunctMap.keys).sorted()
-    private static let romanToKana: [String: String] = {
-        Dictionary(uniqueKeysWithValues: InputTables.defaultRomanToKanaPieceMap.compactMap { key, value -> (String, String)? in
-            let keyChars = key.compactMap { element -> Character? in
-                if case let .piece(piece) = element, case let .character(c) = piece {
-                    return c
-                }
-                return nil
-            }
-            let valueChars = value.compactMap { element -> Character? in
-                if case let .character(c) = element {
-                    return c
-                }
-                return nil
-            }
-            guard keyChars.count == key.count, valueChars.count == value.count else {
-                return nil
-            }
-            return (String(keyChars), String(valueChars).toKatakana())
-        })
-    }()
-    private static let romanPrefixes: Set<String> = {
-        var prefixes: Set<String> = []
-        for key in Self.romanToKana.keys {
-            for i in 1 ... key.count {
-                prefixes.insert(String(key.prefix(i)))
-            }
-        }
-        return prefixes
-    }()
-    private static let flickNeighbors: [Character: Set<Character>] = {
+    private static let tenkeyNeighbors: [Character: Set<Character>] = {
         var result: [Character: Set<Character>] = [:]
-        for group in Self.flickGroups {
+        for group in Self.tenkeyGroups {
             let chars = Array(group)
             for c in chars {
                 result[c] = Set(chars.filter { $0 != c })
@@ -358,6 +340,55 @@ enum ZenzaiTypoCandidateGenerator {
         }
         return result
     }()
+
+    private static func substitutionNeighbors(observed: Character, channel: TypoChannel) -> Set<Character> {
+        switch channel {
+        case .qwerty:
+            Self.qwertyNeighbors[observed, default: []]
+        case .tenkey:
+            Self.tenkeyNeighbors[observed, default: []]
+        }
+    }
+
+    private static func canonicalCharacter(for piece: InputPiece) -> Character? {
+        let raw: Character?
+        switch piece {
+        case let .character(c):
+            raw = c
+        case let .key(intention: intention, input: input, modifiers: _):
+            raw = intention ?? input
+        case .compositionSeparator:
+            raw = nil
+        }
+        guard let raw else {
+            return nil
+        }
+        let lowered = String(raw).lowercased()
+        return lowered.first ?? raw
+    }
+
+    private static func substitutionNeighbors(observed piece: InputPiece, channel: TypoChannel) -> Set<Character> {
+        guard let observed = Self.canonicalCharacter(for: piece) else {
+            return []
+        }
+        return Self.substitutionNeighbors(observed: observed, channel: channel)
+    }
+
+    private static func insertionNeighbors(prev: Character, channel: TypoChannel) -> Set<Character> {
+        switch channel {
+        case .qwerty:
+            Self.qwertyNeighbors[prev, default: []]
+        case .tenkey:
+            Self.tenkeyNeighbors[prev, default: []]
+        }
+    }
+
+    private static func insertionNeighbors(prev piece: InputPiece, channel: TypoChannel) -> Set<Character> {
+        guard let prev = Self.canonicalCharacter(for: piece) else {
+            return []
+        }
+        return Self.insertionNeighbors(prev: prev, channel: channel)
+    }
 
     static func generate(
         context: ZenzContext,
@@ -367,11 +398,11 @@ enum ZenzaiTypoCandidateGenerator {
         searchConfig: ZenzaiTypoSearchConfig
     ) -> [ZenzaiTypoCandidate] {
         let mode = Self.resolveInputMode(inputStyle: inputStyle)
-        let observedInput = Self.observedInput(composingText: composingText, mode: mode)
-        guard !observedInput.isEmpty else {
+        let observedElements = Self.observedElements(composingText: composingText, source: mode.observedSource)
+        let observedChars = observedElements.map(\.character)
+        guard !observedChars.isEmpty else {
             return []
         }
-        let observedChars = Array(observedInput)
         let maxSteps = searchConfig.maxSteps ?? (observedChars.count * 2 + 8)
 
         var scorer = LMScorer(context: context, leftSideContext: leftSideContext)
@@ -385,43 +416,22 @@ enum ZenzaiTypoCandidateGenerator {
                 score: 0,
                 lmScore: 0,
                 channelCost: 0,
-                romanState: mode == .roman2kana ? .init(pending: "", prevInputChar: nil, proxyLogp: 0) : nil
+                generatorState: .init(pending: "", prevInputPiece: nil, proxyLogp: 0)
             )
         ]
 
         for _ in 0..<maxSteps {
-            let expanded: [Hypothesis]
-            let allConsumed: Bool
-            switch mode {
-            case .flick:
-                var flickExpanded: [Hypothesis] = []
-                flickExpanded.reserveCapacity(searchConfig.beamSize * 6)
-                var flickAllConsumed = true
-                for hypothesis in beam {
-                    if hypothesis.j >= observedChars.count {
-                        flickExpanded.append(hypothesis)
-                        continue
-                    }
-                    flickAllConsumed = false
-                    flickExpanded.append(contentsOf: Self.expandFlick(
-                        hypothesis: hypothesis,
-                        observedChars: observedChars,
-                        scorer: &scorer,
-                        config: searchConfig
-                    ))
-                }
-                expanded = flickExpanded
-                allConsumed = flickAllConsumed
-            case .roman2kana:
-                let result = Self.expandRoman2KanaWithDeferred(
-                    beam: beam,
-                    observedChars: observedChars,
-                    scorer: &scorer,
-                    config: searchConfig
-                )
-                expanded = result.expanded
-                allConsumed = result.allConsumed
-            }
+            let result = Self.expandWithDeferred(
+                beam: beam,
+                observedElements: observedElements,
+                table: mode.table,
+                channel: mode.channel,
+                useInputCharacterLMFilter: mode.usesInputCharacterLMFilter,
+                scorer: &scorer,
+                config: searchConfig
+            )
+            let expanded = result.expanded
+            let allConsumed = result.allConsumed
             guard !expanded.isEmpty else {
                 break
             }
@@ -440,7 +450,8 @@ enum ZenzaiTypoCandidateGenerator {
                 Self.completeHypothesis(
                     hypothesis: hypothesis,
                     observedChars: observedChars,
-                    mode: mode,
+                    observedElements: observedElements,
+                    table: mode.table,
                     scorer: &scorer
                 )
             }
@@ -454,12 +465,7 @@ enum ZenzaiTypoCandidateGenerator {
 
         var unique: [String: ZenzaiTypoCandidate] = [:]
         for hypothesis in sorted {
-            let convertedText: String = switch mode {
-            case .flick:
-                hypothesis.emittedText
-            case .roman2kana:
-                hypothesis.emittedText + Self.romanPendingToMixedDisplay(hypothesis.romanState?.pending ?? "")
-            }
+            let convertedText = hypothesis.emittedText + Self.pendingToDisplayText(hypothesis.generatorState?.pending ?? "", table: mode.table)
             let candidate = ZenzaiTypoCandidate(
                 correctedInput: hypothesis.correctedInput,
                 convertedText: convertedText,
@@ -482,153 +488,91 @@ enum ZenzaiTypoCandidateGenerator {
 
     private static func resolveInputMode(inputStyle: InputStyle) -> InputMode {
         switch inputStyle {
-        case .roman2kana, .mapped(id: .defaultRomanToKana):
-            .roman2kana
-        default:
-            .flick
-        }
-    }
-
-    private static func observedInput(composingText: ComposingText, mode: InputMode) -> String {
-        switch mode {
-        case .flick:
-            return composingText.convertTarget.toKatakana()
         case .roman2kana:
-            var chars: [Character] = []
-            chars.reserveCapacity(composingText.input.count)
-            for element in composingText.input {
-                let raw: Character?
-                switch element.piece {
-                case let .character(c):
-                    raw = c
-                case let .key(intention: intention, input: input, modifiers: _):
-                    raw = intention ?? input
-                case .compositionSeparator:
-                    raw = nil
-                }
-                guard let raw else {
-                    continue
-                }
-                let lowered = Character(String(raw).lowercased())
-                if Self.romanChars.contains(lowered) || Self.romanPunctMap[lowered] != nil {
-                    chars.append(lowered)
-                }
+            return .init(
+                table: InputStyleManager.shared.table(for: .defaultRomanToKana),
+                channel: .qwerty,
+                observedSource: .composingInput
+            )
+        case .mapped(let id):
+            let table = InputStyleManager.shared.table(for: id)
+            if !table.possibleNexts.isEmpty {
+                return .init(table: table, channel: .qwerty, observedSource: .composingInput)
+            } else {
+                return .init(table: .empty, channel: .tenkey, observedSource: .convertTarget)
             }
-            return String(chars)
+        default:
+            return .init(table: .empty, channel: .tenkey, observedSource: .convertTarget)
         }
     }
 
-    private static func expandFlick(
-        hypothesis: Hypothesis,
-        observedChars: [Character],
-        scorer: inout LMScorer,
-        config: ZenzaiTypoSearchConfig
-    ) -> [Hypothesis] {
-        guard observedChars.indices.contains(hypothesis.j) else {
-            return [hypothesis]
+    private static func observedElements(composingText: ComposingText, source: ObservedSource) -> [ObservedElement] {
+        if source == .convertTarget {
+            return composingText.convertTarget.toKatakana().map {
+                ObservedElement(inputPiece: .character($0), character: $0)
+            }
         }
-        let observed = observedChars[hypothesis.j]
-        var outputs: [Hypothesis] = []
-        outputs.reserveCapacity(16)
-
-        if let prev = hypothesis.prevEmittedChar, Self.flickNeighbors[prev, default: []].contains(observed) {
-            var inserted = hypothesis
-            inserted.j += 1
-            inserted.channelCost += config.beta
-            inserted.score = inserted.lmScore - inserted.channelCost
-            outputs.append(inserted)
-        }
-
-        var allowed = Set([observed])
-        allowed.formUnion(Self.flickNeighbors[observed, default: []])
-        let lmTopChars = Set(scorer.topKCharacters(emittedTokenIDs: hypothesis.emittedTokenIDs, k: config.topK))
-        let candidates = allowed.intersection(lmTopChars.union([observed]))
-        let targetChars = candidates.isEmpty ? [observed] : candidates.sorted(by: { $0 < $1 })
-
-        for yChar in targetChars {
-            guard let appended = scorer.appendAndScore(
-                emittedTokenIDs: hypothesis.emittedTokenIDs,
-                lmScore: hypothesis.lmScore,
-                appendText: String(yChar)
-            ) else {
+        var result: [ObservedElement] = []
+        result.reserveCapacity(composingText.input.count)
+        for element in composingText.input {
+            guard let normalized = Self.canonicalCharacter(for: element.piece) else {
                 continue
             }
-            let addCost: Float = yChar == observed ? 0 : config.alpha
-            var next = hypothesis
-            next.correctedInput += String(yChar)
-            next.emittedText += String(yChar)
-            next.emittedTokenIDs = appended.emittedTokenIDs
-            next.lmScore = appended.lmScore
-            next.channelCost += addCost
-            next.score = next.lmScore - next.channelCost
-            next.j += 1
-            next.prevEmittedChar = yChar
-            outputs.append(next)
+            result.append(.init(inputPiece: element.piece, character: normalized))
         }
-
-        if observedChars.indices.contains(hypothesis.j + 1) {
-            let nextObserved = observedChars[hypothesis.j + 1]
-            if observed != nextObserved {
-                let swapString = String([nextObserved, observed])
-                guard let appended = scorer.appendAndScore(
-                    emittedTokenIDs: hypothesis.emittedTokenIDs,
-                    lmScore: hypothesis.lmScore,
-                    appendText: swapString
-                ) else {
-                    return outputs
-                }
-                var swapped = hypothesis
-                swapped.correctedInput += swapString
-                swapped.emittedText += swapString
-                swapped.emittedTokenIDs = appended.emittedTokenIDs
-                swapped.lmScore = appended.lmScore
-                swapped.channelCost += config.gamma
-                swapped.score = swapped.lmScore - swapped.channelCost
-                swapped.j += 2
-                swapped.prevEmittedChar = observed
-                outputs.append(swapped)
-            }
-        }
-
-        return outputs
+        return result
     }
 
-    private static func expandRoman2KanaCandidates(
+    private static func expandCandidates(
         hypothesis: Hypothesis,
-        observedChars: [Character],
+        observedElements: [ObservedElement],
+        table: InputTable,
+        channel: TypoChannel,
+        useInputCharacterLMFilter: Bool,
         scorer: inout LMScorer,
         config: ZenzaiTypoSearchConfig
-    ) -> (immediate: [Hypothesis], deferred: [RomanDeferredRequest]) {
-        guard observedChars.indices.contains(hypothesis.j), let baseState = hypothesis.romanState else {
+    ) -> (immediate: [Hypothesis], deferred: [DeferredRequest]) {
+        guard observedElements.indices.contains(hypothesis.j), let baseState = hypothesis.generatorState else {
             return ([hypothesis], [])
         }
-        let observed = observedChars[hypothesis.j]
-        let isInputTail = hypothesis.j == observedChars.count - 1
+        let observedElement = observedElements[hypothesis.j]
+        let observed = observedElement.character
+        let isInputTail = hypothesis.j == observedElements.count - 1
+        var allowed = Set([observed])
+        allowed.formUnion(Self.substitutionNeighbors(observed: observedElement.inputPiece, channel: channel))
+        let targetChars: [Character]
+        if useInputCharacterLMFilter {
+            let lmTopChars = Set(scorer.topKCharacters(emittedTokenIDs: hypothesis.emittedTokenIDs, k: config.topK))
+            let scoredTargets = allowed.intersection(lmTopChars.union([observed]))
+            targetChars = scoredTargets.isEmpty ? [observed] : scoredTargets.sorted(by: { $0 < $1 })
+        } else {
+            targetChars = allowed.sorted(by: { $0 < $1 })
+        }
         var immediate: [Hypothesis] = []
         immediate.reserveCapacity(20)
-        var deferred: [RomanDeferredRequest] = []
+        var deferred: [DeferredRequest] = []
         deferred.reserveCapacity(8)
 
-        func addAdvance(trueSeq: [Character], observedCount: Int, channelAdd: Float) {
+        func addAdvance(trueSeq: [Character], observedCount: Int, channelAdd: Float, lastInputPiece: InputPiece) {
             guard let last = trueSeq.last else {
                 return
             }
             var pending = baseState.pending
             var emitted = ""
             for char in trueSeq {
-                let consumed = Self.romanConsumeWithEmission(pending: pending, newChar: char)
+                let consumed = Self.consumeWithEmission(pending: pending, newChar: char, table: table)
                 emitted += consumed.emitted
                 pending = consumed.pending
             }
-            let reachesTail = hypothesis.j + observedCount - 1 == observedChars.count - 1
+            let reachesTail = hypothesis.j + observedCount - 1 == observedElements.count - 1
             if reachesTail, !pending.isEmpty {
-                let observedLast = observedChars[hypothesis.j + observedCount - 1]
+                let observedLast = observedElements[hypothesis.j + observedCount - 1].character
                 if last != observedLast || channelAdd > 0 {
                     return
                 }
             }
             if emitted.isEmpty {
-                if let evaluated = Self.evaluateRomanAdvance(
+                if let evaluated = Self.evaluateAdvance(
                     parent: hypothesis,
                     baseState: baseState,
                     correctedAppend: String(trueSeq),
@@ -636,7 +580,8 @@ enum ZenzaiTypoCandidateGenerator {
                     channelAdd: channelAdd,
                     emitted: emitted,
                     pending: pending,
-                    lastInputChar: last,
+                    lastInputPiece: lastInputPiece,
+                    table: table,
                     scorer: &scorer
                 ) {
                     immediate.append(evaluated)
@@ -656,7 +601,7 @@ enum ZenzaiTypoCandidateGenerator {
                   let firstToken = firstTokens.first,
                   let nextLogProbs = scorer.nextLogProbsForPrefix(emittedTokenIDs: hypothesis.emittedTokenIDs)
             else {
-                if let evaluated = Self.evaluateRomanAdvance(
+                if let evaluated = Self.evaluateAdvance(
                     parent: hypothesis,
                     baseState: baseState,
                     correctedAppend: String(trueSeq),
@@ -664,7 +609,8 @@ enum ZenzaiTypoCandidateGenerator {
                     channelAdd: channelAdd,
                     emitted: emitted,
                     pending: pending,
-                    lastInputChar: last,
+                    lastInputPiece: lastInputPiece,
+                    table: table,
                     scorer: &scorer
                 ) {
                     immediate.append(evaluated)
@@ -678,7 +624,7 @@ enum ZenzaiTypoCandidateGenerator {
             let upperBoundLM = baseLMScore + nextLogProbs[index]
             let upperBoundScore = upperBoundLM - (hypothesis.channelCost + channelAdd)
             deferred.append(
-                RomanDeferredRequest(
+                DeferredRequest(
                     parent: hypothesis,
                     baseState: baseState,
                     correctedAppend: String(trueSeq),
@@ -686,25 +632,29 @@ enum ZenzaiTypoCandidateGenerator {
                     channelAdd: channelAdd,
                     emitted: emitted,
                     pending: pending,
-                    lastInputChar: last,
+                    lastInputPiece: lastInputPiece,
                     upperBoundScore: upperBoundScore
                 )
             )
         }
 
-        addAdvance(trueSeq: [observed], observedCount: 1, channelAdd: 0)
-        if Self.romanChars.contains(observed) {
-            for neighbor in Self.qwertyNeighbors[observed, default: []].sorted(by: { $0 < $1 }) {
-                addAdvance(trueSeq: [neighbor], observedCount: 1, channelAdd: config.alpha)
-            }
+        for target in targetChars {
+            let isIdentity = target == observed
+            addAdvance(
+                trueSeq: [target],
+                observedCount: 1,
+                channelAdd: isIdentity ? 0 : config.alpha,
+                lastInputPiece: isIdentity ? observedElement.inputPiece : .character(target)
+            )
         }
 
         if !isInputTail,
-           let prevInput = baseState.prevInputChar,
-           Self.qwertyNeighbors[prevInput, default: []].contains(observed) {
-            let newProxyLogp = Self.romanProxyLogProb(
+           let prevInput = baseState.prevInputPiece,
+           Self.insertionNeighbors(prev: prevInput, channel: channel).contains(observed) {
+            let newProxyLogp = Self.pendingProxyLogProb(
                 pending: baseState.pending,
                 emittedTokenIDs: hypothesis.emittedTokenIDs,
+                table: table,
                 scorer: &scorer
             )
             if newProxyLogp.isFinite {
@@ -715,40 +665,51 @@ enum ZenzaiTypoCandidateGenerator {
                 inserted.score = inserted.lmScore - inserted.channelCost
                 var insertedState = baseState
                 insertedState.proxyLogp = newProxyLogp
-                inserted.romanState = insertedState
+                inserted.generatorState = insertedState
                 immediate.append(inserted)
             }
         }
 
-        if observedChars.indices.contains(hypothesis.j + 1) {
-            let observed2 = observedChars[hypothesis.j + 1]
+        if observedElements.indices.contains(hypothesis.j + 1) {
+            let observed2 = observedElements[hypothesis.j + 1].character
             if observed != observed2 {
-                addAdvance(trueSeq: [observed2, observed], observedCount: 2, channelAdd: config.gamma)
+                addAdvance(
+                    trueSeq: [observed2, observed],
+                    observedCount: 2,
+                    channelAdd: config.gamma,
+                    lastInputPiece: observedElement.inputPiece
+                )
             }
         }
 
         return (immediate, deferred)
     }
 
-    private static func expandRoman2KanaWithDeferred(
+    private static func expandWithDeferred(
         beam: [Hypothesis],
-        observedChars: [Character],
+        observedElements: [ObservedElement],
+        table: InputTable,
+        channel: TypoChannel,
+        useInputCharacterLMFilter: Bool,
         scorer: inout LMScorer,
         config: ZenzaiTypoSearchConfig
     ) -> (expanded: [Hypothesis], allConsumed: Bool) {
         var heap = FixedSizeHeap<ScoredHypothesis>(size: max(1, config.beamSize))
-        var deferredRequests: [RomanDeferredRequest] = []
+        var deferredRequests: [DeferredRequest] = []
         var allConsumed = true
 
         for hypothesis in beam {
-            if hypothesis.j >= observedChars.count {
+            if hypothesis.j >= observedElements.count {
                 _ = heap.insertIfPossible(ScoredHypothesis(hypothesis))
                 continue
             }
             allConsumed = false
-            let (immediate, deferred) = Self.expandRoman2KanaCandidates(
+            let (immediate, deferred) = Self.expandCandidates(
                 hypothesis: hypothesis,
-                observedChars: observedChars,
+                observedElements: observedElements,
+                table: table,
+                channel: channel,
+                useInputCharacterLMFilter: useInputCharacterLMFilter,
                 scorer: &scorer,
                 config: config
             )
@@ -766,7 +727,7 @@ enum ZenzaiTypoCandidateGenerator {
                    request.upperBoundScore < cutoff {
                     break
                 }
-                guard let evaluated = Self.evaluateRomanAdvance(
+                guard let evaluated = Self.evaluateAdvance(
                     parent: request.parent,
                     baseState: request.baseState,
                     correctedAppend: request.correctedAppend,
@@ -774,7 +735,8 @@ enum ZenzaiTypoCandidateGenerator {
                     channelAdd: request.channelAdd,
                     emitted: request.emitted,
                     pending: request.pending,
-                    lastInputChar: request.lastInputChar,
+                    lastInputPiece: request.lastInputPiece,
+                    table: table,
                     scorer: &scorer
                 ) else {
                     continue
@@ -787,15 +749,16 @@ enum ZenzaiTypoCandidateGenerator {
         return (expanded, allConsumed)
     }
 
-    private static func evaluateRomanAdvance(
+    private static func evaluateAdvance(
         parent: Hypothesis,
-        baseState: RomanGeneratorState,
+        baseState: GeneratorState,
         correctedAppend: String,
         observedCount: Int,
         channelAdd: Float,
         emitted: String,
         pending: String,
-        lastInputChar: Character,
+        lastInputPiece: InputPiece,
+        table: InputTable,
         scorer: inout LMScorer
     ) -> Hypothesis? {
         let oldProxyLogp = baseState.proxyLogp
@@ -818,9 +781,10 @@ enum ZenzaiTypoCandidateGenerator {
             emittedLogp = appended.lmScore
             prevEmittedChar = emitted.last
         }
-        let newProxyLogp = Self.romanProxyLogProb(
+        let newProxyLogp = Self.pendingProxyLogProb(
             pending: pending,
             emittedTokenIDs: emittedTokenIDs,
+            table: table,
             scorer: &scorer
         )
         guard newProxyLogp.isFinite else {
@@ -829,7 +793,7 @@ enum ZenzaiTypoCandidateGenerator {
 
         var nextState = baseState
         nextState.pending = pending
-        nextState.prevInputChar = lastInputChar
+        nextState.prevInputPiece = lastInputPiece
         nextState.proxyLogp = newProxyLogp
 
         var next = parent
@@ -841,14 +805,15 @@ enum ZenzaiTypoCandidateGenerator {
         next.score = next.lmScore - next.channelCost
         next.j += observedCount
         next.prevEmittedChar = prevEmittedChar
-        next.romanState = nextState
+        next.generatorState = nextState
         return next
     }
 
     private static func completeHypothesis(
         hypothesis: Hypothesis,
         observedChars: [Character],
-        mode: InputMode,
+        observedElements: [ObservedElement],
+        table: InputTable,
         scorer: inout LMScorer
     ) -> Hypothesis? {
         if hypothesis.j >= observedChars.count {
@@ -857,163 +822,199 @@ enum ZenzaiTypoCandidateGenerator {
         var completed = hypothesis
         while completed.j < observedChars.count {
             let observed = observedChars[completed.j]
-            switch mode {
-            case .flick:
+            guard var state = completed.generatorState else {
+                return nil
+            }
+            let oldProxyLogp = state.proxyLogp
+            guard oldProxyLogp.isFinite else {
+                return nil
+            }
+            let baseLMScore = completed.lmScore - oldProxyLogp
+            let consumed = Self.consumeWithEmission(
+                pending: state.pending,
+                newChar: observed,
+                table: table
+            )
+            var emittedTokenIDs = completed.emittedTokenIDs
+            var emittedLogp: Float = 0
+            if !consumed.emitted.isEmpty {
                 guard let appended = scorer.appendAndScore(
-                    emittedTokenIDs: completed.emittedTokenIDs,
-                    lmScore: completed.lmScore,
-                    appendText: String(observed)
+                    emittedTokenIDs: emittedTokenIDs,
+                    lmScore: 0,
+                    appendText: consumed.emitted
                 ) else {
                     return nil
                 }
-                completed.correctedInput += String(observed)
-                completed.emittedText += String(observed)
-                completed.emittedTokenIDs = appended.emittedTokenIDs
-                completed.lmScore = appended.lmScore
-                completed.score = completed.lmScore - completed.channelCost
-                completed.prevEmittedChar = observed
-                completed.j += 1
-            case .roman2kana:
-                guard var state = completed.romanState else {
-                    return nil
-                }
-                let oldProxyLogp = state.proxyLogp
-                guard oldProxyLogp.isFinite else {
-                    return nil
-                }
-                let baseLMScore = completed.lmScore - oldProxyLogp
-                let consumed = Self.romanConsumeWithEmission(pending: state.pending, newChar: observed)
-                var emittedTokenIDs = completed.emittedTokenIDs
-                var emittedLogp: Float = 0
-                if !consumed.emitted.isEmpty {
-                    guard let appended = scorer.appendAndScore(
-                        emittedTokenIDs: emittedTokenIDs,
-                        lmScore: 0,
-                        appendText: consumed.emitted
-                    ) else {
-                        return nil
-                    }
-                    emittedTokenIDs = appended.emittedTokenIDs
-                    emittedLogp = appended.lmScore
-                    completed.prevEmittedChar = consumed.emitted.last
-                    completed.emittedText += consumed.emitted
-                }
-                let newProxyLogp = Self.romanProxyLogProb(
-                    pending: consumed.pending,
-                    emittedTokenIDs: emittedTokenIDs,
-                    scorer: &scorer
-                )
-                guard newProxyLogp.isFinite else {
-                    return nil
-                }
-                state.pending = consumed.pending
-                state.prevInputChar = observed
-                state.proxyLogp = newProxyLogp
-                completed.romanState = state
-                completed.correctedInput += String(observed)
-                completed.emittedTokenIDs = emittedTokenIDs
-                completed.lmScore = baseLMScore + emittedLogp + newProxyLogp
-                completed.score = completed.lmScore - completed.channelCost
-                completed.j += 1
+                emittedTokenIDs = appended.emittedTokenIDs
+                emittedLogp = appended.lmScore
+                completed.prevEmittedChar = consumed.emitted.last
+                completed.emittedText += consumed.emitted
             }
+            let newProxyLogp = Self.pendingProxyLogProb(
+                pending: consumed.pending,
+                emittedTokenIDs: emittedTokenIDs,
+                table: table,
+                scorer: &scorer
+            )
+            guard newProxyLogp.isFinite else {
+                return nil
+            }
+            let observedPiece: InputPiece = if observedElements.indices.contains(completed.j) {
+                observedElements[completed.j].inputPiece
+            } else {
+                .character(observed)
+            }
+            state.pending = consumed.pending
+            state.prevInputPiece = observedPiece
+            state.proxyLogp = newProxyLogp
+            completed.generatorState = state
+            completed.correctedInput += String(observed)
+            completed.emittedTokenIDs = emittedTokenIDs
+            completed.lmScore = baseLMScore + emittedLogp + newProxyLogp
+            completed.score = completed.lmScore - completed.channelCost
+            completed.j += 1
         }
         return completed
     }
 
-    private static func romanConsumeWithEmission(pending: String, newChar: Character) -> (emitted: String, pending: String) {
-        if let punct = Self.romanPunctMap[newChar] {
-            var emitted: [String] = []
-            if pending == "n" {
-                emitted.append("ン")
-            } else if !pending.isEmpty {
-                return ("", pending)
-            }
-            emitted.append(punct)
-            return (emitted.joined(), "")
+    private static func consumeWithEmission(
+        pending: String,
+        newChar: Character,
+        table: InputTable
+    ) -> (emitted: String, pending: String) {
+        let raw = pending + String(newChar)
+        let converted = Self.applyInputTable(raw: raw, table: table)
+        let nextPending = Self.pendingSuffix(raw: raw, converted: converted, table: table)
+        guard !nextPending.isEmpty else {
+            return (converted, "")
         }
-
-        var buffer = pending + String(newChar)
-        var emitted: [String] = []
-        while !buffer.isEmpty {
-            let chars = Array(buffer)
-            if chars.count >= 2, chars[0] == chars[1], Self.romanConsonants.contains(chars[0]), chars[0] != "n" {
-                emitted.append("ッ")
-                buffer.removeFirst()
-                continue
-            }
-            if chars.count >= 2, chars[0] == "n", chars[1] == "n" {
-                emitted.append("ン")
-                buffer.removeFirst()
-                continue
-            }
-            if chars.count >= 2, chars[0] == "n", !Self.romanVowels.contains(chars[1]), !["y", "n"].contains(chars[1]) {
-                emitted.append("ン")
-                buffer.removeFirst()
-                continue
-            }
-
-            var matched = false
-            let maxSize = min(3, buffer.count)
-            for size in stride(from: maxSize, through: 1, by: -1) {
-                let key = String(buffer.prefix(size))
-                if key == "n" {
-                    if buffer.count == 1 {
-                        continue
-                    }
-                    let nextChar = Array(buffer)[1]
-                    if Self.romanVowels.contains(nextChar) || nextChar == "y" {
-                        continue
-                    }
-                }
-                guard let output = Self.romanToKana[key] else {
-                    continue
-                }
-                emitted.append(output)
-                buffer.removeFirst(size)
-                matched = true
-                break
-            }
-            if matched {
-                continue
-            }
-            break
+        guard converted.count >= nextPending.count else {
+            return ("", nextPending)
         }
-        return (emitted.joined(), buffer)
+        return (String(converted.dropLast(nextPending.count)), nextPending)
     }
 
-    private static func romanPendingToMixedDisplay(_ pending: String) -> String {
+    private static func pendingToDisplayText(_ pending: String, table _: InputTable) -> String {
         guard !pending.isEmpty else {
             return ""
         }
-        var buffer = ""
-        var output: [String] = []
-        for char in pending {
-            let consumed = Self.romanConsumeWithEmission(pending: buffer, newChar: char)
-            if !consumed.emitted.isEmpty {
-                output.append(consumed.emitted)
-            }
-            buffer = consumed.pending
-            while !buffer.isEmpty, !Self.romanPrefixes.contains(buffer) {
-                output.append(String(buffer.removeFirst()))
-            }
-        }
-        if buffer == "n" {
-            output.append("n")
-        } else if !buffer.isEmpty {
-            output.append(buffer)
-        }
-        return output.joined()
+        return pending
     }
 
-    private static func romanProxyLogProb(
+    private static func applyInputTable(raw: String, table: InputTable) -> String {
+        guard !raw.isEmpty else {
+            return ""
+        }
+        var buffer: [Character] = []
+        buffer.reserveCapacity(raw.count)
+        for char in raw {
+            table.apply(to: &buffer, added: .character(char))
+        }
+        return String(buffer).toKatakana()
+    }
+
+    private static func pendingSuffix(raw: String, converted: String, table: InputTable) -> String {
+        guard !raw.isEmpty else {
+            return ""
+        }
+        let rawChars = Array(raw)
+        for length in stride(from: rawChars.count, through: 1, by: -1) {
+            let suffix = String(rawChars.suffix(length))
+            guard Self.hasContinuation(pending: suffix, table: table) else {
+                continue
+            }
+            let suffixDisplay = Self.applyInputTable(raw: suffix, table: table)
+            guard suffixDisplay == suffix, converted.hasSuffix(suffixDisplay) else {
+                continue
+            }
+            return suffix
+        }
+        return ""
+    }
+
+    private static func hasContinuation(pending: String, table: InputTable) -> Bool {
+        if !table.possibleNexts[pending, default: []].isEmpty {
+            return true
+        }
+        let pendingChars = Array(pending)
+        guard !pendingChars.isEmpty else {
+            return false
+        }
+        for key in table.baseMapping.keys {
+            guard key.count > pendingChars.count else {
+                continue
+            }
+            var matched = true
+            for (index, char) in pendingChars.enumerated() {
+                guard key.indices.contains(index) else {
+                    matched = false
+                    break
+                }
+                guard case let .piece(piece) = key[index], case let .character(c) = piece, c == char else {
+                    matched = false
+                    break
+                }
+            }
+            if matched {
+                return true
+            }
+        }
+        return false
+    }
+
+    private static func possibleNextDisplays(pending: String, table: InputTable) -> [String] {
+        var result = Set(table.possibleNexts[pending, default: []].map { $0.toKatakana() })
+        let pendingChars = Array(pending)
+        guard !pendingChars.isEmpty else {
+            return result.sorted()
+        }
+
+        for (key, value) in table.baseMapping {
+            guard let any1Index = key.firstIndex(where: {
+                if case .any1 = $0 {
+                    return true
+                }
+                return false
+            }), any1Index == key.count - 1 else {
+                continue
+            }
+            let keyPrefix = key.prefix(any1Index).compactMap { element -> Character? in
+                guard case let .piece(piece) = element, case let .character(c) = piece else {
+                    return nil
+                }
+                return c
+            }
+            guard keyPrefix.count == any1Index, keyPrefix.elementsEqual(pendingChars) else {
+                continue
+            }
+            let outputPrefix = value.prefix {
+                if case .any1 = $0 {
+                    return false
+                }
+                return true
+            }.compactMap { element -> Character? in
+                guard case let .character(c) = element else {
+                    return nil
+                }
+                return c
+            }
+            if !outputPrefix.isEmpty {
+                result.insert(String(outputPrefix).toKatakana())
+            }
+        }
+        return result.sorted()
+    }
+
+    private static func pendingProxyLogProb(
         pending: String,
         emittedTokenIDs: [llama_token],
+        table: InputTable,
         scorer: inout LMScorer
     ) -> Float {
         guard !pending.isEmpty else {
             return 0
         }
-        let firstTokenIDs = Self.romanPendingFirstTokenIDs(pending: pending, scorer: &scorer)
+        let firstTokenIDs = Self.pendingFirstTokenIDs(pending: pending, table: table, scorer: &scorer)
         guard !firstTokenIDs.isEmpty,
               let nextLogProbs = scorer.nextLogProbsForPrefix(emittedTokenIDs: emittedTokenIDs) else {
             return -.infinity
@@ -1046,14 +1047,18 @@ enum ZenzaiTypoCandidateGenerator {
         return maxLogProb + logf(sumExp)
     }
 
-    private static func romanPendingFirstTokenIDs(
+    private static func pendingFirstTokenIDs(
         pending: String,
+        table: InputTable,
         scorer: inout LMScorer
     ) -> [llama_token] {
         var tokenIDs: Set<llama_token> = []
-        for probe in Self.romanProbeChars {
-            let consumed = Self.romanConsumeWithEmission(pending: pending, newChar: probe)
-            guard let firstChar = consumed.emitted.first else {
+        let possibleNexts = Self.possibleNextDisplays(pending: pending, table: table)
+        guard !possibleNexts.isEmpty else {
+            return []
+        }
+        for next in possibleNexts {
+            guard let firstChar = next.first else {
                 continue
             }
             let firstToken = scorer.encodeRaw(String(firstChar))
