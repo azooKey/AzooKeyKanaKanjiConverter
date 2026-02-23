@@ -8,8 +8,8 @@ import OrderedCollections
 import SwiftUtils
 
 /// Typo探索の探索幅・誤りコスト重みをまとめた設定。
-package struct ZenzaiTypoSearchConfig: Sendable, Equatable, Hashable {
-    package init(
+public struct ZenzaiTypoSearchConfig: Sendable, Equatable, Hashable {
+    public init(
         beamSize: Int = 32,
         topK: Int = 64,
         nBest: Int = 5,
@@ -27,21 +27,21 @@ package struct ZenzaiTypoSearchConfig: Sendable, Equatable, Hashable {
         self.gamma = gamma
     }
 
-    package var beamSize: Int
-    package var topK: Int
-    package var nBest: Int
-    package var maxSteps: Int?
+    public var beamSize: Int
+    public var topK: Int
+    public var nBest: Int
+    public var maxSteps: Int?
     /// 1文字置換のチャネルコスト。
-    package var alpha: Float
+    public var alpha: Float
     /// 1文字脱落（観測文字のスキップ）のチャネルコスト。
-    package var beta: Float
+    public var beta: Float
     /// 隣接2文字の転置のチャネルコスト。
-    package var gamma: Float
+    public var gamma: Float
 }
 
 /// typo探索の最終出力候補。
-package struct ZenzaiTypoCandidate: Sendable, Equatable, Hashable {
-    package init(
+public struct ZenzaiTypoCandidate: Sendable, Equatable, Hashable {
+    public init(
         correctedInput: String,
         convertedText: String,
         score: Float,
@@ -58,17 +58,17 @@ package struct ZenzaiTypoCandidate: Sendable, Equatable, Hashable {
     }
 
     /// 訂正後の入力列（入力チャネル側）。
-    package var correctedInput: String
+    public var correctedInput: String
     /// `InputTable` 適用後の表示文字列（変換チャネル側）。
-    package var convertedText: String
+    public var convertedText: String
     /// 総合スコア。`lmScore - channelCost`。
-    package var score: Float
+    public var score: Float
     /// 言語モデルの対数確率スコア。
-    package var lmScore: Float
+    public var lmScore: Float
     /// typoチャネル由来の累積コスト。
-    package var channelCost: Float
+    public var channelCost: Float
     /// best候補比の相対重み。
-    package var prominence: Float
+    public var prominence: Float
 }
 
 enum ZenzaiTypoCandidateGenerator {

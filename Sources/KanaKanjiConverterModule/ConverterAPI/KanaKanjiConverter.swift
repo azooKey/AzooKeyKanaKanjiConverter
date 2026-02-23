@@ -179,7 +179,26 @@ public final class KanaKanjiConverter {
         )
     }
 
-    package func requestTypoCorrectionsOnly(
+    /// LMベース typo correction の候補を返す実験的API。
+    /// - Warning: このAPIは experimental であり、予告なく変更または削除される可能性があります。
+    public func experimentalRequestTypoCorrectionOnly(
+        leftSideContext: String,
+        composingText: ComposingText,
+        options: ConvertRequestOptions,
+        inputStyle: InputStyle,
+        searchConfig: ZenzaiTypoSearchConfig
+    ) -> [ZenzaiTypoCandidate] {
+        print("[Warning] KanaKanjiConverter.experimentalRequestTypoCorrectionOnly is experimental and may change without notice.")
+        return self.requestTypoCorrectionsOnlyImpl(
+            leftSideContext: leftSideContext,
+            composingText: composingText,
+            options: options,
+            inputStyle: inputStyle,
+            searchConfig: searchConfig
+        )
+    }
+
+    private func requestTypoCorrectionsOnlyImpl(
         leftSideContext: String,
         composingText: ComposingText,
         options: ConvertRequestOptions,

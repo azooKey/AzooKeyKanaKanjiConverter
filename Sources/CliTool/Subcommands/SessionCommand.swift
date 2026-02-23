@@ -295,7 +295,7 @@ extension Subcommands {
                     }
 
                     let tcStart = Date()
-                    let typoCandidates = converter.requestTypoCorrectionsOnly(
+                    let typoCandidates = converter.experimentalRequestTypoCorrectionOnly(
                         leftSideContext: leftSideContext,
                         composingText: composingText,
                         options: requestOptions(learningType: learningType, memoryDirectory: memoryDirectory, leftSideContext: leftSideContext),
