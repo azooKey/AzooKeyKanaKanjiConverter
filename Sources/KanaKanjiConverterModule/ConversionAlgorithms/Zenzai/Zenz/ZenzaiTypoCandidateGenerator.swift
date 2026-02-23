@@ -71,13 +71,138 @@ public struct ZenzaiTypoCandidate: Sendable, Equatable, Hashable {
     public var prominence: Float
 }
 
-enum ZenzaiTypoCandidateGenerator {
-    /// typo channelの近傍定義を切り替えるための入力系統。
-    private enum TypoChannel {
-        case qwerty
-        case tenkey
+/// キー配置ごとの近傍分布を表すトポロジー。
+private struct KeyTopology: Sendable {
+    enum ID: String, Sendable {
+        case macOSStandardQwerty
+        case iOSStandardQwerty
+        case iOSStandardFlickTenkey
     }
 
+    let id: ID
+    private let neighborDistancesByCharacter: [Character: [Character: Float]]
+
+    func neighborDistances(around character: Character) -> [Character: Float] {
+        self.neighborDistancesByCharacter[character, default: [:]]
+    }
+
+    /// magic keyboardの配置を基にしたQWERTY近傍座標。単位距離はキー間隔1つ分。
+    static let macOSStandardQwerty = KeyTopology(
+        id: .macOSStandardQwerty,
+        neighborDistancesByCharacter: Self.buildCoordinateNeighborDistances(
+            coordinates: [
+                "1": (-1.0, 0), "2": (0.25, 0), "3": (1.25, 0), "4": (2.25, 0), "5": (3.25, 0), "6": (4.25, 0), "7": (5.25, 0), "8": (6.25, 0), "9": (7.25, 0), "0": (8.25, 0), "-": (9.25, 0), "^": (10.25, 0),
+                "q": (0.00, 1), "w": (1.00, 1), "e": (2.00, 1), "r": (3.00, 1), "t": (4.00, 1), "y": (5.00, 1), "u": (6.00, 1), "i": (7.00, 1), "o": (8.00, 1), "p": (9.00, 1), "@": (10.00, 1), "[": (11.00, 1),
+                "a": (0.25, 2), "s": (1.25, 2), "d": (2.25, 2), "f": (3.25, 2), "g": (4.25, 2), "h": (5.25, 2), "j": (6.25, 2), "k": (7.25, 2), "l": (8.25, 2), ";": (9.25, 2), "]": (10.25, 2),
+                "z": (0.80, 3), "x": (1.80, 3), "c": (2.80, 3), "v": (3.80, 3), "b": (4.80, 3), "n": (5.80, 3), "m": (6.80, 3), ",": (7.80, 3), ".": (8.80, 3), "/": (9.80, 3), "_": (10.80, 3),
+            ]
+        )
+    )
+
+    /// iOSのフルキーボード配置を基にしたQWERTY近傍座標。単位距離はキー間隔1つ分。Macと比べて横幅が狭く、縦幅が広い。
+    static let iOSStandardQwerty = KeyTopology(
+        id: .iOSStandardQwerty,
+        neighborDistancesByCharacter: Self.buildCoordinateNeighborDistances(
+            coordinates: [
+                "q": (0.00, 1.0), "w": (1.00, 1.0), "e": (2.00, 1.0), "r": (3.00, 1.0), "t": (4.00, 1.0), "y": (5.00, 1.0), "u": (6.00, 1.0), "i": (7.00, 1.0), "o": (8.00, 1.0), "p": (9.00, 1.0),
+                "a": (0.50, 2.5), "s": (1.50, 2.5), "d": (2.50, 2.5), "f": (3.50, 2.5), "g": (4.50, 2.5), "h": (5.50, 2.5), "j": (6.50, 2.5), "k": (7.50, 2.5), "l": (8.50, 2.5),
+                "z": (1.50, 4.0), "x": (2.50, 4.0), "c": (3.50, 4.0), "v": (4.50, 4.0), "b": (5.50, 4.0), "n": (6.50, 4.0), "m": (7.50, 4.0),
+            ]
+        )
+    )
+
+    static let iOSStandardFlickTenkey = KeyTopology(
+        id: .iOSStandardFlickTenkey,
+        neighborDistancesByCharacter: Self.buildTenkeyNeighborDistances(groups: [
+            "アイウエオ",
+            "カキクケコ",
+            "ガギグゲゴ",
+            "サシスセソ",
+            "ザジズゼゾ",
+            "タチツテト",
+            "ダヂヅデド",
+            "ナニヌネノ",
+            "ハヒフヘホ",
+            "バビブベボ",
+            "パピプペポ",
+            "マミムメモ",
+            "ヤユヨ",
+            "ャュョ",
+            "ラリルレロ",
+            "ワヲンー"
+        ])
+    )
+
+    private static func buildCoordinateNeighborSets(
+        coordinates: [Character: (x: Float, y: Float)],
+        neighborMaxDistance: Float = 1.65
+    ) -> [Character: Set<Character>] {
+        var result: [Character: Set<Character>] = [:]
+        result.reserveCapacity(coordinates.count)
+        for (source, sourcePoint) in coordinates {
+            var neighbors: Set<Character> = []
+            for (target, targetPoint) in coordinates where target != source {
+                let dx = sourcePoint.x - targetPoint.x
+                let dy = sourcePoint.y - targetPoint.y
+                let distance = sqrtf(dx * dx + dy * dy)
+                if distance <= neighborMaxDistance {
+                    neighbors.insert(target)
+                }
+            }
+            if !neighbors.isEmpty {
+                result[source] = neighbors
+            }
+        }
+        return result
+    }
+        
+
+    private static func coordinateDistance(
+        _ from: Character,
+        _ to: Character,
+        coordinates: [Character: (x: Float, y: Float)]
+    ) -> Float {
+        guard let lhs = coordinates[from], let rhs = coordinates[to] else {
+            return 1.0
+        }
+        let dx = lhs.x - rhs.x
+        let dy = lhs.y - rhs.y
+        return sqrtf(dx * dx + dy * dy)
+    }
+
+    private static func buildCoordinateNeighborDistances(
+        coordinates: [Character: (x: Float, y: Float)]
+    ) -> [Character: [Character: Float]] {
+        let neighborSets = Self.buildCoordinateNeighborSets(coordinates: coordinates)
+        var result: [Character: [Character: Float]] = [:]
+        for (source, neighbors) in neighborSets {
+            var map: [Character: Float] = [:]
+            map.reserveCapacity(neighbors.count)
+            for neighbor in neighbors {
+                map[neighbor] = Self.coordinateDistance(source, neighbor, coordinates: coordinates)
+            }
+            result[source] = map
+        }
+        return result
+    }
+
+    private static func buildTenkeyNeighborDistances(groups: [String]) -> [Character: [Character: Float]] {
+        var result: [Character: [Character: Float]] = [:]
+        for group in groups {
+            let chars = Array(group)
+            for c in chars {
+                var neighbors: [Character: Float] = [:]
+                for other in chars where other != c {
+                    neighbors[other] = 1.0
+                }
+                result[c] = neighbors
+            }
+        }
+        return result
+    }
+}
+
+enum ZenzaiTypoCandidateGenerator {
     /// 観測入力をどこから組み立てるかを示す種別。
     /// - convertTarget: 画面上の変換対象文字列を使う（direct/tenkey向け）
     /// - composingInput: InputPiece列から組み立てる（roman/mapped向け）
@@ -86,10 +211,10 @@ enum ZenzaiTypoCandidateGenerator {
         case composingInput
     }
 
-    /// 実行時に解決された入力モード情報。
-    private struct InputMode {
+    /// 実行時に解決された typo 生成条件。
+    private struct TypoGenerationConfig {
         var table: InputTable
-        var channel: TypoChannel
+        var keyTopology: KeyTopology
         var observedSource: ObservedSource
         var usesInputCharacterLMFilter: Bool {
             self.observedSource == .convertTarget
@@ -287,65 +412,6 @@ enum ZenzaiTypoCandidateGenerator {
         }
     }
 
-    private static let tenkeyGroups: [String] = [
-        "アイウエオ",
-        "カキクケコ",
-        "ガギグゲゴ",
-        "サシスセソ",
-        "ザジズゼゾ",
-        "タチツテト",
-        "ダヂヅデド",
-        "ナニヌネノ",
-        "ハヒフヘホ",
-        "バビブベボ",
-        "パピプペポ",
-        "マミムメモ",
-        "ヤユヨ",
-        "ャュョ",
-        "ラリルレロ",
-        "ワヲンー"
-    ]
-
-    private static let qwertyNeighbors: [Character: Set<Character>] = [
-        "a": ["q", "s", "w", "x", "z"],
-        "b": ["f", "g", "h", "n", "v"],
-        "c": ["d", "f", "s", "v", "x"],
-        "d": ["c", "e", "f", "r", "s", "v", "w", "x"],
-        "e": ["d", "f", "r", "s", "w"],
-        "f": ["b", "c", "d", "e", "g", "r", "t", "v"],
-        "g": ["b", "f", "h", "n", "r", "t", "v", "y"],
-        "h": ["b", "g", "j", "m", "n", "t", "u", "y"],
-        "i": ["j", "k", "l", "o", "u"],
-        "j": ["h", "i", "k", "m", "n", "u", "y"],
-        "k": ["i", "j", "l", "m", "o", "u"],
-        "l": ["i", "k", "o", "p"],
-        "m": ["j", "k", "n"],
-        "n": ["b", "g", "h", "j", "m"],
-        "o": ["i", "k", "l", "p"],
-        "p": ["l", "o"],
-        "q": ["a", "s", "w"],
-        "r": ["d", "e", "f", "g", "t"],
-        "s": ["a", "c", "d", "e", "q", "w", "x", "z"],
-        "t": ["f", "g", "h", "r", "y"],
-        "u": ["h", "i", "j", "k", "y"],
-        "v": ["b", "c", "d", "f", "g"],
-        "w": ["a", "d", "e", "q", "s"],
-        "x": ["a", "c", "d", "s", "z"],
-        "y": ["g", "h", "j", "t", "u"],
-        "z": ["a", "s", "x"]
-    ]
-
-    private static let tenkeyNeighbors: [Character: Set<Character>] = {
-        var result: [Character: Set<Character>] = [:]
-        for group in Self.tenkeyGroups {
-            let chars = Array(group)
-            for c in chars {
-                result[c] = Set(chars.filter { $0 != c })
-            }
-        }
-        return result
-    }()
-
     private static func canonicalCharacter(for piece: InputPiece) -> Character? {
         let raw: Character?
         switch piece {
@@ -363,20 +429,11 @@ enum ZenzaiTypoCandidateGenerator {
         return lowered.first ?? raw
     }
 
-    private static func neighbors(around character: Character, channel: TypoChannel) -> Set<Character> {
-        switch channel {
-        case .qwerty:
-            Self.qwertyNeighbors[character, default: []]
-        case .tenkey:
-            Self.tenkeyNeighbors[character, default: []]
-        }
-    }
-
-    private static func neighbors(for piece: InputPiece, channel: TypoChannel) -> Set<Character> {
+    private static func neighborDistances(for piece: InputPiece, topology: KeyTopology) -> [Character: Float] {
         guard let observed = Self.canonicalCharacter(for: piece) else {
-            return []
+            return [:]
         }
-        return Self.neighbors(around: observed, channel: channel)
+        return topology.neighborDistances(around: observed)
     }
 
     static func generate(
@@ -386,7 +443,7 @@ enum ZenzaiTypoCandidateGenerator {
         inputStyle: InputStyle,
         searchConfig: ZenzaiTypoSearchConfig
     ) -> [ZenzaiTypoCandidate] {
-        let mode = Self.resolveInputMode(inputStyle: inputStyle)
+        let mode = Self.resolveGenerationConfig(inputStyle: inputStyle)
         let observedElements = Self.observedElements(composingText: composingText, source: mode.observedSource)
         guard !observedElements.isEmpty else {
             return []
@@ -415,7 +472,7 @@ enum ZenzaiTypoCandidateGenerator {
                 beam: beam,
                 observedElements: observedElements,
                 table: mode.table,
-                channel: mode.channel,
+                keyTopology: mode.keyTopology,
                 useInputCharacterLMFilter: mode.usesInputCharacterLMFilter,
                 scorer: &scorer,
                 config: searchConfig
@@ -486,23 +543,23 @@ enum ZenzaiTypoCandidateGenerator {
         return unique.values.sorted(by: { $0.score > $1.score }).prefix(searchConfig.nBest).map { $0 }
     }
 
-    private static func resolveInputMode(inputStyle: InputStyle) -> InputMode {
+    private static func resolveGenerationConfig(inputStyle: InputStyle) -> TypoGenerationConfig {
         switch inputStyle {
         case .roman2kana:
             return .init(
                 table: InputStyleManager.shared.table(for: .defaultRomanToKana),
-                channel: .qwerty,
+                keyTopology: .macOSStandardQwerty,
                 observedSource: .composingInput
             )
         case .mapped(let id):
             let table = InputStyleManager.shared.table(for: id)
             if !table.possibleNexts.isEmpty {
-                return .init(table: table, channel: .qwerty, observedSource: .composingInput)
+                return .init(table: table, keyTopology: .iOSStandardQwerty, observedSource: .composingInput)
             } else {
-                return .init(table: .empty, channel: .tenkey, observedSource: .convertTarget)
+                return .init(table: .empty, keyTopology: .iOSStandardFlickTenkey, observedSource: .convertTarget)
             }
         default:
-            return .init(table: .empty, channel: .tenkey, observedSource: .convertTarget)
+            return .init(table: .empty, keyTopology: .iOSStandardFlickTenkey, observedSource: .convertTarget)
         }
     }
 
@@ -527,7 +584,7 @@ enum ZenzaiTypoCandidateGenerator {
         hypothesis: Hypothesis,
         observedElements: [ObservedElement],
         table: InputTable,
-        channel: TypoChannel,
+        keyTopology: KeyTopology,
         useInputCharacterLMFilter: Bool,
         scorer: inout LMScorer,
         config: ZenzaiTypoSearchConfig
@@ -538,8 +595,9 @@ enum ZenzaiTypoCandidateGenerator {
         let observedElement = observedElements[hypothesis.j]
         let observed = observedElement.character
         let isInputTail = hypothesis.j == observedElements.count - 1
+        let neighborDistances = Self.neighborDistances(for: observedElement.inputPiece, topology: keyTopology)
         var allowed = Set([observed])
-        allowed.formUnion(Self.neighbors(for: observedElement.inputPiece, channel: channel))
+        allowed.formUnion(neighborDistances.keys)
         let targetChars: [Character]
         if useInputCharacterLMFilter {
             let lmTopChars = Set(scorer.topKCharacters(emittedTokenIDs: hypothesis.emittedTokenIDs, k: config.topK))
@@ -679,17 +737,18 @@ enum ZenzaiTypoCandidateGenerator {
 
         for target in targetChars {
             let isIdentity = target == observed
+            let substitutionDistance = neighborDistances[target] ?? 1.0
             addAdvance(
                 trueSeq: [target],
                 observedCount: 1,
-                channelAdd: isIdentity ? 0 : config.alpha,
+                channelAdd: isIdentity ? 0 : (config.alpha * substitutionDistance),
                 lastInputPiece: isIdentity ? observedElement.inputPiece : .character(target)
             )
         }
 
         if !isInputTail,
            let prevInput = baseState.prevInputPiece,
-           Self.neighbors(for: prevInput, channel: channel).contains(observed) {
+           let insertionDistance = Self.neighborDistances(for: prevInput, topology: keyTopology)[observed] {
             let newProxyLogp = Self.pendingProxyLogProb(
                 pending: baseState.pending,
                 emittedTokenIDs: hypothesis.emittedTokenIDs,
@@ -699,7 +758,7 @@ enum ZenzaiTypoCandidateGenerator {
             if newProxyLogp.isFinite {
                 var inserted = hypothesis
                 inserted.j += 1
-                inserted.channelCost += config.beta
+                inserted.channelCost += config.beta * insertionDistance
                 inserted.lmScore = hypothesis.lmScore - baseState.proxyLogp + newProxyLogp
                 inserted.score = inserted.lmScore - inserted.channelCost
                 var insertedState = baseState
@@ -728,7 +787,7 @@ enum ZenzaiTypoCandidateGenerator {
         beam: [Hypothesis],
         observedElements: [ObservedElement],
         table: InputTable,
-        channel: TypoChannel,
+        keyTopology: KeyTopology,
         useInputCharacterLMFilter: Bool,
         scorer: inout LMScorer,
         config: ZenzaiTypoSearchConfig
@@ -747,7 +806,7 @@ enum ZenzaiTypoCandidateGenerator {
                 hypothesis: hypothesis,
                 observedElements: observedElements,
                 table: table,
-                channel: channel,
+                keyTopology: keyTopology,
                 useInputCharacterLMFilter: useInputCharacterLMFilter,
                 scorer: &scorer,
                 config: config
