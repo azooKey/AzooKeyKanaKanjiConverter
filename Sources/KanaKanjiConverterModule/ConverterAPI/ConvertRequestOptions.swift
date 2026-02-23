@@ -185,27 +185,9 @@ public struct ConvertRequestOptions: Sendable {
         public var maxLeftSideContextLength: Int?
     }
 
-    public enum ZenzVersion: Sendable, Equatable, Hashable {
-        case v1
-        case v2
-        case v3
-    }
-
     public enum ZenzaiVersionDependentMode: Sendable, Equatable, Hashable {
-        case v1
         case v2(ZenzaiV2DependentMode)
         case v3(ZenzaiV3DependentMode)
-
-        public var version: ZenzVersion {
-            switch self {
-            case .v1:
-                return .v1
-            case .v2:
-                return .v2
-            case .v3:
-                return .v3
-            }
-        }
     }
 
     public struct ZenzaiMode: Sendable, Equatable {

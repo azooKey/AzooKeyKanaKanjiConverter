@@ -211,7 +211,7 @@ extension Kana2Kanji {
     }
 
     private enum NextAction {
-        case `return`(constraint: PrefixConstraint, alternativeConstraints: [ZenzContext.CandidateEvaluationResult.AlternativeConstraint], satisfied: Bool)
+        case `return`(constraint: PrefixConstraint, alternativeConstraints: [CandidateEvaluationResult.AlternativeConstraint], satisfied: Bool)
         case `continue`
         case `retry`(candidateIndex: Int)
     }
@@ -219,7 +219,7 @@ extension Kana2Kanji {
     private func review(
         candidateIndex: Int,
         candidates: [Candidate],
-        reviewResult: consuming ZenzContext.CandidateEvaluationResult,
+        reviewResult: consuming CandidateEvaluationResult,
         constraint: inout PrefixConstraint
     ) -> NextAction {
         switch reviewResult {

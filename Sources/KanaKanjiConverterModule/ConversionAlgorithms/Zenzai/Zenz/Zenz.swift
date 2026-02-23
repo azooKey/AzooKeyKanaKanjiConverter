@@ -26,7 +26,7 @@ package final class Zenz {
     }
 
     package func endSession() {
-        try? self.zenzContext?.reset_context()
+        try? self.zenzContext?.resetContext()
     }
 
     func candidateEvaluate(
@@ -36,12 +36,13 @@ package final class Zenz {
         prefixConstraint: Kana2Kanji.PrefixConstraint,
         personalizationMode: (mode: ConvertRequestOptions.ZenzaiMode.PersonalizationMode, base: EfficientNGram, personal: EfficientNGram)?,
         versionDependentConfig: ConvertRequestOptions.ZenzaiVersionDependentMode
-    ) -> ZenzContext.CandidateEvaluationResult {
+    ) -> CandidateEvaluationResult {
         guard let zenzContext else {
             return .error
         }
         for candidate in candidates {
-            return zenzContext.evaluate_candidate(
+            return ZenzCandidateEvaluator.evaluate(
+                context: zenzContext,
                 input: convertTarget.toKatakana(),
                 candidate: candidate,
                 requestRichCandidates: requestRichCandidates,
@@ -51,20 +52,6 @@ package final class Zenz {
             )
         }
         return .error
-    }
-
-    func predictNextCharacter(leftSideContext: String, count: Int) -> [(character: Character, value: Float)] {
-        guard let zenzContext else {
-            return []
-        }
-        return zenzContext.predict_next_character(leftSideContext: leftSideContext, count: count)
-    }
-
-    func predictNextInputCharacter(leftSideContext: String, composingText: String, count: Int, versionDependentConfig: ConvertRequestOptions.ZenzaiVersionDependentMode) -> [(character: Character, value: Float)] {
-        guard let zenzContext else {
-            return []
-        }
-        return zenzContext.predict_next_input_character(leftSideContext: leftSideContext, composingText: composingText, count: count, versionDependentConfig: versionDependentConfig)
     }
 
     func predictNextInputText(
@@ -79,7 +66,8 @@ package final class Zenz {
         guard let zenzContext else {
             return ""
         }
-        return zenzContext.predict_next_input_text(
+        return ZenzInputTextGenerator.generate(
+            context: zenzContext,
             leftSideContext: leftSideContext,
             composingText: composingText,
             count: count,
@@ -91,6 +79,9 @@ package final class Zenz {
     }
 
     package func pureGreedyDecoding(pureInput: String, maxCount: Int = .max) -> String {
-        self.zenzContext?.pure_greedy_decoding(leftSideContext: pureInput, maxCount: maxCount) ?? ""
+        guard let zenzContext else {
+            return ""
+        }
+        return ZenzPureGreedyDecoder.decode(context: zenzContext, leftSideContext: pureInput, maxCount: maxCount)
     }
 }
