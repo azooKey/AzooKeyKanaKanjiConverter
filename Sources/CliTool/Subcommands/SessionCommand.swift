@@ -248,9 +248,9 @@ extension Subcommands {
                     var beamSize = 10
                     var topK = 100
                     var maxSteps: Int?
-                    var alpha: Float = 1.0
-                    var beta: Float = 1.2
-                    var gamma: Float = 1.0
+                    var alpha: Float = 2.0
+                    var beta: Float = 3.0
+                    var gamma: Float = 2.0
 
                     for part in parts.dropFirst() {
                         if let parsed = Int(part) {

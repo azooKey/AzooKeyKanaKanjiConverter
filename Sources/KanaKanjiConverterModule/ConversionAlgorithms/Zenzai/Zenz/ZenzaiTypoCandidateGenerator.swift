@@ -14,9 +14,9 @@ public struct ZenzaiTypoSearchConfig: Sendable, Equatable, Hashable {
         topK: Int = 64,
         nBest: Int = 5,
         maxSteps: Int? = nil,
-        alpha: Float = 1.0,
-        beta: Float = 1.2,
-        gamma: Float = 1.0
+        alpha: Float = 2.0,
+        beta: Float = 3.0,
+        gamma: Float = 2.0
     ) {
         self.beamSize = max(1, beamSize)
         self.topK = max(1, topK)
@@ -393,8 +393,7 @@ enum ZenzaiTypoCandidateGenerator {
         }
         let maxSteps = searchConfig.maxSteps ?? (observedElements.count * 2 + 8)
 
-        var scorer = LMScorer(context: context, leftSideContext: leftSideContext)
-        var beam: [Hypothesis] = [
+        func initialHypothesis() -> Hypothesis {
             Hypothesis(
                 correctedInput: "",
                 emittedText: "",
@@ -406,7 +405,10 @@ enum ZenzaiTypoCandidateGenerator {
                 channelCost: 0,
                 generatorState: .init(pending: "", prevInputPiece: nil, proxyLogp: 0)
             )
-        ]
+        }
+
+        var scorer = LMScorer(context: context, leftSideContext: leftSideContext)
+        var beam: [Hypothesis] = [initialHypothesis()]
 
         for _ in 0..<maxSteps {
             let result = Self.expandWithDeferred(
@@ -444,10 +446,21 @@ enum ZenzaiTypoCandidateGenerator {
             }
         }()
 
-        guard !finals.isEmpty else {
+        var mergedFinals = finals
+        // original入力をbeam探索と独立に明示採点し、比較基準を常に候補集合へ含める。
+        if let explicitOriginal = Self.completeHypothesis(
+            hypothesis: initialHypothesis(),
+            observedElements: observedElements,
+            table: mode.table,
+            scorer: &scorer
+        ) {
+            mergedFinals.append(explicitOriginal)
+        }
+
+        guard !mergedFinals.isEmpty else {
             return []
         }
-        let sorted = finals.sorted(by: { $0.score > $1.score })
+        let sorted = mergedFinals.sorted(by: { $0.score > $1.score })
         let bestScore = sorted[0].score
 
         var unique: [String: ZenzaiTypoCandidate] = [:]
