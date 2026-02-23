@@ -84,4 +84,22 @@ package final class Zenz {
         }
         return ZenzPureGreedyDecoder.decode(context: zenzContext, leftSideContext: pureInput, maxCount: maxCount)
     }
+
+    func generateTypoCandidates(
+        leftSideContext: String,
+        composingText: ComposingText,
+        inputStyle: InputStyle,
+        searchConfig: ZenzaiTypoSearchConfig
+    ) -> [ZenzaiTypoCandidate] {
+        guard let zenzContext else {
+            return []
+        }
+        return ZenzaiTypoCandidateGenerator.generate(
+            context: zenzContext,
+            leftSideContext: leftSideContext,
+            composingText: composingText,
+            inputStyle: inputStyle,
+            searchConfig: searchConfig
+        )
+    }
 }

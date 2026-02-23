@@ -129,6 +129,10 @@ public final class KanaKanjiConverter {
         inputStyle: InputStyle = .direct,
         debugPossibleNexts: Bool = false
     ) -> (predictedText: String, suffixCount: Int) {
+        guard options.zenzaiMode.enabled else {
+            print("zenz mode is disabled")
+            return ("", 0)
+        }
         guard let zenz = self.getModel(modelURL: options.zenzaiMode.weightURL) else {
             print("zenz-v3 model unavailable")
             return ("", 0)
@@ -172,6 +176,29 @@ public final class KanaKanjiConverter {
                 possibleNexts: resolvedPossibleNexts
             ),
             suffixCount
+        )
+    }
+
+    package func requestTypoCorrectionsOnly(
+        leftSideContext: String,
+        composingText: ComposingText,
+        options: ConvertRequestOptions,
+        inputStyle: InputStyle,
+        searchConfig: ZenzaiTypoSearchConfig
+    ) -> [ZenzaiTypoCandidate] {
+        guard options.zenzaiMode.enabled else {
+            print("zenz mode is disabled")
+            return []
+        }
+        guard let zenz = self.getModel(modelURL: options.zenzaiMode.weightURL) else {
+            print("zenz model unavailable")
+            return []
+        }
+        return zenz.generateTypoCandidates(
+            leftSideContext: leftSideContext,
+            composingText: composingText,
+            inputStyle: inputStyle,
+            searchConfig: searchConfig
         )
     }
 
