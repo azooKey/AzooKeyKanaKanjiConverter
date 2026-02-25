@@ -19,6 +19,7 @@ public final class KanaKanjiConverter {
         var lattice: Lattice = .init()
         var completedData: Candidate?
         var zenzaiCache: Kana2Kanji.ZenzaiCache?
+        var zenzaiTypoCache: ZenzaiTypoGenerationCache = .init()
     }
     private typealias SessionID = String
     private static let defaultSessionID: SessionID = "default"
@@ -110,6 +111,11 @@ public final class KanaKanjiConverter {
         } else {
             do {
                 self.zenz = try Zenz(resourceURL: modelURL)
+                self.sessions = self.sessions.mapValues { state in
+                    let next = state
+                    next.zenzaiTypoCache.invalidateForModelChange()
+                    return next
+                }
                 self.zenzStatus = "load \(modelURL.absoluteString)"
                 return self.zenz
             } catch {
@@ -217,7 +223,31 @@ public final class KanaKanjiConverter {
             leftSideContext: leftSideContext,
             composingText: composingText,
             inputStyle: inputStyle,
-            searchConfig: searchConfig
+            searchConfig: searchConfig,
+            cache: self.currentSessionState.zenzaiTypoCache
+        )
+    }
+
+    private func leftSideContextForTypoCorrection(options: ConvertRequestOptions) -> String {
+        switch options.zenzaiMode.versionDependentMode {
+        case .v2(let mode):
+            mode.leftSideContext ?? ""
+        case .v3(let mode):
+            mode.leftSideContext ?? ""
+        }
+    }
+
+    private func runIncrementalTypoCorrectionIfEnabled(_ inputData: ComposingText, options: ConvertRequestOptions) -> [ZenzaiTypoCandidate]? {
+        guard options.experimentalZenzaiIncrementalTypoCorrection, options.zenzaiMode.enabled else {
+            return nil
+        }
+        let inputStyle = inputData.input.last?.inputStyle ?? .direct
+        return self.requestTypoCorrectionsOnlyImpl(
+            leftSideContext: self.leftSideContextForTypoCorrection(options: options),
+            composingText: inputData,
+            options: options,
+            inputStyle: inputStyle,
+            searchConfig: .init()
         )
     }
 
@@ -1021,7 +1051,9 @@ public final class KanaKanjiConverter {
             return ConversionResult(mainResults: [], predictionResults: [], englishPredictionResults: [], firstClauseResults: [])
         }
 
-        return self.processResult(inputData: inputData, result: result, options: options)
+        var conversionResult = self.processResult(inputData: inputData, result: result, options: options)
+        conversionResult.typoCorrectionResults = self.runIncrementalTypoCorrectionIfEnabled(inputData, options: options)
+        return conversionResult
     }
 
     /// 変換確定後の予測変換候補を要求する関数

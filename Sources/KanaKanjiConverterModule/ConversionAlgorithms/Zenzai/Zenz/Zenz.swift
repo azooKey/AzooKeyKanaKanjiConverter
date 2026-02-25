@@ -89,7 +89,8 @@ package final class Zenz {
         leftSideContext: String,
         composingText: ComposingText,
         inputStyle: InputStyle,
-        searchConfig: ZenzaiTypoSearchConfig
+        searchConfig: ZenzaiTypoSearchConfig,
+        cache: ZenzaiTypoGenerationCache
     ) -> [ZenzaiTypoCandidate] {
         guard let zenzContext else {
             return []
@@ -99,7 +100,8 @@ package final class Zenz {
             leftSideContext: leftSideContext,
             composingText: composingText,
             inputStyle: inputStyle,
-            searchConfig: searchConfig
+            searchConfig: searchConfig,
+            cache: cache
         )
     }
 }

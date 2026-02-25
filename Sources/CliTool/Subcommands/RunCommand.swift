@@ -24,6 +24,8 @@ extension Subcommands {
         var configZenzaiPersonalizationAlpha: Float = 0.5
         @Flag(name: [.customLong("experimental_zenzai_predictive_input")], help: "Enable experimental zenzai predictive input.")
         var experimentalZenzaiPredictiveInput = false
+        @Flag(name: [.customLong("experimental_zenzai_incremental_typo_correction")], help: "Enable experimental incremental typo correction on requestCandidates.")
+        var experimentalZenzaiIncrementalTypoCorrection = false
 
         @Flag(name: [.customLong("disable_prediction")], help: "Disable producing prediction candidates.")
         var disablePrediction = false
@@ -96,6 +98,7 @@ extension Subcommands {
                 specialCandidateProviders: KanaKanjiConverter.defaultSpecialCandidateProviders,
                 zenzaiMode: self.zenzWeightPath.isEmpty ? .off : .on(weight: URL(string: self.zenzWeightPath)!, inferenceLimit: self.configZenzaiInferenceLimit, personalizationMode: personalizationMode),
                 experimentalZenzaiPredictiveInput: self.experimentalZenzaiPredictiveInput,
+                experimentalZenzaiIncrementalTypoCorrection: self.experimentalZenzaiIncrementalTypoCorrection,
                 metadata: .init(versionString: "anco for debugging")
             )
             if self.onlyWholeConversion {

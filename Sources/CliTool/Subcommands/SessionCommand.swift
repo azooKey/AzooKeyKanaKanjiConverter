@@ -48,6 +48,8 @@ extension Subcommands {
         var zenzV3 = false
         @Flag(name: [.customLong("experimental_zenzai_predictive_input")], help: "Enable experimental zenzai predictive input.")
         var experimentalZenzaiPredictiveInput = false
+        @Flag(name: [.customLong("experimental_zenzai_incremental_typo_correction")], help: "Enable experimental incremental typo correction on requestCandidates.")
+        var experimentalZenzaiIncrementalTypoCorrection = false
         @Option(name: [.customLong("config_zenzai_base_lm")], help: "Marisa files for Base LM.")
         var configZenzaiBaseLM: String?
         @Option(name: [.customLong("config_zenzai_personal_lm")], help: "Marisa files for Personal LM.")
@@ -464,6 +466,7 @@ extension Subcommands {
                     versionDependentMode: zenzaiVersionDependentMode
                 ),
                 experimentalZenzaiPredictiveInput: self.experimentalZenzaiPredictiveInput,
+                experimentalZenzaiIncrementalTypoCorrection: self.experimentalZenzaiIncrementalTypoCorrection,
                 metadata: .init(versionString: "anco for debugging")
             )
             if self.onlyWholeConversion {

@@ -71,6 +71,31 @@ public struct ZenzaiTypoCandidate: Sendable, Equatable, Hashable {
     public var prominence: Float
 }
 
+/// セッション跨ぎで typo 探索のLM補助キャッシュを保持するコンテナ。
+final class ZenzaiTypoGenerationCache {
+    fileprivate var prompt: String = ""
+    fileprivate var promptTokenIDs: [llama_token] = []
+    fileprivate var vocabSize: Int = 0
+    fileprivate var nextLogProbCache: [[llama_token]: [Float]] = [:]
+    fileprivate var encodeCache: [String: [llama_token]] = [:]
+    fileprivate var tokenCharCache: [llama_token: Character?] = [:]
+
+    func invalidateAll() {
+        self.prompt = ""
+        self.promptTokenIDs = []
+        self.vocabSize = 0
+        self.nextLogProbCache = [:]
+        self.encodeCache = [:]
+        self.tokenCharCache = [:]
+    }
+
+    func invalidateForModelChange() {
+        self.nextLogProbCache = [:]
+        self.encodeCache = [:]
+        self.tokenCharCache = [:]
+    }
+}
+
 /// キー配置ごとの近傍分布を表すトポロジー。
 private struct KeyTopology: Sendable {
     enum ID: String, Sendable {
@@ -284,25 +309,34 @@ enum ZenzaiTypoCandidateGenerator {
     /// 次トークン分布と文字列->token変換をキャッシュするLMスコアラー。
     private struct LMScorer {
         private let context: ZenzContext
-        private let promptTokenIDs: [llama_token]
-        private let vocabSize: Int
-        private var nextLogProbCache: [[llama_token]: [Float]] = [:]
-        private var encodeCache: [String: [llama_token]] = [:]
-        private var tokenCharCache: [llama_token: Character?] = [:]
+        private let cache: ZenzaiTypoGenerationCache
 
-        init(context: ZenzContext, leftSideContext: String) {
+        init(context: ZenzContext, leftSideContext: String, cache: ZenzaiTypoGenerationCache) {
             self.context = context
+            self.cache = cache
+            self.preparePrompt(leftSideContext: leftSideContext)
+        }
+
+        private func preparePrompt(leftSideContext: String) {
+            let vocabSize = Int(self.context.vocabSize)
+            if self.cache.vocabSize != 0, self.cache.vocabSize != vocabSize {
+                self.cache.invalidateAll()
+            }
+            self.cache.vocabSize = vocabSize
             let prompt = ZenzPromptBuilder.typoCorrectionPromptPrefix(leftSideContext: leftSideContext)
-            self.promptTokenIDs = context.encodeRaw(prompt, addBOS: false, addEOS: false)
-            self.vocabSize = Int(context.vocabSize)
+            if self.cache.prompt != prompt || self.cache.promptTokenIDs.isEmpty {
+                self.cache.prompt = prompt
+                self.cache.promptTokenIDs = self.context.encodeRaw(prompt, addBOS: false, addEOS: false)
+                self.cache.nextLogProbCache = [:]
+            }
         }
 
         mutating func encodeRaw(_ text: String) -> [llama_token] {
-            if let cached = self.encodeCache[text] {
+            if let cached = self.cache.encodeCache[text] {
                 return cached
             }
             let tokenIDs = self.context.encodeRaw(text, addBOS: false, addEOS: false)
-            self.encodeCache[text] = tokenIDs
+            self.cache.encodeCache[text] = tokenIDs
             return tokenIDs
         }
 
@@ -363,7 +397,7 @@ enum ZenzaiTypoCandidateGenerator {
         }
 
         private mutating func tokenToSingleCharacter(_ token: llama_token) -> Character? {
-            if let cached = self.tokenCharCache[token] {
+            if let cached = self.cache.tokenCharCache[token] {
                 return cached
             }
             let piece = self.context.tokenToPiece(token: token)
@@ -374,15 +408,15 @@ enum ZenzaiTypoCandidateGenerator {
             } else {
                 char = nil
             }
-            self.tokenCharCache[token] = char
+            self.cache.tokenCharCache[token] = char
             return char
         }
 
         mutating func nextLogProbs(emittedTokenIDs: [llama_token]) -> [Float]? {
-            if let cached = self.nextLogProbCache[emittedTokenIDs] {
+            if let cached = self.cache.nextLogProbCache[emittedTokenIDs] {
                 return cached
             }
-            let fullTokenIDs = self.promptTokenIDs + emittedTokenIDs
+            let fullTokenIDs = self.cache.promptTokenIDs + emittedTokenIDs
             guard !fullTokenIDs.isEmpty else {
                 return nil
             }
@@ -390,7 +424,7 @@ enum ZenzaiTypoCandidateGenerator {
             guard let logits = self.context.inputPredictionLogits(tokens: fullTokenIDs, startOffset: startOffset) else {
                 return nil
             }
-            var values: [Float] = Array(repeating: 0, count: self.vocabSize)
+            var values: [Float] = Array(repeating: 0, count: self.cache.vocabSize)
             var maxLogit: Float = -.infinity
             for i in values.indices {
                 let value = logits[i]
@@ -407,7 +441,7 @@ enum ZenzaiTypoCandidateGenerator {
             for i in values.indices {
                 values[i] -= logSumExp
             }
-            self.nextLogProbCache[emittedTokenIDs] = values
+            self.cache.nextLogProbCache[emittedTokenIDs] = values
             return values
         }
     }
@@ -441,7 +475,8 @@ enum ZenzaiTypoCandidateGenerator {
         leftSideContext: String,
         composingText: ComposingText,
         inputStyle: InputStyle,
-        searchConfig: ZenzaiTypoSearchConfig
+        searchConfig: ZenzaiTypoSearchConfig,
+        cache: ZenzaiTypoGenerationCache
     ) -> [ZenzaiTypoCandidate] {
         let mode = Self.resolveGenerationConfig(inputStyle: inputStyle)
         let observedElements = Self.observedElements(composingText: composingText, source: mode.observedSource)
@@ -464,7 +499,7 @@ enum ZenzaiTypoCandidateGenerator {
             )
         }
 
-        var scorer = LMScorer(context: context, leftSideContext: leftSideContext)
+        var scorer = LMScorer(context: context, leftSideContext: leftSideContext, cache: cache)
         var beam: [Hypothesis] = [initialHypothesis()]
 
         for _ in 0..<maxSteps {

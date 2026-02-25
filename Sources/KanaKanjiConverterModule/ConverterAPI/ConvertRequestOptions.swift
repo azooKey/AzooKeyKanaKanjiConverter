@@ -40,8 +40,10 @@ public struct ConvertRequestOptions: Sendable {
     ///   - sharedContainerURL: ユーザ辞書など、キーボード外で書き込んだ設定データの保存されているディレクトリを指定します。
     ///   - textReplacer: 予測変換のための置換機を指定します。
     ///   - specialCandidateProviders: 特殊変換を実施する変換関数を挿入します
+    ///   - experimentalZenzaiPredictiveInput: Zenzai の予測入力フォールバックを有効にします（experimental）。
+    ///   - experimentalZenzaiIncrementalTypoCorrection: `requestCandidates` ごとに typo 候補生成を内部実行します（experimental）。
     ///   - metadata: メタデータを指定します。詳しくは`ConvertRequestOptions.Metadata`を参照してください。
-    public init(N_best: Int = 10, needTypoCorrection: Bool? = nil, requireJapanesePrediction: PredictionMode, requireEnglishPrediction: PredictionMode, keyboardLanguage: KeyboardLanguage, englishCandidateInRoman2KanaInput: Bool = false, fullWidthRomanCandidate: Bool = false, halfWidthKanaCandidate: Bool = false, learningType: LearningType, maxMemoryCount: Int = 65536, shouldResetMemory: Bool = false, memoryDirectoryURL: URL, sharedContainerURL: URL, textReplacer: TextReplacer, specialCandidateProviders: [any SpecialCandidateProvider]?, zenzaiMode: ZenzaiMode = .off, preloadDictionary: Bool = false, experimentalZenzaiPredictiveInput: Bool = false, metadata: ConvertRequestOptions.Metadata?) {
+    public init(N_best: Int = 10, needTypoCorrection: Bool? = nil, requireJapanesePrediction: PredictionMode, requireEnglishPrediction: PredictionMode, keyboardLanguage: KeyboardLanguage, englishCandidateInRoman2KanaInput: Bool = false, fullWidthRomanCandidate: Bool = false, halfWidthKanaCandidate: Bool = false, learningType: LearningType, maxMemoryCount: Int = 65536, shouldResetMemory: Bool = false, memoryDirectoryURL: URL, sharedContainerURL: URL, textReplacer: TextReplacer, specialCandidateProviders: [any SpecialCandidateProvider]?, zenzaiMode: ZenzaiMode = .off, preloadDictionary: Bool = false, experimentalZenzaiPredictiveInput: Bool = false, experimentalZenzaiIncrementalTypoCorrection: Bool = false, metadata: ConvertRequestOptions.Metadata?) {
         self.N_best = N_best
         self.needTypoCorrection = needTypoCorrection
         self.requireJapanesePrediction = requireJapanesePrediction
@@ -61,6 +63,7 @@ public struct ConvertRequestOptions: Sendable {
         self.zenzaiMode = zenzaiMode
         self.preloadDictionary = preloadDictionary
         self.experimentalZenzaiPredictiveInput = experimentalZenzaiPredictiveInput
+        self.experimentalZenzaiIncrementalTypoCorrection = experimentalZenzaiIncrementalTypoCorrection
 
         if shouldResetMemory {
             print("Warning: Passing `shouldResetMemory: true` in `ConvertRequestOptions` is deprecated. Use `KanaKanjiConverter.resetMemory` instead.")
@@ -90,6 +93,8 @@ public struct ConvertRequestOptions: Sendable {
     public var preloadDictionary: Bool
     /// Enable experimental predictive input for Zenzai fallback candidates.
     public var experimentalZenzaiPredictiveInput: Bool
+    /// Enable experimental incremental typo-candidate generation on each requestCandidates step.
+    public var experimentalZenzaiIncrementalTypoCorrection: Bool
     // メタデータ
     public var metadata: Metadata?
 
