@@ -90,7 +90,8 @@ package final class Zenz {
         composingText: ComposingText,
         inputStyle: InputStyle,
         searchConfig: ZenzaiTypoSearchConfig,
-        cache: ZenzaiTypoGenerationCache
+        cache: ZenzaiTypoGenerationCache,
+        maxNewNextLogProbCacheEntries: Int?
     ) -> [ZenzaiTypoCandidate] {
         guard let zenzContext else {
             return []
@@ -101,7 +102,8 @@ package final class Zenz {
             composingText: composingText,
             inputStyle: inputStyle,
             searchConfig: searchConfig,
-            cache: cache
+            cache: cache,
+            maxNewNextLogProbCacheEntries: maxNewNextLogProbCacheEntries
         )
     }
 }

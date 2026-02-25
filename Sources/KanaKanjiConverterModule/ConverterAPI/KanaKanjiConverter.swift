@@ -200,7 +200,8 @@ public final class KanaKanjiConverter {
             composingText: composingText,
             options: options,
             inputStyle: inputStyle,
-            searchConfig: searchConfig
+            searchConfig: searchConfig,
+            maxNewNextLogProbCacheEntries: nil
         )
     }
 
@@ -209,7 +210,8 @@ public final class KanaKanjiConverter {
         composingText: ComposingText,
         options: ConvertRequestOptions,
         inputStyle: InputStyle,
-        searchConfig: ZenzaiTypoSearchConfig
+        searchConfig: ZenzaiTypoSearchConfig,
+        maxNewNextLogProbCacheEntries: Int?
     ) -> [ZenzaiTypoCandidate] {
         guard options.zenzaiMode.enabled else {
             print("zenz mode is disabled")
@@ -224,7 +226,8 @@ public final class KanaKanjiConverter {
             composingText: composingText,
             inputStyle: inputStyle,
             searchConfig: searchConfig,
-            cache: self.currentSessionState.zenzaiTypoCache
+            cache: self.currentSessionState.zenzaiTypoCache,
+            maxNewNextLogProbCacheEntries: maxNewNextLogProbCacheEntries
         )
     }
 
@@ -242,12 +245,17 @@ public final class KanaKanjiConverter {
             return nil
         }
         let inputStyle = inputData.input.last?.inputStyle ?? .direct
+        let maxNewNextLogProbCacheEntries: Int? = {
+            let limit = max(0, options.zenzaiMode.inferenceLimit)
+            return limit == .max ? nil : limit
+        }()
         return self.requestTypoCorrectionsOnlyImpl(
             leftSideContext: self.leftSideContextForTypoCorrection(options: options),
             composingText: inputData,
             options: options,
             inputStyle: inputStyle,
-            searchConfig: .init()
+            searchConfig: .init(),
+            maxNewNextLogProbCacheEntries: maxNewNextLogProbCacheEntries
         )
     }
 

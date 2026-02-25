@@ -310,10 +310,18 @@ enum ZenzaiTypoCandidateGenerator {
     private struct LMScorer {
         private let context: ZenzContext
         private let cache: ZenzaiTypoGenerationCache
+        private let maxNewNextLogProbCacheEntries: Int?
+        private var createdNextLogProbCacheEntries: Int = 0
 
-        init(context: ZenzContext, leftSideContext: String, cache: ZenzaiTypoGenerationCache) {
+        init(
+            context: ZenzContext,
+            leftSideContext: String,
+            cache: ZenzaiTypoGenerationCache,
+            maxNewNextLogProbCacheEntries: Int?
+        ) {
             self.context = context
             self.cache = cache
+            self.maxNewNextLogProbCacheEntries = maxNewNextLogProbCacheEntries
             self.preparePrompt(leftSideContext: leftSideContext)
         }
 
@@ -416,6 +424,10 @@ enum ZenzaiTypoCandidateGenerator {
             if let cached = self.cache.nextLogProbCache[emittedTokenIDs] {
                 return cached
             }
+            if let maxNewNextLogProbCacheEntries,
+               self.createdNextLogProbCacheEntries >= maxNewNextLogProbCacheEntries {
+                return nil
+            }
             let fullTokenIDs = self.cache.promptTokenIDs + emittedTokenIDs
             guard !fullTokenIDs.isEmpty else {
                 return nil
@@ -442,6 +454,7 @@ enum ZenzaiTypoCandidateGenerator {
                 values[i] -= logSumExp
             }
             self.cache.nextLogProbCache[emittedTokenIDs] = values
+            self.createdNextLogProbCacheEntries += 1
             return values
         }
     }
@@ -476,7 +489,8 @@ enum ZenzaiTypoCandidateGenerator {
         composingText: ComposingText,
         inputStyle: InputStyle,
         searchConfig: ZenzaiTypoSearchConfig,
-        cache: ZenzaiTypoGenerationCache
+        cache: ZenzaiTypoGenerationCache,
+        maxNewNextLogProbCacheEntries: Int?
     ) -> [ZenzaiTypoCandidate] {
         let mode = Self.resolveGenerationConfig(inputStyle: inputStyle)
         let observedElements = Self.observedElements(composingText: composingText, source: mode.observedSource)
@@ -499,7 +513,12 @@ enum ZenzaiTypoCandidateGenerator {
             )
         }
 
-        var scorer = LMScorer(context: context, leftSideContext: leftSideContext, cache: cache)
+        var scorer = LMScorer(
+            context: context,
+            leftSideContext: leftSideContext,
+            cache: cache,
+            maxNewNextLogProbCacheEntries: maxNewNextLogProbCacheEntries
+        )
         var beam: [Hypothesis] = [initialHypothesis()]
 
         for _ in 0..<maxSteps {
