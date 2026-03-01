@@ -19,6 +19,7 @@ public final class KanaKanjiConverter {
         var lattice: Lattice = .init()
         var completedData: Candidate?
         var zenzaiCache: Kana2Kanji.ZenzaiCache?
+        var zenzaiTypoCache: ZenzaiTypoGenerationCache = .init()
     }
     private typealias SessionID = String
     private static let defaultSessionID: SessionID = "default"
@@ -110,6 +111,11 @@ public final class KanaKanjiConverter {
         } else {
             do {
                 self.zenz = try Zenz(resourceURL: modelURL)
+                self.sessions = self.sessions.mapValues { state in
+                    let next = state
+                    next.zenzaiTypoCache.invalidateForModelChange()
+                    return next
+                }
                 self.zenzStatus = "load \(modelURL.absoluteString)"
                 return self.zenz
             } catch {
@@ -129,6 +135,10 @@ public final class KanaKanjiConverter {
         inputStyle: InputStyle = .direct,
         debugPossibleNexts: Bool = false
     ) -> (predictedText: String, suffixCount: Int) {
+        guard options.zenzaiMode.enabled else {
+            print("zenz mode is disabled")
+            return ("", 0)
+        }
         guard let zenz = self.getModel(modelURL: options.zenzaiMode.weightURL) else {
             print("zenz-v3 model unavailable")
             return ("", 0)
@@ -172,6 +182,94 @@ public final class KanaKanjiConverter {
                 possibleNexts: resolvedPossibleNexts
             ),
             suffixCount
+        )
+    }
+
+    /// LMベース typo correction の候補を返す実験的API。
+    /// - Warning: このAPIは experimental であり、予告なく変更または削除される可能性があります。
+    public func experimentalRequestTypoCorrectionOnly(
+        leftSideContext: String,
+        composingText: ComposingText,
+        options: ConvertRequestOptions,
+        inputStyle: InputStyle,
+        searchConfig: ZenzaiTypoSearchConfig
+    ) -> [ZenzaiTypoCandidate] {
+        print("[Warning] KanaKanjiConverter.experimentalRequestTypoCorrectionOnly is experimental and may change without notice.")
+        return self.requestTypoCorrectionsOnlyImpl(
+            leftSideContext: leftSideContext,
+            composingText: composingText,
+            options: options,
+            inputStyle: inputStyle,
+            searchConfig: searchConfig,
+            maxNewNextLogProbCacheEntries: nil
+        )
+    }
+
+    package func debugZenzKVCacheStatsSnapshot() -> ZenzKVCacheStats? {
+        self.zenz?.kvCacheStatsSnapshot()
+    }
+
+    package func resetDebugZenzKVCacheStats() {
+        self.zenz?.resetKVCacheStats()
+    }
+
+    private func requestTypoCorrectionsOnlyImpl(
+        leftSideContext: String,
+        composingText: ComposingText,
+        options: ConvertRequestOptions,
+        inputStyle: InputStyle,
+        searchConfig: ZenzaiTypoSearchConfig,
+        maxNewNextLogProbCacheEntries: Int?
+    ) -> [ZenzaiTypoCandidate] {
+        guard self.isLMBasedTypoCorrectionEnabled(options) else {
+            return []
+        }
+        guard options.zenzaiMode.enabled else {
+            print("zenz mode is disabled")
+            return []
+        }
+        guard let zenz = self.getModel(modelURL: options.zenzaiMode.weightURL) else {
+            print("zenz model unavailable")
+            return []
+        }
+        return zenz.generateTypoCandidates(
+            leftSideContext: leftSideContext,
+            composingText: composingText,
+            inputStyle: inputStyle,
+            searchConfig: searchConfig,
+            typoCorrectionConfig: options.typoCorrectionConfig,
+            cache: self.currentSessionState.zenzaiTypoCache,
+            maxNewNextLogProbCacheEntries: maxNewNextLogProbCacheEntries
+        )
+    }
+
+    private func leftSideContextForTypoCorrection(options: ConvertRequestOptions) -> String {
+        switch options.zenzaiMode.versionDependentMode {
+        case .v2(let mode):
+            mode.leftSideContext ?? ""
+        case .v3(let mode):
+            mode.leftSideContext ?? ""
+        }
+    }
+
+    private func runIncrementalTypoCorrectionIfEnabled(_ inputData: ComposingText, options: ConvertRequestOptions) -> [ZenzaiTypoCandidate]? {
+        guard options.typoCorrectionConfig.experimentalZenzaiIncrementalTypoCorrection,
+              self.isLMBasedTypoCorrectionEnabled(options),
+              options.zenzaiMode.enabled else {
+            return nil
+        }
+        let inputStyle = inputData.input.last?.inputStyle ?? .direct
+        let maxNewNextLogProbCacheEntries: Int? = {
+            let limit = max(0, options.zenzaiMode.inferenceLimit)
+            return limit == .max ? nil : limit
+        }()
+        return self.requestTypoCorrectionsOnlyImpl(
+            leftSideContext: self.leftSideContextForTypoCorrection(options: options),
+            composingText: inputData,
+            options: options,
+            inputStyle: inputStyle,
+            searchConfig: .init(),
+            maxNewNextLogProbCacheEntries: maxNewNextLogProbCacheEntries
         )
     }
 
@@ -965,17 +1063,39 @@ public final class KanaKanjiConverter {
             self.resetMemory()
         }
         self.dicdataStoreState.updateIfRequired(options: options)
-        #if os(iOS)
-        let needTypoCorrection = options.needTypoCorrection ?? true
-        #else
-        let needTypoCorrection = options.needTypoCorrection ?? false
-        #endif
+        let needTypoCorrection = self.isClassicTypoCorrectionEnabled(options)
 
         guard let result = self.convertToLattice(inputData, N_best: options.N_best, zenzaiMode: options.zenzaiMode, needTypoCorrection: needTypoCorrection) else {
             return ConversionResult(mainResults: [], predictionResults: [], englishPredictionResults: [], firstClauseResults: [])
         }
 
-        return self.processResult(inputData: inputData, result: result, options: options)
+        var conversionResult = self.processResult(inputData: inputData, result: result, options: options)
+        conversionResult.typoCorrectionResults = self.runIncrementalTypoCorrectionIfEnabled(inputData, options: options)
+        return conversionResult
+    }
+
+    private func isClassicTypoCorrectionEnabled(_ options: ConvertRequestOptions) -> Bool {
+        switch options.typoCorrectionConfig.mode {
+        case .classic:
+            return true
+        case .noisyChannel, .off:
+            return false
+        case .auto:
+            #if os(iOS)
+            return true
+            #else
+            return false
+            #endif
+        }
+    }
+
+    private func isLMBasedTypoCorrectionEnabled(_ options: ConvertRequestOptions) -> Bool {
+        switch options.typoCorrectionConfig.mode {
+        case .auto, .noisyChannel:
+            return true
+        case .classic, .off:
+            return false
+        }
     }
 
     /// 変換確定後の予測変換候補を要求する関数

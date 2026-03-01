@@ -5,8 +5,11 @@ SKIP_TESTING=false
 GPU_METRICS=true
 AUTO_OPEN=false
 CPU_MODE=false
+NGRAM_TRAIN_TEST=false
+NGRAM_TRAIN_FILE_TEST=false
 # Predeclare as empty array to avoid -u errors on expansion
 GPU_INSTR=()
+TEST_ENV=()
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -22,6 +25,12 @@ while [[ $# -gt 0 ]]; do
     --cpu)
       CPU_MODE=true
       ;;
+    --ngram-train-test)
+      NGRAM_TRAIN_TEST=true
+      ;;
+    --ngram-train-file-test)
+      NGRAM_TRAIN_FILE_TEST=true
+      ;;
     *)
       echo "[error] unknown option: $1" 1>&2
       exit 1
@@ -35,7 +44,19 @@ if [[ "$CPU_MODE" == true ]]; then
   GPU_METRICS=false
 fi
 
-echo "[info] options: skip-testing=$SKIP_TESTING, gpu-metrics=$GPU_METRICS, auto-open=$AUTO_OPEN, cpu-mode=$CPU_MODE"
+if [[ "$NGRAM_TRAIN_TEST" == true ]]; then
+  GPU_METRICS=false
+fi
+if [[ "$NGRAM_TRAIN_FILE_TEST" == true ]]; then
+  GPU_METRICS=false
+fi
+
+if [[ "$NGRAM_TRAIN_TEST" == true && "$NGRAM_TRAIN_FILE_TEST" == true ]]; then
+  echo "[error] --ngram-train-test and --ngram-train-file-test are mutually exclusive" 1>&2
+  exit 1
+fi
+
+echo "[info] options: skip-testing=$SKIP_TESTING, gpu-metrics=$GPU_METRICS, auto-open=$AUTO_OPEN, cpu-mode=$CPU_MODE, ngram-train-test=$NGRAM_TRAIN_TEST, ngram-train-file-test=$NGRAM_TRAIN_FILE_TEST"
 
 if [[ "$GPU_METRICS" == true ]]; then
   GPU_INSTR=(--instrument 'Metal Application')
@@ -46,20 +67,33 @@ fi
 
 # 設定
 TEST_IDS=(
-  "KanaKanjiConverterModuleWithDefaultDictionaryTests.ZenzaiTests/testFullConversion"
-  "KanaKanjiConverterModuleWithDefaultDictionaryTests.ZenzaiTests/testGradualConversion"
-  "KanaKanjiConverterModuleWithDefaultDictionaryTests.ZenzaiTests/testGradualConversion_Roman2Kana"
-  "KanaKanjiConverterModuleWithDefaultDictionaryTests.ZenzaiTests/testGradualConversion_AZIK"
+  "KanaKanjiConverterModuleWithDefaultDictionaryTests.ZenzaiTests/testRequestCandidates_AfterGradual_Roman2Kana_NoIncrementalTypo"
+  "KanaKanjiConverterModuleWithDefaultDictionaryTests.ZenzaiTests/testTypoCorrection_AfterGradualRequestCandidates_Roman2Kana"
 )
-# CPUモードのときはFullConversionのみ実行（xctraceが重たいため）
+# CPUモードでも同じ2ケースを実行
 if [[ "$CPU_MODE" == true ]]; then
   TEST_IDS=(
-    "KanaKanjiConverterModuleWithDefaultDictionaryTests.ZenzaiTests/testFullConversion"
+    "KanaKanjiConverterModuleWithDefaultDictionaryTests.ZenzaiTests/testTypoCorrection_OneShot_Roman2Kana"
+    "KanaKanjiConverterModuleWithDefaultDictionaryTests.ZenzaiTests/testTypoCorrection_AfterGradualRequestCandidates_Roman2Kana"
   )
 fi
 TRAIT="Zenzai"
 if [[ "$CPU_MODE" == true ]]; then
   TRAIT="ZenzaiCPU"
+fi
+if [[ "$NGRAM_TRAIN_TEST" == true ]]; then
+  TEST_IDS=(
+    "EfficientNGramTests.SwiftNGramTests/testTrainProfileRandomAonCorpus"
+  )
+  TRAIT="Zenzai"
+  TEST_ENV=("ENABLE_NGRAM_PROFILE_TEST=1")
+fi
+if [[ "$NGRAM_TRAIN_FILE_TEST" == true ]]; then
+  TEST_IDS=(
+    "EfficientNGramTests.SwiftNGramTests/testTrainProfileRandomAonCorpusFromFile"
+  )
+  TRAIT="Zenzai"
+  TEST_ENV=("ENABLE_NGRAM_FILE_PROFILE_TEST=1")
 fi
 
 # /tmp 配下に作業ディレクトリ
@@ -97,6 +131,7 @@ if [[ "$SKIP_TESTING" != true ]]; then
   for TEST_ID in "${TEST_IDS[@]}"; do
     echo "[precheck] running: $TEST_ID"
     if ! /usr/bin/env \
+        ${TEST_ENV[@]+"${TEST_ENV[@]}"} \
         DYLD_FRAMEWORK_PATH="$DYLD_FRAMEWORK_PATH" \
         DYLD_LIBRARY_PATH="$DYLD_LIBRARY_PATH" \
         DYLD_FALLBACK_FRAMEWORK_PATH="$DYLD_FRAMEWORK_PATH" \
@@ -127,6 +162,7 @@ for i in "${!TEST_IDS[@]}"; do
       --output "$TRACE" \
       --launch -- \
       /usr/bin/env \
+        ${TEST_ENV[@]+"${TEST_ENV[@]}"} \
         DYLD_FRAMEWORK_PATH="$DYLD_FRAMEWORK_PATH" \
         DYLD_LIBRARY_PATH="$DYLD_LIBRARY_PATH" \
         DYLD_FALLBACK_FRAMEWORK_PATH="$DYLD_FRAMEWORK_PATH" \
@@ -141,6 +177,7 @@ for i in "${!TEST_IDS[@]}"; do
       --append-run \
       --launch -- \
       /usr/bin/env \
+        ${TEST_ENV[@]+"${TEST_ENV[@]}"} \
         DYLD_FRAMEWORK_PATH="$DYLD_FRAMEWORK_PATH" \
         DYLD_LIBRARY_PATH="$DYLD_LIBRARY_PATH" \
         DYLD_FALLBACK_FRAMEWORK_PATH="$DYLD_FRAMEWORK_PATH" \

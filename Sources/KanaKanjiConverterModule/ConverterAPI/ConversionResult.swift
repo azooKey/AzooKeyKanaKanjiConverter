@@ -7,4 +7,7 @@ public struct ConversionResult: Sendable {
     public var englishPredictionResults: [Candidate] = []
     /// 変換候補のうち最初の文節を変換したもの
     public var firstClauseResults: [Candidate]
+    /// LMベース typo correction の候補（experimental）。
+    /// `nil` の場合は typo 候補生成を実行していません。
+    public var typoCorrectionResults: [ZenzaiTypoCandidate]? = nil
 }

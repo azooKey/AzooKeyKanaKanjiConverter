@@ -29,6 +29,14 @@ package final class Zenz {
         try? self.zenzContext?.resetContext()
     }
 
+    package func kvCacheStatsSnapshot() -> ZenzKVCacheStats? {
+        self.zenzContext?.kvCacheStatsSnapshot()
+    }
+
+    package func resetKVCacheStats() {
+        self.zenzContext?.resetKVCacheStats()
+    }
+
     func candidateEvaluate(
         convertTarget: String,
         candidates: [Candidate],
@@ -83,5 +91,29 @@ package final class Zenz {
             return ""
         }
         return ZenzPureGreedyDecoder.decode(context: zenzContext, leftSideContext: pureInput, maxCount: maxCount)
+    }
+
+    func generateTypoCandidates(
+        leftSideContext: String,
+        composingText: ComposingText,
+        inputStyle: InputStyle,
+        searchConfig: ZenzaiTypoSearchConfig,
+        typoCorrectionConfig: ConvertRequestOptions.TypoCorrectionConfig,
+        cache: ZenzaiTypoGenerationCache,
+        maxNewNextLogProbCacheEntries: Int?
+    ) -> [ZenzaiTypoCandidate] {
+        guard let zenzContext else {
+            return []
+        }
+        return ZenzaiTypoCandidateGenerator.generate(
+            context: zenzContext,
+            leftSideContext: leftSideContext,
+            composingText: composingText,
+            inputStyle: inputStyle,
+            searchConfig: searchConfig,
+            typoCorrectionConfig: typoCorrectionConfig,
+            cache: cache,
+            maxNewNextLogProbCacheEntries: maxNewNextLogProbCacheEntries
+        )
     }
 }
