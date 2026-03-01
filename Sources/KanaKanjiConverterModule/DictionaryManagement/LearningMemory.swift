@@ -203,11 +203,18 @@ struct LongTermLearningMemory {
         // 構造:
         // dataCount(UInt32), count, data*count, count, data*count, ...
         // MARK: 読み出しは、`metadataFile`が存在しなかった場合（学習が一切ない場合）に失敗する。
-        let ltMetadata = (try? Data(contentsOf: metadataFileURL(asTemporaryFile: false, directoryURL: directoryURL))) ?? Data([.zero, .zero, .zero, .zero])
+        let ltMetadata = (try? Data(contentsOf: metadataFileURL(asTemporaryFile: false, directoryURL: directoryURL))) ?? Data()
         var metadataOffset = 0
         // 最初の4byteはentry countに対応する
-        let entryCount = ltMetadata[metadataOffset ..< metadataOffset + 4].toArray(of: UInt32.self)[0]
-        metadataOffset += 4
+        let entryCount: UInt32
+        if ltMetadata.count >= 4 {
+            entryCount = ltMetadata[metadataOffset ..< metadataOffset + 4].toArray(of: UInt32.self)[0]
+            metadataOffset += 4
+        } else {
+            entryCount = 0
+            metadataOffset = ltMetadata.count
+            debug("LongTermLearningMemory merge metadata header is too short", ltMetadata.count)
+        }
 
         debug("LongTermLearningMemory merge entryCount", entryCount, ltMetadata.count)
 
@@ -221,26 +228,55 @@ struct LongTermLearningMemory {
                 debug("LongTermLearningMemory merge failed to read \(loudstxtIndex)", error)
                 continue
             }
+            guard loudstxtData.count >= 2 else {
+                debug("LongTermLearningMemory merge loudstxt file too short", loudstxtIndex, loudstxtData.count)
+                continue
+            }
             // loudstxt3の数
             let count = Int(loudstxtData[0 ..< 2].toArray(of: UInt16.self)[0])
-            let indices = loudstxtData[2 ..< 2 + 4 * count].toArray(of: UInt32.self)
+            let indicesStart = 2
+            let indicesEnd = indicesStart + 4 * count
+            guard loudstxtData.count >= indicesEnd else {
+                debug("LongTermLearningMemory merge loudstxt indices truncated", loudstxtIndex, loudstxtData.count, count)
+                continue
+            }
+            let indices = loudstxtData[indicesStart ..< indicesEnd].toArray(of: UInt32.self)
             for i in 0 ..< count {
                 guard metadataOffset < ltMetadata.endIndex else {
                     break
                 }
                 // メタデータの読み取り
                 // 1byteで項目数
+                guard metadataOffset + 1 <= ltMetadata.endIndex else {
+                    debug("LongTermLearningMemory merge metadata item count missing", metadataOffset, ltMetadata.count)
+                    metadataOffset = ltMetadata.endIndex
+                    break
+                }
                 let itemCount = Int(ltMetadata[metadataOffset ..< metadataOffset + 1].toArray(of: UInt8.self)[0])
                 metadataOffset += 1
+                let metadataBlockSize = itemCount * MemoryLayout<MetadataElement>.size
+                guard metadataOffset + metadataBlockSize <= ltMetadata.endIndex else {
+                    debug("LongTermLearningMemory merge metadata truncated", itemCount, ltMetadata.count, metadataOffset)
+                    metadataOffset = ltMetadata.endIndex
+                    break
+                }
                 let metadata = (0 ..< itemCount).map {
                     let range = metadataOffset + $0 * MemoryLayout<MetadataElement>.size ..< metadataOffset + ($0 + 1) * MemoryLayout<MetadataElement>.size
                     return ltMetadata[range].toArray(of: MetadataElement.self)[0]
                 }
-                metadataOffset += itemCount * MemoryLayout<MetadataElement>.size
+                metadataOffset += metadataBlockSize
 
                 // バイナリ内部でのindex
+                guard i < indices.count else {
+                    debug("LongTermLearningMemory merge indices count mismatch", i, indices.count)
+                    break
+                }
                 let startIndex = Int(indices[i])
                 let endIndex = i == (indices.endIndex - 1) ? loudstxtData.endIndex : Int(indices[i + 1])
+                guard startIndex < endIndex, endIndex <= loudstxtData.count else {
+                    debug("LongTermLearningMemory merge loudstxt entry range invalid", startIndex, endIndex, loudstxtData.count)
+                    continue
+                }
                 let elements = LOUDS.parseBinary(binary: loudstxtData[startIndex ..< endIndex])
                 // 該当部分を取り出してメタデータに従ってフィルター、trieに追加
                 guard let ruby = elements.first?.ruby,
@@ -606,9 +642,20 @@ final class LearningManager {
         do {
             let chidURL = bundleURL.appendingPathComponent("louds/charID.chid", isDirectory: false)
             let string = try String(contentsOf: chidURL, encoding: .utf8)
-            target = [Character: UInt8].init(uniqueKeysWithValues: string.enumerated().map {($0.element, UInt8($0.offset))})
+            var mapping: [Character: UInt8] = [:]
+            for (offset, character) in string.enumerated() {
+                guard offset <= Int(UInt8.max) else {
+                    debug("Error: louds/charID.chidの文字数が上限を超えています。")
+                    break
+                }
+                if mapping[character] == nil {
+                    mapping[character] = UInt8(offset)
+                }
+            }
+            target = mapping
         } catch {
             debug("Error: louds/charID.chidが存在しません。このエラーは深刻ですが、テスト時には無視できる場合があります。Description: \(error)")
+            return
         }
     }
     var char2UInt8: [Character: UInt8]
