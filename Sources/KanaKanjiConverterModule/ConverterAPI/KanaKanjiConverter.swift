@@ -205,6 +205,14 @@ public final class KanaKanjiConverter {
         )
     }
 
+    package func debugZenzKVCacheStatsSnapshot() -> ZenzKVCacheStats? {
+        self.zenz?.kvCacheStatsSnapshot()
+    }
+
+    package func resetDebugZenzKVCacheStats() {
+        self.zenz?.resetKVCacheStats()
+    }
+
     private func requestTypoCorrectionsOnlyImpl(
         leftSideContext: String,
         composingText: ComposingText,
@@ -213,6 +221,9 @@ public final class KanaKanjiConverter {
         searchConfig: ZenzaiTypoSearchConfig,
         maxNewNextLogProbCacheEntries: Int?
     ) -> [ZenzaiTypoCandidate] {
+        guard self.isLMBasedTypoCorrectionEnabled(options) else {
+            return []
+        }
         guard options.zenzaiMode.enabled else {
             print("zenz mode is disabled")
             return []
@@ -226,6 +237,7 @@ public final class KanaKanjiConverter {
             composingText: composingText,
             inputStyle: inputStyle,
             searchConfig: searchConfig,
+            typoCorrectionConfig: options.typoCorrectionConfig,
             cache: self.currentSessionState.zenzaiTypoCache,
             maxNewNextLogProbCacheEntries: maxNewNextLogProbCacheEntries
         )
@@ -241,7 +253,9 @@ public final class KanaKanjiConverter {
     }
 
     private func runIncrementalTypoCorrectionIfEnabled(_ inputData: ComposingText, options: ConvertRequestOptions) -> [ZenzaiTypoCandidate]? {
-        guard options.experimentalZenzaiIncrementalTypoCorrection, options.zenzaiMode.enabled else {
+        guard options.typoCorrectionConfig.experimentalZenzaiIncrementalTypoCorrection,
+              self.isLMBasedTypoCorrectionEnabled(options),
+              options.zenzaiMode.enabled else {
             return nil
         }
         let inputStyle = inputData.input.last?.inputStyle ?? .direct
@@ -1049,11 +1063,7 @@ public final class KanaKanjiConverter {
             self.resetMemory()
         }
         self.dicdataStoreState.updateIfRequired(options: options)
-        #if os(iOS)
-        let needTypoCorrection = options.needTypoCorrection ?? true
-        #else
-        let needTypoCorrection = options.needTypoCorrection ?? false
-        #endif
+        let needTypoCorrection = self.isClassicTypoCorrectionEnabled(options)
 
         guard let result = self.convertToLattice(inputData, N_best: options.N_best, zenzaiMode: options.zenzaiMode, needTypoCorrection: needTypoCorrection) else {
             return ConversionResult(mainResults: [], predictionResults: [], englishPredictionResults: [], firstClauseResults: [])
@@ -1062,6 +1072,30 @@ public final class KanaKanjiConverter {
         var conversionResult = self.processResult(inputData: inputData, result: result, options: options)
         conversionResult.typoCorrectionResults = self.runIncrementalTypoCorrectionIfEnabled(inputData, options: options)
         return conversionResult
+    }
+
+    private func isClassicTypoCorrectionEnabled(_ options: ConvertRequestOptions) -> Bool {
+        switch options.typoCorrectionConfig.mode {
+        case .classic:
+            return true
+        case .noisyChannel, .off:
+            return false
+        case .auto:
+            #if os(iOS)
+            return true
+            #else
+            return false
+            #endif
+        }
+    }
+
+    private func isLMBasedTypoCorrectionEnabled(_ options: ConvertRequestOptions) -> Bool {
+        switch options.typoCorrectionConfig.mode {
+        case .auto, .noisyChannel:
+            return true
+        case .classic, .off:
+            return false
+        }
     }
 
     /// 変換確定後の予測変換候補を要求する関数

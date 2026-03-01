@@ -29,6 +29,14 @@ package final class Zenz {
         try? self.zenzContext?.resetContext()
     }
 
+    package func kvCacheStatsSnapshot() -> ZenzKVCacheStats? {
+        self.zenzContext?.kvCacheStatsSnapshot()
+    }
+
+    package func resetKVCacheStats() {
+        self.zenzContext?.resetKVCacheStats()
+    }
+
     func candidateEvaluate(
         convertTarget: String,
         candidates: [Candidate],
@@ -90,6 +98,7 @@ package final class Zenz {
         composingText: ComposingText,
         inputStyle: InputStyle,
         searchConfig: ZenzaiTypoSearchConfig,
+        typoCorrectionConfig: ConvertRequestOptions.TypoCorrectionConfig,
         cache: ZenzaiTypoGenerationCache,
         maxNewNextLogProbCacheEntries: Int?
     ) -> [ZenzaiTypoCandidate] {
@@ -102,6 +111,7 @@ package final class Zenz {
             composingText: composingText,
             inputStyle: inputStyle,
             searchConfig: searchConfig,
+            typoCorrectionConfig: typoCorrectionConfig,
             cache: cache,
             maxNewNextLogProbCacheEntries: maxNewNextLogProbCacheEntries
         )

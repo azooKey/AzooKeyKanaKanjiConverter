@@ -13,12 +13,11 @@ final class ZenzaiTests: XCTestCase {
     func requestOptions(
         inferenceLimit: Int = Int.max,
         leftSideContext: String? = nil,
-        experimentalZenzaiIncrementalTypoCorrection: Bool = false
+        incrementalTypoEnabled: Bool = false
     ) -> ConvertRequestOptions {
         print("You need to install azooKeyMac.app to run this test.")
         return .init(
             N_best: 10,
-            needTypoCorrection: false,
             requireJapanesePrediction: .disabled,
             requireEnglishPrediction: .disabled,
             keyboardLanguage: .ja_JP,
@@ -38,7 +37,11 @@ final class ZenzaiTests: XCTestCase {
                 personalizationMode: .none,
                 versionDependentMode: .v3(.init(leftSideContext: leftSideContext))
             ),
-            experimentalZenzaiIncrementalTypoCorrection: experimentalZenzaiIncrementalTypoCorrection,
+            typoCorrectionConfig: .init(
+                mode: .auto,
+                languageModel: .zenz,
+                experimentalZenzaiIncrementalTypoCorrection: incrementalTypoEnabled
+            ),
             metadata: nil
         )
     }
@@ -161,7 +164,7 @@ final class ZenzaiTests: XCTestCase {
         let options = self.requestOptions(
             inferenceLimit: .max,
             leftSideContext: "やあ、",
-            experimentalZenzaiIncrementalTypoCorrection: true
+            incrementalTypoEnabled: true
         )
         var lastResult: ConversionResult?
         for char in input {
@@ -187,7 +190,7 @@ final class ZenzaiTests: XCTestCase {
         let options = self.requestOptions(
             inferenceLimit: .max,
             leftSideContext: "やあ、",
-            experimentalZenzaiIncrementalTypoCorrection: false
+            incrementalTypoEnabled: false
         )
         var lastResult: ConversionResult?
         for char in input {
@@ -207,7 +210,7 @@ final class ZenzaiTests: XCTestCase {
         let options = self.requestOptions(
             inferenceLimit: 10,
             leftSideContext: "やあ、",
-            experimentalZenzaiIncrementalTypoCorrection: true
+            incrementalTypoEnabled: true
         )
         var lastResult: ConversionResult?
         for char in input {
@@ -235,7 +238,7 @@ final class ZenzaiTests: XCTestCase {
             let options = self.requestOptions(
                 inferenceLimit: 10,
                 leftSideContext: leftSideContext,
-                experimentalZenzaiIncrementalTypoCorrection: incrementalTypoEnabled
+                incrementalTypoEnabled: incrementalTypoEnabled
             )
             for char in input {
                 c.insertAtCursorPosition(String(char), inputStyle: .roman2kana)
@@ -276,7 +279,7 @@ final class ZenzaiTests: XCTestCase {
         let options = self.requestOptions(
             inferenceLimit: inferenceLimit,
             leftSideContext: leftSideContext,
-            experimentalZenzaiIncrementalTypoCorrection: incrementalTypoEnabled
+            incrementalTypoEnabled: incrementalTypoEnabled
         )
         var times: [Double] = []
         for char in input {

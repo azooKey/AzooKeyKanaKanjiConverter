@@ -3,6 +3,7 @@ import llama
 #endif
 
 import Algorithms
+import EfficientNGram
 import Foundation
 import OrderedCollections
 import SwiftUtils
@@ -79,6 +80,11 @@ final class ZenzaiTypoGenerationCache {
     fileprivate var nextLogProbCache: [[llama_token]: [Float]] = [:]
     fileprivate var encodeCache: [String: [llama_token]] = [:]
     fileprivate var tokenCharCache: [llama_token: Character?] = [:]
+    fileprivate var ngramModel: EfficientNGram?
+    fileprivate var ngramResolvedPrefix: String?
+    fileprivate var ngramN: Int = 5
+    fileprivate var ngramD: Double = 0.75
+    fileprivate var ngramLoadAttempted: Bool = false
 
     func invalidateAll() {
         self.prompt = ""
@@ -310,6 +316,7 @@ enum ZenzaiTypoCandidateGenerator {
     private struct LMScorer {
         private let context: ZenzContext
         private let cache: ZenzaiTypoGenerationCache
+        private let ngramModel: EfficientNGram?
         private let maxNewNextLogProbCacheEntries: Int?
         private var createdNextLogProbCacheEntries: Int = 0
 
@@ -317,12 +324,69 @@ enum ZenzaiTypoCandidateGenerator {
             context: ZenzContext,
             leftSideContext: String,
             cache: ZenzaiTypoGenerationCache,
+            typoCorrectionConfig: ConvertRequestOptions.TypoCorrectionConfig,
             maxNewNextLogProbCacheEntries: Int?
         ) {
             self.context = context
             self.cache = cache
             self.maxNewNextLogProbCacheEntries = maxNewNextLogProbCacheEntries
+            self.ngramModel = Self.resolveNGramModel(config: typoCorrectionConfig, cache: cache)
             self.preparePrompt(leftSideContext: leftSideContext)
+        }
+
+        private static func resolveNGramModel(
+            config: ConvertRequestOptions.TypoCorrectionConfig,
+            cache: ZenzaiTypoGenerationCache
+        ) -> EfficientNGram? {
+            guard case .ngram(let ngramConfig) = config.languageModel else {
+                return nil
+            }
+
+            let rawPrefix = ngramConfig.prefix.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !rawPrefix.isEmpty else {
+                return nil
+            }
+            let n = max(1, ngramConfig.n)
+            let d = ngramConfig.d
+
+            var trimmedUnderscorePrefix = rawPrefix
+            while trimmedUnderscorePrefix.last == "_" {
+                trimmedUnderscorePrefix.removeLast()
+            }
+            let candidatePrefixes = [rawPrefix, trimmedUnderscorePrefix].filter { !$0.isEmpty }.uniqued()
+            let requiredSuffixes = ["_c_abc.marisa", "_u_abx.marisa", "_u_xbc.marisa", "_r_xbx.marisa"]
+            let fileManager = FileManager.default
+
+            let resolvedPrefix = candidatePrefixes.first { prefix in
+                requiredSuffixes.allSatisfy { suffix in
+                    fileManager.fileExists(atPath: prefix + suffix)
+                }
+            }
+
+            guard let resolvedPrefix else {
+                if !cache.ngramLoadAttempted {
+                    print("[Warning] typoCorrectionConfig.languageModel=.ngram is set, but required n-gram files were not found. Fallback to Zenz LM.")
+                    print("[Warning] Checked prefixes: \(candidatePrefixes.joined(separator: ", "))")
+                    cache.ngramLoadAttempted = true
+                }
+                return nil
+            }
+
+            if let existingModel = cache.ngramModel,
+               cache.ngramResolvedPrefix == resolvedPrefix,
+               cache.ngramN == n,
+               cache.ngramD == d {
+                return existingModel
+            }
+
+            let tokenizer = ZenzTokenizer()
+            let model = EfficientNGram(baseFilename: resolvedPrefix, n: n, d: d, tokenizer: tokenizer)
+            cache.ngramModel = model
+            cache.ngramResolvedPrefix = resolvedPrefix
+            cache.ngramN = n
+            cache.ngramD = d
+            cache.ngramLoadAttempted = true
+            return model
         }
 
         private func preparePrompt(leftSideContext: String) {
@@ -404,6 +468,100 @@ enum ZenzaiTypoCandidateGenerator {
             return (currentTokenIDs, currentScore)
         }
 
+        mutating func appendAndScoreOneShot(
+            emittedTokenIDs: [llama_token],
+            lmScore: Float,
+            appendText: String
+        ) -> (emittedTokenIDs: [llama_token], lmScore: Float)? {
+            if self.ngramModel != nil {
+                // n-gram mode: avoid forward path entirely.
+                return self.appendAndScore(
+                    emittedTokenIDs: emittedTokenIDs,
+                    lmScore: lmScore,
+                    appendText: appendText
+                )
+            }
+            let appendTokenIDs = self.encodeRaw(appendText)
+            guard !appendTokenIDs.isEmpty else {
+                return (emittedTokenIDs, lmScore)
+            }
+            let vocabSize = self.cache.vocabSize
+            var currentPrefix = emittedTokenIDs
+            var currentScore = lmScore
+
+            // Reuse existing next-logprob cache as far as possible, then evaluate only missing suffix.
+            var firstMissingIndex: Int?
+            for (indexInAppend, tokenID) in appendTokenIDs.enumerated() {
+                if let cached = self.cache.nextLogProbCache[currentPrefix] {
+                    let targetIndex = Int(tokenID)
+                    guard targetIndex >= 0, targetIndex < cached.count else {
+                        return nil
+                    }
+                    currentScore += cached[targetIndex]
+                    currentPrefix.append(tokenID)
+                } else {
+                    firstMissingIndex = indexInAppend
+                    break
+                }
+            }
+            guard let firstMissingIndex else {
+                return (currentPrefix, currentScore)
+            }
+
+            let remainingAppend = Array(appendTokenIDs.dropFirst(firstMissingIndex))
+            let prefixTokenIDs = self.cache.promptTokenIDs + currentPrefix
+            guard !prefixTokenIDs.isEmpty else {
+                return nil
+            }
+            let fullTokenIDs = prefixTokenIDs + remainingAppend
+            let startOffset = prefixTokenIDs.count - 1
+            guard let logits = self.context.inputPredictionLogits(tokens: fullTokenIDs, startOffset: startOffset) else {
+                return nil
+            }
+
+            let totalOutputValues = remainingAppend.count * vocabSize
+            for (indexInRemaining, tokenID) in remainingAppend.enumerated() {
+                let rowIndex = indexInRemaining * vocabSize
+                let rowEnd = rowIndex + vocabSize
+                guard rowEnd <= totalOutputValues else {
+                    return nil
+                }
+                var values: [Float] = Array(repeating: 0, count: vocabSize)
+                var maxLogit: Float = -.infinity
+                for vocabIndex in 0 ..< vocabSize {
+                    let value = logits[rowIndex + vocabIndex]
+                    values[vocabIndex] = value
+                    if value > maxLogit {
+                        maxLogit = value
+                    }
+                }
+                var sumExp: Float = 0
+                for vocabIndex in 0 ..< vocabSize {
+                    sumExp += expf(values[vocabIndex] - maxLogit)
+                }
+                let targetIndex = Int(tokenID)
+                guard targetIndex >= 0, targetIndex < vocabSize else {
+                    return nil
+                }
+                let logSumExp = maxLogit + logf(sumExp)
+                for vocabIndex in 0 ..< vocabSize {
+                    values[vocabIndex] -= logSumExp
+                }
+                currentScore += values[targetIndex]
+                if self.cache.nextLogProbCache[currentPrefix] == nil {
+                    if let maxNewNextLogProbCacheEntries,
+                       self.createdNextLogProbCacheEntries >= maxNewNextLogProbCacheEntries {
+                        // keep scoring, but skip cache insert when entry budget is exhausted.
+                    } else {
+                        self.cache.nextLogProbCache[currentPrefix] = values
+                        self.createdNextLogProbCacheEntries += 1
+                    }
+                }
+                currentPrefix.append(tokenID)
+            }
+            return (currentPrefix, currentScore)
+        }
+
         private mutating func tokenToSingleCharacter(_ token: llama_token) -> Character? {
             if let cached = self.cache.tokenCharCache[token] {
                 return cached
@@ -428,30 +586,58 @@ enum ZenzaiTypoCandidateGenerator {
                self.createdNextLogProbCacheEntries >= maxNewNextLogProbCacheEntries {
                 return nil
             }
-            let fullTokenIDs = self.cache.promptTokenIDs + emittedTokenIDs
-            guard !fullTokenIDs.isEmpty else {
-                return nil
-            }
-            let startOffset = fullTokenIDs.count - 1
-            guard let logits = self.context.inputPredictionLogits(tokens: fullTokenIDs, startOffset: startOffset) else {
-                return nil
-            }
-            var values: [Float] = Array(repeating: 0, count: self.cache.vocabSize)
-            var maxLogit: Float = -.infinity
-            for i in values.indices {
-                let value = logits[i]
-                values[i] = value
-                if value > maxLogit {
-                    maxLogit = value
+            let values: [Float]
+            if let ngramModel {
+                let fullTokenIDs = self.cache.promptTokenIDs + emittedTokenIDs
+                let probs = ngramModel.bulkPredict(fullTokenIDs.map(Int.init))
+                guard probs.count == self.cache.vocabSize else {
+                    return nil
                 }
-            }
-            var sumExp: Float = 0
-            for i in values.indices {
-                sumExp += expf(values[i] - maxLogit)
-            }
-            let logSumExp = maxLogit + logf(sumExp)
-            for i in values.indices {
-                values[i] -= logSumExp
+                var logValues: [Float] = Array(repeating: 0, count: self.cache.vocabSize)
+                var maxLogProb: Float = -.infinity
+                for i in logValues.indices {
+                    let logProb = logf(max(Float(probs[i]), 1e-20))
+                    logValues[i] = logProb
+                    if logProb > maxLogProb {
+                        maxLogProb = logProb
+                    }
+                }
+                var sumExp: Float = 0
+                for i in logValues.indices {
+                    sumExp += expf(logValues[i] - maxLogProb)
+                }
+                let logSumExp = maxLogProb + logf(sumExp)
+                for i in logValues.indices {
+                    logValues[i] -= logSumExp
+                }
+                values = logValues
+            } else {
+                let fullTokenIDs = self.cache.promptTokenIDs + emittedTokenIDs
+                guard !fullTokenIDs.isEmpty else {
+                    return nil
+                }
+                let startOffset = fullTokenIDs.count - 1
+                guard let logits = self.context.inputPredictionLogits(tokens: fullTokenIDs, startOffset: startOffset) else {
+                    return nil
+                }
+                var logitValues: [Float] = Array(repeating: 0, count: self.cache.vocabSize)
+                var maxLogit: Float = -.infinity
+                for i in logitValues.indices {
+                    let value = logits[i]
+                    logitValues[i] = value
+                    if value > maxLogit {
+                        maxLogit = value
+                    }
+                }
+                var sumExp: Float = 0
+                for i in logitValues.indices {
+                    sumExp += expf(logitValues[i] - maxLogit)
+                }
+                let logSumExp = maxLogit + logf(sumExp)
+                for i in logitValues.indices {
+                    logitValues[i] -= logSumExp
+                }
+                values = logitValues
             }
             self.cache.nextLogProbCache[emittedTokenIDs] = values
             self.createdNextLogProbCacheEntries += 1
@@ -489,6 +675,7 @@ enum ZenzaiTypoCandidateGenerator {
         composingText: ComposingText,
         inputStyle: InputStyle,
         searchConfig: ZenzaiTypoSearchConfig,
+        typoCorrectionConfig: ConvertRequestOptions.TypoCorrectionConfig,
         cache: ZenzaiTypoGenerationCache,
         maxNewNextLogProbCacheEntries: Int?
     ) -> [ZenzaiTypoCandidate] {
@@ -517,6 +704,7 @@ enum ZenzaiTypoCandidateGenerator {
             context: context,
             leftSideContext: leftSideContext,
             cache: cache,
+            typoCorrectionConfig: typoCorrectionConfig,
             maxNewNextLogProbCacheEntries: maxNewNextLogProbCacheEntries
         )
         var beam: [Hypothesis] = [initialHypothesis()]
@@ -563,6 +751,7 @@ enum ZenzaiTypoCandidateGenerator {
             hypothesis: initialHypothesis(),
             observedElements: observedElements,
             table: mode.table,
+            useOneShotAppendScoring: true,
             scorer: &scorer
         ) {
             mergedFinals.append(explicitOriginal)
@@ -965,62 +1154,76 @@ enum ZenzaiTypoCandidateGenerator {
         hypothesis: Hypothesis,
         observedElements: [ObservedElement],
         table: InputTable,
+        useOneShotAppendScoring: Bool = false,
         scorer: inout LMScorer
     ) -> Hypothesis? {
         if hypothesis.j >= observedElements.count {
             return hypothesis
         }
+        guard var state = hypothesis.generatorState else {
+            return nil
+        }
+        let oldProxyLogp = state.proxyLogp
+        guard oldProxyLogp.isFinite else {
+            return nil
+        }
+
         var completed = hypothesis
+        let baseLMScore = completed.lmScore - oldProxyLogp
+        var newlyEmitted = ""
         while completed.j < observedElements.count {
             let observed = observedElements[completed.j].character
-            guard var state = completed.generatorState else {
-                return nil
-            }
-            let oldProxyLogp = state.proxyLogp
-            guard oldProxyLogp.isFinite else {
-                return nil
-            }
-            let baseLMScore = completed.lmScore - oldProxyLogp
             let consumed = Self.consumeWithEmission(
                 pending: state.pending,
                 newChar: observed,
                 table: table
             )
-            var emittedTokenIDs = completed.emittedTokenIDs
-            var emittedLogp: Float = 0
-            if !consumed.emitted.isEmpty {
-                guard let appended = scorer.appendAndScore(
+            state.pending = consumed.pending
+            state.prevInputPiece = observedElements[completed.j].inputPiece
+            completed.correctedInput += String(observed)
+            completed.j += 1
+            newlyEmitted += consumed.emitted
+        }
+
+        var emittedTokenIDs = completed.emittedTokenIDs
+        var emittedLogp: Float = 0
+        if !newlyEmitted.isEmpty {
+            let appended: (emittedTokenIDs: [llama_token], lmScore: Float)?
+            if useOneShotAppendScoring {
+                appended = scorer.appendAndScoreOneShot(
                     emittedTokenIDs: emittedTokenIDs,
                     lmScore: 0,
-                    appendText: consumed.emitted
-                ) else {
-                    return nil
-                }
-                emittedTokenIDs = appended.emittedTokenIDs
-                emittedLogp = appended.lmScore
-                completed.prevEmittedChar = consumed.emitted.last
-                completed.emittedText += consumed.emitted
+                    appendText: newlyEmitted
+                )
+            } else {
+                appended = scorer.appendAndScore(
+                    emittedTokenIDs: emittedTokenIDs,
+                    lmScore: 0,
+                    appendText: newlyEmitted
+                )
             }
-            let newProxyLogp = Self.pendingProxyLogProb(
-                pending: consumed.pending,
-                emittedTokenIDs: emittedTokenIDs,
-                table: table,
-                scorer: &scorer
-            )
-            guard newProxyLogp.isFinite else {
+            guard let appended else {
                 return nil
             }
-            let observedPiece = observedElements[completed.j].inputPiece
-            state.pending = consumed.pending
-            state.prevInputPiece = observedPiece
-            state.proxyLogp = newProxyLogp
-            completed.generatorState = state
-            completed.correctedInput += String(observed)
-            completed.emittedTokenIDs = emittedTokenIDs
-            completed.lmScore = baseLMScore + emittedLogp + newProxyLogp
-            completed.score = completed.lmScore - completed.channelCost
-            completed.j += 1
+            emittedTokenIDs = appended.emittedTokenIDs
+            emittedLogp = appended.lmScore
+            completed.prevEmittedChar = newlyEmitted.last
+            completed.emittedText += newlyEmitted
         }
+        let newProxyLogp = Self.pendingProxyLogProb(
+            pending: state.pending,
+            emittedTokenIDs: emittedTokenIDs,
+            table: table,
+            scorer: &scorer
+        )
+        guard newProxyLogp.isFinite else {
+            return nil
+        }
+        state.proxyLogp = newProxyLogp
+        completed.generatorState = state
+        completed.emittedTokenIDs = emittedTokenIDs
+        completed.lmScore = baseLMScore + emittedLogp + newProxyLogp
+        completed.score = completed.lmScore - completed.channelCost
         return completed
     }
 

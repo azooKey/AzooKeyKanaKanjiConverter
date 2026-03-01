@@ -7,6 +7,14 @@ import Algorithms
 import Foundation
 import SwiftUtils
 
+package struct ZenzKVCacheStats {
+    package var logitsCalls: Int = 0
+    package var totalRequestedTokens: Int = 0
+    package var totalDecodedTokens: Int = 0
+    package var totalPrefixReusedTokens: Int = 0
+    package var crossSeqCopyCalls: Int = 0
+    package var crossSeqCopiedTokens: Int = 0
+}
 
 enum ZenzError: LocalizedError {
     case couldNotLoadModel(path: String)
@@ -28,6 +36,7 @@ final class ZenzContext {
     private var vocab: OpaquePointer
     private var prevInputBySeq: [llama_seq_id: [llama_token]] = [:]
     private var prevPromptBySeq: [llama_seq_id: [llama_token]] = [:]
+    private var kvCacheStats: ZenzKVCacheStats = .init()
 
     private let n_len: Int32 = 512
     private let evalSeqId: llama_seq_id = 0
@@ -123,11 +132,13 @@ final class ZenzContext {
             let currentPrefix = currentPrevInput.commonPrefix(with: tokens).count
             let otherPrefix = otherPrevInput.commonPrefix(with: tokens).count
             if otherPrefix > currentPrefix {
-                let prefixCacheCount = min(otherPrefix, logits_start_index)
-                if prefixCacheCount > 0 {
+                let copiedPrefixCount = min(otherPrefix, logits_start_index)
+                if copiedPrefixCount > 0 {
                     llama_kv_cache_seq_rm(context, seqId, 0, -1)
-                    llama_kv_cache_seq_cp(context, otherSeqId, seqId, 0, llama_pos(prefixCacheCount))
+                    llama_kv_cache_seq_cp(context, otherSeqId, seqId, 0, llama_pos(copiedPrefixCount))
                     effectivePrevInput = otherPrevInput
+                    self.kvCacheStats.crossSeqCopyCalls += 1
+                    self.kvCacheStats.crossSeqCopiedTokens += copiedPrefixCount
                 }
             }
         }
@@ -144,6 +155,10 @@ final class ZenzContext {
             llama_kv_cache_seq_rm(context, seqId, llama_pos(prefixCacheCount), -1)
             debug("new pos max:", llama_kv_cache_seq_pos_max(self.context, seqId), "commonTokens:", commonTokens.count)
         }
+        self.kvCacheStats.logitsCalls += 1
+        self.kvCacheStats.totalRequestedTokens += tokens.count
+        self.kvCacheStats.totalPrefixReusedTokens += prefixCacheCount
+        self.kvCacheStats.totalDecodedTokens += max(0, tokens.count - prefixCacheCount)
         var batch = llama_batch_init(512, 0, 1)
         defer { llama_batch_free(batch) }
         let n_ctx = llama_n_ctx(context)
@@ -153,6 +168,11 @@ final class ZenzContext {
         }
         for i in tokens.indices.dropFirst(prefixCacheCount) {
             llama_batch_add(&batch, tokens[i], Int32(i), [seqId], logits: logits_start_index <= i)
+        }
+        if ProcessInfo.processInfo.environment["ZENZ_DUMP_FORWARD_INPUT"] == "1" {
+            let tokenIDs = tokens.map(Int.init)
+            let decoded = self.decodeTokens(tokens)
+            print("[FORWARD_INPUT] seq=\(seqId) start=\(logits_start_index) prefixReuse=\(prefixCacheCount) tokenCount=\(tokens.count) tokenIDs=\(tokenIDs) text=\(decoded)")
         }
         // 評価
         if llama_decode(context, batch) != 0 {
@@ -190,6 +210,14 @@ final class ZenzContext {
 
     func inputPredictionLogits(tokens: [llama_token], startOffset: Int) -> UnsafeMutablePointer<Float>? {
         self.getLogits(tokens: tokens, logits_start_index: startOffset, seqId: inputPredictionSeqId)
+    }
+
+    func kvCacheStatsSnapshot() -> ZenzKVCacheStats {
+        self.kvCacheStats
+    }
+
+    func resetKVCacheStats() {
+        self.kvCacheStats = .init()
     }
 
     var vocabSize: Int32 {
