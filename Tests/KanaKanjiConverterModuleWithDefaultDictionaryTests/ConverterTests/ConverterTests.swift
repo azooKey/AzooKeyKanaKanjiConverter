@@ -19,7 +19,7 @@ final class ConverterTests: XCTestCase {
 
     func requestOptions(needTypoCorrection: Bool = false) -> ConvertRequestOptions {
         let typoMode: ConvertRequestOptions.TypoCorrectionConfig.Mode = needTypoCorrection ? .classic : .off
-        .init(
+        return ConvertRequestOptions(
             N_best: 10,
             requireJapanesePrediction: .disabled,
             requireEnglishPrediction: .disabled,
