@@ -48,13 +48,13 @@ extension Subcommands {
         var zenzV3 = false
         @Flag(name: [.customLong("experimental_zenzai_predictive_input")], help: "Enable experimental zenzai predictive input.")
         var experimentalZenzaiPredictiveInput = false
-        @Option(name: [.customLong("config_typo_mode")], help: "Typo correction mode: auto/classic/noisy_channel/off.")
+        @Option(name: [.customLong("config_typo_mode")], help: "Typo correction mode for normal conversion: auto/on/off.")
         var configTypoMode: String = "auto"
-        @Option(name: [.customLong("config_typo_ngram_prefix")], help: "Prefix for typo n-gram model files.")
+        @Option(name: [.customLong("config_typo_ngram_prefix")], help: "Prefix for experimental typo n-gram model files.")
         var configTypoNGramPrefix: String?
-        @Option(name: [.customLong("config_typo_ngram_n")], help: "n for typo n-gram LM. (default: 5)")
+        @Option(name: [.customLong("config_typo_ngram_n")], help: "n for experimental typo n-gram LM. (default: 5)")
         var configTypoNGramN: Int = 5
-        @Option(name: [.customLong("config_typo_ngram_d")], help: "discount d for typo n-gram LM. (default: 0.75)")
+        @Option(name: [.customLong("config_typo_ngram_d")], help: "discount d for experimental typo n-gram LM. (default: 0.75)")
         var configTypoNGramD: Double = 0.75
         @Option(name: [.customLong("config_zenzai_base_lm")], help: "Marisa files for Base LM.")
         var configZenzaiBaseLM: String?
@@ -303,12 +303,12 @@ extension Subcommands {
                     }
 
                     let tcStart = Date()
-                    let typoCandidates = converter.experimentalRequestTypoCorrectionOnly(
+                    let typoCandidates = converter.experimentalRequestTypoCorrection(
                         leftSideContext: leftSideContext,
                         composingText: composingText,
                         options: requestOptions(learningType: learningType, memoryDirectory: memoryDirectory, leftSideContext: leftSideContext),
                         inputStyle: inputStyle,
-                        searchConfig: .init(
+                        config: self.experimentalTypoCorrectionConfig(
                             beamSize: max(1, min(beamSize, 256)),
                             topK: max(1, min(topK, 256)),
                             nBest: max(1, min(nBest, 50)),
@@ -452,25 +452,14 @@ extension Subcommands {
             let japanesePredictionMode: ConvertRequestOptions.PredictionMode = (!self.onlyWholeConversion && !self.disablePrediction) ? .autoMix : .disabled
             let typoMode = switch self.configTypoMode {
             case "auto":
-                ConvertRequestOptions.TypoCorrectionConfig.Mode.auto
-            case "classic":
-                ConvertRequestOptions.TypoCorrectionConfig.Mode.classic
-            case "noisy_channel":
-                ConvertRequestOptions.TypoCorrectionConfig.Mode.noisyChannel
+                ConvertRequestOptions.TypoCorrectionMode.automatic
+            case "on":
+                ConvertRequestOptions.TypoCorrectionMode.enabled
             case "off":
-                ConvertRequestOptions.TypoCorrectionConfig.Mode.off
+                ConvertRequestOptions.TypoCorrectionMode.disabled
             default:
-                fatalError("Unknown --config_typo_mode '\(self.configTypoMode)'. Use auto/classic/noisy_channel/off.")
+                fatalError("Unknown --config_typo_mode '\(self.configTypoMode)'. Use auto/on/off.")
             }
-            if self.configTypoNGramN <= 0 {
-                fatalError("--config_typo_ngram_n must be positive")
-            }
-            let typoLanguageModel: ConvertRequestOptions.TypoCorrectionConfig.LanguageModel = if let prefix = self.configTypoNGramPrefix, !prefix.isEmpty {
-                .ngram(.init(prefix: prefix, n: self.configTypoNGramN, d: self.configTypoNGramD))
-            } else {
-                .zenz
-            }
-            let typoCorrectionConfig = ConvertRequestOptions.TypoCorrectionConfig(mode: typoMode, languageModel: typoLanguageModel)
             var option: ConvertRequestOptions = .init(
                 N_best: self.onlyWholeConversion ? max(self.configNBest, self.displayTopN) : self.configNBest,
                 requireJapanesePrediction: japanesePredictionMode,
@@ -493,13 +482,42 @@ extension Subcommands {
                     versionDependentMode: zenzaiVersionDependentMode
                 ),
                 experimentalZenzaiPredictiveInput: self.experimentalZenzaiPredictiveInput,
-                typoCorrectionConfig: typoCorrectionConfig,
+                typoCorrectionMode: typoMode,
                 metadata: .init(versionString: "anco for debugging")
             )
             if self.onlyWholeConversion {
                 option.requestQuery = .完全一致
             }
             return option
+        }
+
+        func experimentalTypoCorrectionConfig(
+            beamSize: Int = 32,
+            topK: Int = 64,
+            nBest: Int = 5,
+            maxSteps: Int? = nil,
+            alpha: Float = 2.0,
+            beta: Float = 3.0,
+            gamma: Float = 2.0
+        ) -> ExperimentalTypoCorrectionConfig {
+            if self.configTypoNGramN <= 0 {
+                fatalError("--config_typo_ngram_n must be positive")
+            }
+            let languageModel: ExperimentalTypoCorrectionConfig.LanguageModel = if let prefix = self.configTypoNGramPrefix, !prefix.isEmpty {
+                .ngram(.init(prefix: prefix, n: self.configTypoNGramN, d: self.configTypoNGramD))
+            } else {
+                .zenz
+            }
+            return .init(
+                languageModel: languageModel,
+                beamSize: beamSize,
+                topK: topK,
+                nBest: nBest,
+                maxSteps: maxSteps,
+                alpha: alpha,
+                beta: beta,
+                gamma: gamma
+            )
         }
     }
 }

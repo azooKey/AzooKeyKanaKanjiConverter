@@ -97,10 +97,8 @@ package final class Zenz {
         leftSideContext: String,
         composingText: ComposingText,
         inputStyle: InputStyle,
-        searchConfig: ZenzaiTypoSearchConfig,
-        typoCorrectionConfig: ConvertRequestOptions.TypoCorrectionConfig,
-        cache: ZenzaiTypoGenerationCache,
-        maxNewNextLogProbCacheEntries: Int?
+        experimentalConfig: ExperimentalTypoCorrectionConfig,
+        cache: ZenzaiTypoGenerationCache
     ) -> [ZenzaiTypoCandidate] {
         guard let zenzContext else {
             return []
@@ -110,10 +108,8 @@ package final class Zenz {
             leftSideContext: leftSideContext,
             composingText: composingText,
             inputStyle: inputStyle,
-            searchConfig: searchConfig,
-            typoCorrectionConfig: typoCorrectionConfig,
-            cache: cache,
-            maxNewNextLogProbCacheEntries: maxNewNextLogProbCacheEntries
+            experimentalConfig: experimentalConfig,
+            cache: cache
         )
     }
 }

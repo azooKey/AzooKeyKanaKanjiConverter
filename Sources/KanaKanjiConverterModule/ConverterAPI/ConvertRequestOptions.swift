@@ -23,55 +23,14 @@ public struct ConvertRequestOptions: Sendable {
         }
     }
 
-    /// LM-based typo correction の実行設定。
-    public struct TypoCorrectionConfig: Sendable, Equatable, Hashable {
-        /// typo correction 全体の実行モード。
-        public enum Mode: Sendable, Equatable, Hashable {
-            /// プラットフォーム既定に従って classic typo correction を実行し、LM-based typo correction は必要に応じて利用します。
-            case auto
-            /// classic typo correction のみ実行します。
-            case classic
-            /// LM-based typo correction のみ実行します。
-            case noisyChannel
-            /// typo correction を実行しません。
-            case off
-        }
-
-        /// typo correction で利用する言語モデル。
-        public enum LanguageModel: Sendable, Equatable, Hashable {
-            /// Zenz (llama) を利用して確率を評価します。
-            case zenz
-            /// 学習済み n-gram モデルを利用して確率を評価します。
-            case ngram(NGramLanguageModel)
-        }
-
-        /// n-gram 言語モデル設定。
-        public struct NGramLanguageModel: Sendable, Equatable, Hashable {
-            /// - Parameters:
-            ///   - prefix: 学習済み marisa ファイル群のプレフィックス（例: `/path/to/lm` または `/path/to/lm_`）。
-            ///   - n: n-gram の n。
-            ///   - d: Kneser-Ney の割引係数。
-            public init(prefix: String, n: Int = 5, d: Double = 0.75) {
-                self.prefix = prefix
-                self.n = n
-                self.d = d
-            }
-
-            public var prefix: String
-            public var n: Int
-            public var d: Double
-        }
-
-        public init(
-            mode: Mode = .auto,
-            languageModel: LanguageModel = .zenz
-        ) {
-            self.mode = mode
-            self.languageModel = languageModel
-        }
-
-        public var mode: Mode
-        public var languageModel: LanguageModel
+    /// 通常の変換リクエストで classic typo correction をどう扱うかの設定。
+    public enum TypoCorrectionMode: Sendable, Equatable, Hashable {
+        /// プラットフォーム既定に従います。
+        case automatic
+        /// classic typo correction を常に有効にします。
+        case enabled
+        /// typo correction を無効にします。
+        case disabled
     }
     /// 変換リクエストに必要な設定データ
     ///
@@ -92,9 +51,9 @@ public struct ConvertRequestOptions: Sendable {
     ///   - textReplacer: 予測変換のための置換機を指定します。
     ///   - specialCandidateProviders: 特殊変換を実施する変換関数を挿入します
     ///   - experimentalZenzaiPredictiveInput: Zenzai の予測入力フォールバックを有効にします（experimental）。
-    ///   - typoCorrectionConfig: LM-based typo correction の実行設定。
+    ///   - typoCorrectionMode: 通常の変換リクエストで classic typo correction をどう扱うかを指定します。
     ///   - metadata: メタデータを指定します。詳しくは`ConvertRequestOptions.Metadata`を参照してください。
-    public init(N_best: Int = 10, requireJapanesePrediction: PredictionMode, requireEnglishPrediction: PredictionMode, keyboardLanguage: KeyboardLanguage, englishCandidateInRoman2KanaInput: Bool = false, fullWidthRomanCandidate: Bool = false, halfWidthKanaCandidate: Bool = false, learningType: LearningType, maxMemoryCount: Int = 65536, shouldResetMemory: Bool = false, memoryDirectoryURL: URL, sharedContainerURL: URL, textReplacer: TextReplacer, specialCandidateProviders: [any SpecialCandidateProvider]?, zenzaiMode: ZenzaiMode = .off, preloadDictionary: Bool = false, experimentalZenzaiPredictiveInput: Bool = false, typoCorrectionConfig: TypoCorrectionConfig = .init(), metadata: ConvertRequestOptions.Metadata?) {
+    public init(N_best: Int = 10, requireJapanesePrediction: PredictionMode, requireEnglishPrediction: PredictionMode, keyboardLanguage: KeyboardLanguage, englishCandidateInRoman2KanaInput: Bool = false, fullWidthRomanCandidate: Bool = false, halfWidthKanaCandidate: Bool = false, learningType: LearningType, maxMemoryCount: Int = 65536, shouldResetMemory: Bool = false, memoryDirectoryURL: URL, sharedContainerURL: URL, textReplacer: TextReplacer, specialCandidateProviders: [any SpecialCandidateProvider]?, zenzaiMode: ZenzaiMode = .off, preloadDictionary: Bool = false, experimentalZenzaiPredictiveInput: Bool = false, typoCorrectionMode: TypoCorrectionMode = .automatic, metadata: ConvertRequestOptions.Metadata?) {
         self.N_best = N_best
         self.requireJapanesePrediction = requireJapanesePrediction
         self.requireEnglishPrediction = requireEnglishPrediction
@@ -113,7 +72,7 @@ public struct ConvertRequestOptions: Sendable {
         self.zenzaiMode = zenzaiMode
         self.preloadDictionary = preloadDictionary
         self.experimentalZenzaiPredictiveInput = experimentalZenzaiPredictiveInput
-        self.typoCorrectionConfig = typoCorrectionConfig
+        self.typoCorrectionMode = typoCorrectionMode
 
         if shouldResetMemory {
             print("Warning: Passing `shouldResetMemory: true` in `ConvertRequestOptions` is deprecated. Use `KanaKanjiConverter.resetMemory` instead.")
@@ -142,8 +101,8 @@ public struct ConvertRequestOptions: Sendable {
     public var preloadDictionary: Bool
     /// Enable experimental predictive input for Zenzai fallback candidates.
     public var experimentalZenzaiPredictiveInput: Bool
-    /// typo correction の実行設定。
-    public var typoCorrectionConfig: TypoCorrectionConfig
+    /// 通常の変換リクエストで classic typo correction をどう扱うかの設定。
+    public var typoCorrectionMode: TypoCorrectionMode
     // メタデータ
     public var metadata: Metadata?
 

@@ -220,8 +220,8 @@ final class ZenzContext {
         self.kvCacheStats = .init()
     }
 
-    var vocabSize: Int32 {
-        llama_vocab_n_tokens(vocab)
+    var vocabSize: Int {
+        Int(llama_vocab_n_tokens(vocab))
     }
 
     var eosToken: llama_token {

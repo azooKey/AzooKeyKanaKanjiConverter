@@ -33,11 +33,7 @@ public struct ZenzTokenizer {
     private let tokenizer: any Tokenizer
     private let fastPathState: FastTokenizerPathState
 
-    public init() {
-        self.init(enableFastTokenizerPath: true)
-    }
-
-    public init(enableFastTokenizerPath: Bool) {
+    public init(enableFastTokenizerPath: Bool = true) {
         let modelFolder = Bundle.module.resourceURL!.appendingPathComponent("tokenizer", isDirectory: true)
         let hubApi = HubApi.shared
         let tokenizerConfig = try! hubApi.configuration(fileURL: modelFolder.appending(path: "tokenizer_config.json"))
@@ -47,14 +43,14 @@ public struct ZenzTokenizer {
         self.fastPathState = .init(isEnabled: enableFastTokenizerPath)
     }
 
-    func encode(text: String) -> [Int] {
+    public func encode(text: String) -> [Int] {
         guard self.fastPathState.shouldUseFastPath() else {
             return self.encodeSlow(text: text)
         }
         return self.encodeFastByUnicodeScalar(text: text)
     }
 
-    func encodeSlow(text: String) -> [Int] {
+    public func encodeSlow(text: String) -> [Int] {
         self.tokenizer.encode(text: text)
     }
 
@@ -75,16 +71,16 @@ public struct ZenzTokenizer {
         return output
     }
 
-    func decode(tokens: [Int]) -> String {
+    public func decode(tokens: [Int]) -> String {
         self.tokenizer.decode(tokens: tokens)
     }
-    var startTokenID: Int {
+    public var startTokenID: Int {
         self.tokenizer.bosTokenId!
     }
-    var endTokenID: Int {
+    public var endTokenID: Int {
         self.tokenizer.eosTokenId!
     }
-    var vocabSize: Int {
+    public var vocabSize: Int {
         // FIXME
         6000
     }

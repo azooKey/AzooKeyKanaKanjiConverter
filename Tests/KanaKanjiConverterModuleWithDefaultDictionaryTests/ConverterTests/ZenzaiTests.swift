@@ -36,10 +36,7 @@ final class ZenzaiTests: XCTestCase {
                 personalizationMode: .none,
                 versionDependentMode: .v3(.init(leftSideContext: leftSideContext))
             ),
-            typoCorrectionConfig: .init(
-                mode: .auto,
-                languageModel: .zenz
-            ),
+            typoCorrectionMode: .automatic,
             metadata: nil
         )
     }
@@ -140,12 +137,12 @@ final class ZenzaiTests: XCTestCase {
         let converter = KanaKanjiConverter.withDefaultDictionary()
         var c = ComposingText()
         self.sequentialInput(&c, sequence: "ojsyougozainasu", inputStyle: .roman2kana)
-        let typoCandidates = converter.experimentalRequestTypoCorrectionOnly(
+        let typoCandidates = converter.experimentalRequestTypoCorrection(
             leftSideContext: "やあ、",
             composingText: c,
             options: self.requestOptions(leftSideContext: "やあ、"),
             inputStyle: .roman2kana,
-            searchConfig: .init(beamSize: 10, topK: 100, nBest: 20)
+            config: .init(languageModel: .zenz, beamSize: 10, topK: 100, nBest: 20)
         )
         XCTAssertTrue(
             typoCandidates.contains(where: { $0.correctedInput == "ohayougozaimasu" }),

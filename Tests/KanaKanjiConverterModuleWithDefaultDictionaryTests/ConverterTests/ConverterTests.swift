@@ -18,7 +18,7 @@ final class ConverterTests: XCTestCase {
     }
 
     func requestOptions(needTypoCorrection: Bool = false) -> ConvertRequestOptions {
-        let typoMode: ConvertRequestOptions.TypoCorrectionConfig.Mode = needTypoCorrection ? .classic : .off
+        let typoMode: ConvertRequestOptions.TypoCorrectionMode = needTypoCorrection ? .enabled : .disabled
         return ConvertRequestOptions(
             N_best: 10,
             requireJapanesePrediction: .disabled,
@@ -34,7 +34,7 @@ final class ConverterTests: XCTestCase {
             sharedContainerURL: URL(fileURLWithPath: ""),
             textReplacer: .empty,
             specialCandidateProviders: [],
-            typoCorrectionConfig: .init(mode: typoMode),
+            typoCorrectionMode: typoMode,
             metadata: nil
         )
     }

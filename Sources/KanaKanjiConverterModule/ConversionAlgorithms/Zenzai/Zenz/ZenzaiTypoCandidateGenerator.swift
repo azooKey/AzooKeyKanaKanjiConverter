@@ -8,9 +8,35 @@ import Foundation
 import OrderedCollections
 import SwiftUtils
 
-/// Typo探索の探索幅・誤りコスト重みをまとめた設定。
-public struct ZenzaiTypoSearchConfig: Sendable, Equatable, Hashable {
+/// experimental typo correction API 向けの設定。
+public struct ExperimentalTypoCorrectionConfig: Sendable, Equatable, Hashable {
+    /// typo correction で利用する言語モデル。
+    public enum LanguageModel: Sendable, Equatable, Hashable {
+        /// Zenz (llama) を利用して確率を評価します。
+        case zenz
+        /// 学習済み n-gram モデルを利用して確率を評価します。
+        case ngram(NGramLanguageModel)
+    }
+
+    /// n-gram 言語モデル設定。
+    public struct NGramLanguageModel: Sendable, Equatable, Hashable {
+        /// - Parameters:
+        ///   - prefix: 学習済み marisa ファイル群のプレフィックス（例: `/path/to/lm` または `/path/to/lm_`）。
+        ///   - n: n-gram の n。
+        ///   - d: Kneser-Ney の割引係数。
+        public init(prefix: String, n: Int = 5, d: Double = 0.75) {
+            self.prefix = prefix
+            self.n = n
+            self.d = d
+        }
+
+        public var prefix: String
+        public var n: Int
+        public var d: Double
+    }
+
     public init(
+        languageModel: LanguageModel = .zenz,
         beamSize: Int = 32,
         topK: Int = 64,
         nBest: Int = 5,
@@ -19,6 +45,7 @@ public struct ZenzaiTypoSearchConfig: Sendable, Equatable, Hashable {
         beta: Float = 3.0,
         gamma: Float = 2.0
     ) {
+        self.languageModel = languageModel
         self.beamSize = max(1, beamSize)
         self.topK = max(1, topK)
         self.nBest = max(1, nBest)
@@ -28,6 +55,7 @@ public struct ZenzaiTypoSearchConfig: Sendable, Equatable, Hashable {
         self.gamma = gamma
     }
 
+    public var languageModel: LanguageModel
     public var beamSize: Int
     public var topK: Int
     public var nBest: Int
@@ -75,16 +103,11 @@ public struct ZenzaiTypoCandidate: Sendable, Equatable, Hashable {
 /// セッション跨ぎで typo 探索のLM補助キャッシュを保持するコンテナ。
 final class ZenzaiTypoGenerationCache {
     fileprivate var prompt: String = ""
-    fileprivate var promptTokenIDs: [llama_token] = []
+    fileprivate var promptTokenIDs: [Int] = []
     fileprivate var vocabSize: Int = 0
-    fileprivate var nextLogProbCache: [[llama_token]: [Float]] = [:]
-    fileprivate var encodeCache: [String: [llama_token]] = [:]
-    fileprivate var tokenCharCache: [llama_token: Character?] = [:]
-    fileprivate var ngramModel: EfficientNGram?
-    fileprivate var ngramResolvedPrefix: String?
-    fileprivate var ngramN: Int = 5
-    fileprivate var ngramD: Double = 0.75
-    fileprivate var ngramLoadAttempted: Bool = false
+    fileprivate var nextLogProbCache: [[Int]: [Float]] = [:]
+    fileprivate var encodeCache: [String: [Int]] = [:]
+    fileprivate var tokenCharCache: [Int: Character?] = [:]
 
     func invalidateAll() {
         self.prompt = ""
@@ -100,6 +123,15 @@ final class ZenzaiTypoGenerationCache {
         self.encodeCache = [:]
         self.tokenCharCache = [:]
     }
+}
+
+/// n-gram 言語モデルのロード結果をセッション単位で再利用するためのコンテナ。
+final class NGramCache {
+    fileprivate var model: EfficientNGram?
+    fileprivate var resolvedPrefix: String?
+    fileprivate var n: Int = 5
+    fileprivate var d: Double = 0.75
+    fileprivate var loadAttempted: Bool = false
 }
 
 /// キー配置ごとの近傍分布を表すトポロジー。
@@ -270,7 +302,7 @@ enum ZenzaiTypoCandidateGenerator {
     private struct Hypothesis: Sendable {
         var correctedInput: String
         var emittedText: String
-        var emittedTokenIDs: [llama_token]
+        var emittedTokenIDs: [Int]
         /// 何文字の観測入力を消費したかを示すインデックス。
         var j: Int
         var prevEmittedChar: Character?
@@ -312,85 +344,32 @@ enum ZenzaiTypoCandidateGenerator {
         var upperBoundScore: Float
     }
 
+    private struct TokenLogProb: Comparable {
+        static func < (lhs: TokenLogProb, rhs: TokenLogProb) -> Bool {
+            lhs.logProb < rhs.logProb
+        }
+
+        var token: Int
+        var logProb: Float
+    }
+
     /// 次トークン分布と文字列->token変換をキャッシュするLMスコアラー。
-    private struct LMScorer {
-        private let context: ZenzContext
+    private struct LMScorer<Context: ZenzCompatibleInputLanguageModelContext> {
+        private let context: Context
         private let cache: ZenzaiTypoGenerationCache
-        private let ngramModel: EfficientNGram?
-        private let maxNewNextLogProbCacheEntries: Int?
-        private var createdNextLogProbCacheEntries: Int = 0
 
         init(
-            context: ZenzContext,
+            context: Context,
             leftSideContext: String,
-            cache: ZenzaiTypoGenerationCache,
-            typoCorrectionConfig: ConvertRequestOptions.TypoCorrectionConfig,
-            maxNewNextLogProbCacheEntries: Int?
+            cache: ZenzaiTypoGenerationCache
         ) {
             self.context = context
             self.cache = cache
-            self.maxNewNextLogProbCacheEntries = maxNewNextLogProbCacheEntries
-            self.ngramModel = Self.resolveNGramModel(config: typoCorrectionConfig, cache: cache)
             self.preparePrompt(leftSideContext: leftSideContext)
         }
 
-        private static func resolveNGramModel(
-            config: ConvertRequestOptions.TypoCorrectionConfig,
-            cache: ZenzaiTypoGenerationCache
-        ) -> EfficientNGram? {
-            guard case .ngram(let ngramConfig) = config.languageModel else {
-                return nil
-            }
-
-            let rawPrefix = ngramConfig.prefix.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !rawPrefix.isEmpty else {
-                return nil
-            }
-            let n = max(1, ngramConfig.n)
-            let d = ngramConfig.d
-
-            var trimmedUnderscorePrefix = rawPrefix
-            while trimmedUnderscorePrefix.last == "_" {
-                trimmedUnderscorePrefix.removeLast()
-            }
-            let candidatePrefixes = [rawPrefix, trimmedUnderscorePrefix].filter { !$0.isEmpty }.uniqued()
-            let requiredSuffixes = ["_c_abc.marisa", "_u_abx.marisa", "_u_xbc.marisa", "_r_xbx.marisa"]
-            let fileManager = FileManager.default
-
-            let resolvedPrefix = candidatePrefixes.first { prefix in
-                requiredSuffixes.allSatisfy { suffix in
-                    fileManager.fileExists(atPath: prefix + suffix)
-                }
-            }
-
-            guard let resolvedPrefix else {
-                if !cache.ngramLoadAttempted {
-                    print("[Warning] typoCorrectionConfig.languageModel=.ngram is set, but required n-gram files were not found. Fallback to Zenz LM.")
-                    print("[Warning] Checked prefixes: \(candidatePrefixes.joined(separator: ", "))")
-                    cache.ngramLoadAttempted = true
-                }
-                return nil
-            }
-
-            if let existingModel = cache.ngramModel,
-               cache.ngramResolvedPrefix == resolvedPrefix,
-               cache.ngramN == n,
-               cache.ngramD == d {
-                return existingModel
-            }
-
-            let tokenizer = ZenzTokenizer()
-            let model = EfficientNGram(baseFilename: resolvedPrefix, n: n, d: d, tokenizer: tokenizer)
-            cache.ngramModel = model
-            cache.ngramResolvedPrefix = resolvedPrefix
-            cache.ngramN = n
-            cache.ngramD = d
-            cache.ngramLoadAttempted = true
-            return model
-        }
-
         private func preparePrompt(leftSideContext: String) {
-            let vocabSize = Int(self.context.vocabSize)
+            let vocabSize = self.context.vocabSize
             if self.cache.vocabSize != 0, self.cache.vocabSize != vocabSize {
                 self.cache.invalidateAll()
             }
@@ -398,34 +377,27 @@ enum ZenzaiTypoCandidateGenerator {
             let prompt = ZenzPromptBuilder.typoCorrectionPromptPrefix(leftSideContext: leftSideContext)
             if self.cache.prompt != prompt || self.cache.promptTokenIDs.isEmpty {
                 self.cache.prompt = prompt
-                self.cache.promptTokenIDs = self.context.encodeRaw(prompt, addBOS: false, addEOS: false)
+                self.cache.promptTokenIDs = self.context.encodeRaw(prompt)
                 self.cache.nextLogProbCache = [:]
             }
         }
 
-        mutating func encodeRaw(_ text: String) -> [llama_token] {
+        mutating func encodeRaw(_ text: String) -> [Int] {
             if let cached = self.cache.encodeCache[text] {
                 return cached
             }
-            let tokenIDs = self.context.encodeRaw(text, addBOS: false, addEOS: false)
+            let tokenIDs = self.context.encodeRaw(text)
             self.cache.encodeCache[text] = tokenIDs
             return tokenIDs
         }
 
-        mutating func topKCharacters(emittedTokenIDs: [llama_token], k: Int) -> [Character] {
+        mutating func topKCharacters(emittedTokenIDs: [Int], k: Int) -> [Character] {
             guard let nextLogProbs = self.nextLogProbs(emittedTokenIDs: emittedTokenIDs) else {
                 return []
             }
-            struct TokenLogProb: Comparable {
-                static func < (lhs: TokenLogProb, rhs: TokenLogProb) -> Bool {
-                    lhs.logProb < rhs.logProb
-                }
-                var token: llama_token
-                var logProb: Float
-            }
             var heap = FixedSizeHeap<TokenLogProb>(size: max(1, k * 4))
             for (tokenID, logProb) in nextLogProbs.indexed() {
-                heap.insertIfPossible(TokenLogProb(token: llama_token(tokenID), logProb: logProb))
+                heap.insertIfPossible(TokenLogProb(token: tokenID, logProb: logProb))
             }
             var chars: [Character] = []
             chars.reserveCapacity(k)
@@ -444,10 +416,10 @@ enum ZenzaiTypoCandidateGenerator {
         }
 
         mutating func appendAndScore(
-            emittedTokenIDs: [llama_token],
+            emittedTokenIDs: [Int],
             lmScore: Float,
             appendText: String
-        ) -> (emittedTokenIDs: [llama_token], lmScore: Float)? {
+        ) -> (emittedTokenIDs: [Int], lmScore: Float)? {
             let appendTokenIDs = self.encodeRaw(appendText)
             guard !appendTokenIDs.isEmpty else {
                 return (emittedTokenIDs, lmScore)
@@ -468,179 +440,27 @@ enum ZenzaiTypoCandidateGenerator {
             return (currentTokenIDs, currentScore)
         }
 
-        mutating func appendAndScoreOneShot(
-            emittedTokenIDs: [llama_token],
-            lmScore: Float,
-            appendText: String
-        ) -> (emittedTokenIDs: [llama_token], lmScore: Float)? {
-            if self.ngramModel != nil {
-                // n-gram mode: avoid forward path entirely.
-                return self.appendAndScore(
-                    emittedTokenIDs: emittedTokenIDs,
-                    lmScore: lmScore,
-                    appendText: appendText
-                )
-            }
-            let appendTokenIDs = self.encodeRaw(appendText)
-            guard !appendTokenIDs.isEmpty else {
-                return (emittedTokenIDs, lmScore)
-            }
-            let vocabSize = self.cache.vocabSize
-            var currentPrefix = emittedTokenIDs
-            var currentScore = lmScore
-
-            // Reuse existing next-logprob cache as far as possible, then evaluate only missing suffix.
-            var firstMissingIndex: Int?
-            for (indexInAppend, tokenID) in appendTokenIDs.enumerated() {
-                if let cached = self.cache.nextLogProbCache[currentPrefix] {
-                    let targetIndex = Int(tokenID)
-                    guard targetIndex >= 0, targetIndex < cached.count else {
-                        return nil
-                    }
-                    currentScore += cached[targetIndex]
-                    currentPrefix.append(tokenID)
-                } else {
-                    firstMissingIndex = indexInAppend
-                    break
-                }
-            }
-            guard let firstMissingIndex else {
-                return (currentPrefix, currentScore)
-            }
-
-            let remainingAppend = Array(appendTokenIDs.dropFirst(firstMissingIndex))
-            let prefixTokenIDs = self.cache.promptTokenIDs + currentPrefix
-            guard !prefixTokenIDs.isEmpty else {
-                return nil
-            }
-            let fullTokenIDs = prefixTokenIDs + remainingAppend
-            let startOffset = prefixTokenIDs.count - 1
-            guard let logits = self.context.inputPredictionLogits(tokens: fullTokenIDs, startOffset: startOffset) else {
-                return nil
-            }
-
-            let totalOutputValues = remainingAppend.count * vocabSize
-            for (indexInRemaining, tokenID) in remainingAppend.enumerated() {
-                let rowIndex = indexInRemaining * vocabSize
-                let rowEnd = rowIndex + vocabSize
-                guard rowEnd <= totalOutputValues else {
-                    return nil
-                }
-                var values: [Float] = Array(repeating: 0, count: vocabSize)
-                var maxLogit: Float = -.infinity
-                for vocabIndex in 0 ..< vocabSize {
-                    let value = logits[rowIndex + vocabIndex]
-                    values[vocabIndex] = value
-                    if value > maxLogit {
-                        maxLogit = value
-                    }
-                }
-                var sumExp: Float = 0
-                for vocabIndex in 0 ..< vocabSize {
-                    sumExp += expf(values[vocabIndex] - maxLogit)
-                }
-                let targetIndex = Int(tokenID)
-                guard targetIndex >= 0, targetIndex < vocabSize else {
-                    return nil
-                }
-                let logSumExp = maxLogit + logf(sumExp)
-                for vocabIndex in 0 ..< vocabSize {
-                    values[vocabIndex] -= logSumExp
-                }
-                currentScore += values[targetIndex]
-                if self.cache.nextLogProbCache[currentPrefix] == nil {
-                    if let maxNewNextLogProbCacheEntries,
-                       self.createdNextLogProbCacheEntries >= maxNewNextLogProbCacheEntries {
-                        // keep scoring, but skip cache insert when entry budget is exhausted.
-                    } else {
-                        self.cache.nextLogProbCache[currentPrefix] = values
-                        self.createdNextLogProbCacheEntries += 1
-                    }
-                }
-                currentPrefix.append(tokenID)
-            }
-            return (currentPrefix, currentScore)
-        }
-
-        private mutating func tokenToSingleCharacter(_ token: llama_token) -> Character? {
+        private mutating func tokenToSingleCharacter(_ token: Int) -> Character? {
             if let cached = self.cache.tokenCharCache[token] {
                 return cached
             }
-            let piece = self.context.tokenToPiece(token: token)
-            let data = Data(piece.map { UInt8(bitPattern: $0) })
-            let char: Character?
-            if let text = String(data: data, encoding: .utf8), text.count == 1 {
-                char = text.first
-            } else {
-                char = nil
-            }
+            let char = self.context.tokenToSingleCharacter(tokenID: token)
             self.cache.tokenCharCache[token] = char
             return char
         }
 
-        mutating func nextLogProbs(emittedTokenIDs: [llama_token]) -> [Float]? {
+        mutating func nextLogProbs(emittedTokenIDs: [Int]) -> [Float]? {
             if let cached = self.cache.nextLogProbCache[emittedTokenIDs] {
                 return cached
             }
-            if let maxNewNextLogProbCacheEntries,
-               self.createdNextLogProbCacheEntries >= maxNewNextLogProbCacheEntries {
+            let values = self.context.nextLogProbs(
+                promptTokenIDs: self.cache.promptTokenIDs,
+                emittedTokenIDs: emittedTokenIDs
+            )
+            guard let values else {
                 return nil
             }
-            let values: [Float]
-            if let ngramModel {
-                let fullTokenIDs = self.cache.promptTokenIDs + emittedTokenIDs
-                let probs = ngramModel.bulkPredict(fullTokenIDs.map(Int.init))
-                guard probs.count == self.cache.vocabSize else {
-                    return nil
-                }
-                var logValues: [Float] = Array(repeating: 0, count: self.cache.vocabSize)
-                var maxLogProb: Float = -.infinity
-                for i in logValues.indices {
-                    let logProb = logf(max(Float(probs[i]), 1e-20))
-                    logValues[i] = logProb
-                    if logProb > maxLogProb {
-                        maxLogProb = logProb
-                    }
-                }
-                var sumExp: Float = 0
-                for i in logValues.indices {
-                    sumExp += expf(logValues[i] - maxLogProb)
-                }
-                let logSumExp = maxLogProb + logf(sumExp)
-                for i in logValues.indices {
-                    logValues[i] -= logSumExp
-                }
-                values = logValues
-            } else {
-                let fullTokenIDs = self.cache.promptTokenIDs + emittedTokenIDs
-                guard !fullTokenIDs.isEmpty else {
-                    return nil
-                }
-                let startOffset = fullTokenIDs.count - 1
-                guard let logits = self.context.inputPredictionLogits(tokens: fullTokenIDs, startOffset: startOffset) else {
-                    return nil
-                }
-                var logitValues: [Float] = Array(repeating: 0, count: self.cache.vocabSize)
-                var maxLogit: Float = -.infinity
-                for i in logitValues.indices {
-                    let value = logits[i]
-                    logitValues[i] = value
-                    if value > maxLogit {
-                        maxLogit = value
-                    }
-                }
-                var sumExp: Float = 0
-                for i in logitValues.indices {
-                    sumExp += expf(logitValues[i] - maxLogit)
-                }
-                let logSumExp = maxLogit + logf(sumExp)
-                for i in logitValues.indices {
-                    logitValues[i] -= logSumExp
-                }
-                values = logitValues
-            }
             self.cache.nextLogProbCache[emittedTokenIDs] = values
-            self.createdNextLogProbCacheEntries += 1
             return values
         }
     }
@@ -669,22 +489,76 @@ enum ZenzaiTypoCandidateGenerator {
         return topology.neighborDistances(around: observed)
     }
 
-    static func generate(
-        context: ZenzContext,
+    static func resolveNGramContext(
+        experimentalConfig: ExperimentalTypoCorrectionConfig,
+        cache: NGramCache
+    ) -> NGramContext? {
+        guard case .ngram(let ngramConfig) = experimentalConfig.languageModel else {
+            return nil
+        }
+
+        let rawPrefix = ngramConfig.prefix.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !rawPrefix.isEmpty else {
+            return nil
+        }
+        let n = max(1, ngramConfig.n)
+        let d = ngramConfig.d
+
+        var trimmedUnderscorePrefix = rawPrefix
+        while trimmedUnderscorePrefix.last == "_" {
+            trimmedUnderscorePrefix.removeLast()
+        }
+        let candidatePrefixes = [rawPrefix, trimmedUnderscorePrefix].filter { !$0.isEmpty }.uniqued()
+        let requiredSuffixes = ["_c_abc.marisa", "_u_abx.marisa", "_u_xbc.marisa", "_r_xbx.marisa"]
+        let fileManager = FileManager.default
+
+        let resolvedPrefix = candidatePrefixes.first { prefix in
+            requiredSuffixes.allSatisfy { suffix in
+                fileManager.fileExists(atPath: prefix + suffix)
+            }
+        }
+
+        guard let resolvedPrefix else {
+            if !cache.loadAttempted {
+                debug("[Warning] ExperimentalTypoCorrectionConfig.languageModel=.ngram is set, but required n-gram files were not found.")
+                debug("[Warning] Checked prefixes: \(candidatePrefixes.joined(separator: ", "))")
+                cache.loadAttempted = true
+            }
+            return nil
+        }
+
+        let model: EfficientNGram
+        if let existingModel = cache.model,
+           cache.resolvedPrefix == resolvedPrefix,
+           cache.n == n,
+           cache.d == d {
+            model = existingModel
+        } else {
+            let tokenizer = ZenzTokenizer()
+            model = EfficientNGram(baseFilename: resolvedPrefix, n: n, d: d, tokenizer: tokenizer)
+            cache.model = model
+            cache.resolvedPrefix = resolvedPrefix
+            cache.n = n
+            cache.d = d
+            cache.loadAttempted = true
+        }
+        return NGramContext(model: model)
+    }
+
+    static func generate<Context: ZenzCompatibleInputLanguageModelContext>(
+        context: Context,
         leftSideContext: String,
         composingText: ComposingText,
         inputStyle: InputStyle,
-        searchConfig: ZenzaiTypoSearchConfig,
-        typoCorrectionConfig: ConvertRequestOptions.TypoCorrectionConfig,
-        cache: ZenzaiTypoGenerationCache,
-        maxNewNextLogProbCacheEntries: Int?
+        experimentalConfig: ExperimentalTypoCorrectionConfig,
+        cache: ZenzaiTypoGenerationCache
     ) -> [ZenzaiTypoCandidate] {
         let mode = Self.resolveGenerationConfig(inputStyle: inputStyle)
         let observedElements = Self.observedElements(composingText: composingText, source: mode.observedSource)
         guard !observedElements.isEmpty else {
             return []
         }
-        let maxSteps = searchConfig.maxSteps ?? (observedElements.count * 2 + 8)
+        let maxSteps = experimentalConfig.maxSteps ?? (observedElements.count * 2 + 8)
 
         func initialHypothesis() -> Hypothesis {
             Hypothesis(
@@ -703,9 +577,7 @@ enum ZenzaiTypoCandidateGenerator {
         var scorer = LMScorer(
             context: context,
             leftSideContext: leftSideContext,
-            cache: cache,
-            typoCorrectionConfig: typoCorrectionConfig,
-            maxNewNextLogProbCacheEntries: maxNewNextLogProbCacheEntries
+            cache: cache
         )
         var beam: [Hypothesis] = [initialHypothesis()]
 
@@ -717,14 +589,14 @@ enum ZenzaiTypoCandidateGenerator {
                 keyTopology: mode.keyTopology,
                 useInputCharacterLMFilter: mode.usesInputCharacterLMFilter,
                 scorer: &scorer,
-                config: searchConfig
+                config: experimentalConfig
             )
             let expanded = result.expanded
             let allConsumed = result.allConsumed
             guard !expanded.isEmpty else {
                 break
             }
-            beam = expanded.sorted(by: { $0.score > $1.score }).prefix(searchConfig.beamSize).map { $0 }
+            beam = expanded.sorted(by: { $0.score > $1.score }).prefix(experimentalConfig.beamSize).map { $0 }
             if allConsumed {
                 break
             }
@@ -751,7 +623,6 @@ enum ZenzaiTypoCandidateGenerator {
             hypothesis: initialHypothesis(),
             observedElements: observedElements,
             table: mode.table,
-            useOneShotAppendScoring: true,
             scorer: &scorer
         ) {
             mergedFinals.append(explicitOriginal)
@@ -778,12 +649,12 @@ enum ZenzaiTypoCandidateGenerator {
                 continue
             }
             unique[candidate.correctedInput] = candidate
-            if unique.count >= searchConfig.nBest * 3 {
+            if unique.count >= experimentalConfig.nBest * 3 {
                 break
             }
         }
 
-        return unique.values.sorted(by: { $0.score > $1.score }).prefix(searchConfig.nBest).map { $0 }
+        return unique.values.sorted(by: { $0.score > $1.score }).prefix(experimentalConfig.nBest).map { $0 }
     }
 
     private static func resolveGenerationConfig(inputStyle: InputStyle) -> TypoGenerationConfig {
@@ -823,14 +694,14 @@ enum ZenzaiTypoCandidateGenerator {
         return result
     }
 
-    private static func expandCandidates(
+    private static func expandCandidates<Context: ZenzCompatibleInputLanguageModelContext>(
         hypothesis: Hypothesis,
         observedElements: [ObservedElement],
         table: InputTable,
         keyTopology: KeyTopology,
         useInputCharacterLMFilter: Bool,
-        scorer: inout LMScorer,
-        config: ZenzaiTypoSearchConfig
+        scorer: inout LMScorer<Context>,
+        config: ExperimentalTypoCorrectionConfig
     ) -> (immediate: [Hypothesis], deferred: [DeferredRequest]) {
         guard observedElements.indices.contains(hypothesis.j), let baseState = hypothesis.generatorState else {
             return ([hypothesis], [])
@@ -1026,14 +897,14 @@ enum ZenzaiTypoCandidateGenerator {
         return (immediate, deferred)
     }
 
-    private static func expandWithDeferred(
+    private static func expandWithDeferred<Context: ZenzCompatibleInputLanguageModelContext>(
         beam: [Hypothesis],
         observedElements: [ObservedElement],
         table: InputTable,
         keyTopology: KeyTopology,
         useInputCharacterLMFilter: Bool,
-        scorer: inout LMScorer,
-        config: ZenzaiTypoSearchConfig
+        scorer: inout LMScorer<Context>,
+        config: ExperimentalTypoCorrectionConfig
     ) -> (expanded: [Hypothesis], allConsumed: Bool) {
         var heap = FixedSizeHeap<ScoredHypothesis>(size: max(1, config.beamSize))
         var deferredRequests: [DeferredRequest] = []
@@ -1090,7 +961,7 @@ enum ZenzaiTypoCandidateGenerator {
         return (expanded, allConsumed)
     }
 
-    private static func evaluateAdvance(
+    private static func evaluateAdvance<Context: ZenzCompatibleInputLanguageModelContext>(
         parent: Hypothesis,
         baseState: GeneratorState,
         correctedAppend: String,
@@ -1100,7 +971,7 @@ enum ZenzaiTypoCandidateGenerator {
         pending: String,
         lastInputPiece: InputPiece,
         table: InputTable,
-        scorer: inout LMScorer
+        scorer: inout LMScorer<Context>
     ) -> Hypothesis? {
         let oldProxyLogp = baseState.proxyLogp
         guard oldProxyLogp.isFinite else {
@@ -1150,12 +1021,11 @@ enum ZenzaiTypoCandidateGenerator {
         return next
     }
 
-    private static func completeHypothesis(
+    private static func completeHypothesis<Context: ZenzCompatibleInputLanguageModelContext>(
         hypothesis: Hypothesis,
         observedElements: [ObservedElement],
         table: InputTable,
-        useOneShotAppendScoring: Bool = false,
-        scorer: inout LMScorer
+        scorer: inout LMScorer<Context>
     ) -> Hypothesis? {
         if hypothesis.j >= observedElements.count {
             return hypothesis
@@ -1188,20 +1058,11 @@ enum ZenzaiTypoCandidateGenerator {
         var emittedTokenIDs = completed.emittedTokenIDs
         var emittedLogp: Float = 0
         if !newlyEmitted.isEmpty {
-            let appended: (emittedTokenIDs: [llama_token], lmScore: Float)?
-            if useOneShotAppendScoring {
-                appended = scorer.appendAndScoreOneShot(
-                    emittedTokenIDs: emittedTokenIDs,
-                    lmScore: 0,
-                    appendText: newlyEmitted
-                )
-            } else {
-                appended = scorer.appendAndScore(
-                    emittedTokenIDs: emittedTokenIDs,
-                    lmScore: 0,
-                    appendText: newlyEmitted
-                )
-            }
+            let appended = scorer.appendAndScore(
+                emittedTokenIDs: emittedTokenIDs,
+                lmScore: 0,
+                appendText: newlyEmitted
+            )
             guard let appended else {
                 return nil
             }
@@ -1348,11 +1209,11 @@ enum ZenzaiTypoCandidateGenerator {
         return result.sorted()
     }
 
-    private static func pendingProxyLogProb(
+    private static func pendingProxyLogProb<Context: ZenzCompatibleInputLanguageModelContext>(
         pending: String,
-        emittedTokenIDs: [llama_token],
+        emittedTokenIDs: [Int],
         table: InputTable,
-        scorer: inout LMScorer
+        scorer: inout LMScorer<Context>
     ) -> Float {
         guard !pending.isEmpty else {
             return 0
@@ -1390,12 +1251,12 @@ enum ZenzaiTypoCandidateGenerator {
         return maxLogProb + logf(sumExp)
     }
 
-    private static func pendingFirstTokenIDs(
+    private static func pendingFirstTokenIDs<Context: ZenzCompatibleInputLanguageModelContext>(
         pending: String,
         table: InputTable,
-        scorer: inout LMScorer
-    ) -> [llama_token] {
-        var tokenIDs: Set<llama_token> = []
+        scorer: inout LMScorer<Context>
+    ) -> [Int] {
+        var tokenIDs: Set<Int> = []
         let possibleNexts = Self.possibleNextDisplays(pending: pending, table: table)
         guard !possibleNexts.isEmpty else {
             return []
