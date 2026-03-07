@@ -1,4 +1,4 @@
-import Collections
+import OrderedCollections
 public import Foundation
 
 public enum DictionaryBuilder {
