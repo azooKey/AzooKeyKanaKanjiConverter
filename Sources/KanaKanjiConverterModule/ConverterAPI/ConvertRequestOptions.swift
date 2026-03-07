@@ -64,18 +64,14 @@ public struct ConvertRequestOptions: Sendable {
 
         public init(
             mode: Mode = .auto,
-            languageModel: LanguageModel = .zenz,
-            experimentalZenzaiIncrementalTypoCorrection: Bool = false
+            languageModel: LanguageModel = .zenz
         ) {
             self.mode = mode
             self.languageModel = languageModel
-            self.experimentalZenzaiIncrementalTypoCorrection = experimentalZenzaiIncrementalTypoCorrection
         }
 
         public var mode: Mode
         public var languageModel: LanguageModel
-        /// `requestCandidates` ごとに LM-based typo 候補生成を内部実行します（experimental）。
-        public var experimentalZenzaiIncrementalTypoCorrection: Bool
     }
     /// 変換リクエストに必要な設定データ
     ///

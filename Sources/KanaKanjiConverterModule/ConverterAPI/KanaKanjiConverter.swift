@@ -205,14 +205,6 @@ public final class KanaKanjiConverter {
         )
     }
 
-    package func debugZenzKVCacheStatsSnapshot() -> ZenzKVCacheStats? {
-        self.zenz?.kvCacheStatsSnapshot()
-    }
-
-    package func resetDebugZenzKVCacheStats() {
-        self.zenz?.resetKVCacheStats()
-    }
-
     private func requestTypoCorrectionsOnlyImpl(
         leftSideContext: String,
         composingText: ComposingText,
@@ -239,36 +231,6 @@ public final class KanaKanjiConverter {
             searchConfig: searchConfig,
             typoCorrectionConfig: options.typoCorrectionConfig,
             cache: self.currentSessionState.zenzaiTypoCache,
-            maxNewNextLogProbCacheEntries: maxNewNextLogProbCacheEntries
-        )
-    }
-
-    private func leftSideContextForTypoCorrection(options: ConvertRequestOptions) -> String {
-        switch options.zenzaiMode.versionDependentMode {
-        case .v2(let mode):
-            mode.leftSideContext ?? ""
-        case .v3(let mode):
-            mode.leftSideContext ?? ""
-        }
-    }
-
-    private func runIncrementalTypoCorrectionIfEnabled(_ inputData: ComposingText, options: ConvertRequestOptions) -> [ZenzaiTypoCandidate]? {
-        guard options.typoCorrectionConfig.experimentalZenzaiIncrementalTypoCorrection,
-              self.isLMBasedTypoCorrectionEnabled(options),
-              options.zenzaiMode.enabled else {
-            return nil
-        }
-        let inputStyle = inputData.input.last?.inputStyle ?? .direct
-        let maxNewNextLogProbCacheEntries: Int? = {
-            let limit = max(0, options.zenzaiMode.inferenceLimit)
-            return limit == .max ? nil : limit
-        }()
-        return self.requestTypoCorrectionsOnlyImpl(
-            leftSideContext: self.leftSideContextForTypoCorrection(options: options),
-            composingText: inputData,
-            options: options,
-            inputStyle: inputStyle,
-            searchConfig: .init(),
             maxNewNextLogProbCacheEntries: maxNewNextLogProbCacheEntries
         )
     }
@@ -1069,9 +1031,7 @@ public final class KanaKanjiConverter {
             return ConversionResult(mainResults: [], predictionResults: [], englishPredictionResults: [], firstClauseResults: [])
         }
 
-        var conversionResult = self.processResult(inputData: inputData, result: result, options: options)
-        conversionResult.typoCorrectionResults = self.runIncrementalTypoCorrectionIfEnabled(inputData, options: options)
-        return conversionResult
+        return self.processResult(inputData: inputData, result: result, options: options)
     }
 
     private func isClassicTypoCorrectionEnabled(_ options: ConvertRequestOptions) -> Bool {

@@ -48,8 +48,6 @@ extension Subcommands {
         var zenzV3 = false
         @Flag(name: [.customLong("experimental_zenzai_predictive_input")], help: "Enable experimental zenzai predictive input.")
         var experimentalZenzaiPredictiveInput = false
-        @Flag(name: [.customLong("experimental_zenzai_incremental_typo_correction")], help: "Enable experimental incremental typo correction on requestCandidates.")
-        var experimentalZenzaiIncrementalTypoCorrection = false
         @Option(name: [.customLong("config_typo_mode")], help: "Typo correction mode: auto/classic/noisy_channel/off.")
         var configTypoMode: String = "auto"
         @Option(name: [.customLong("config_typo_ngram_prefix")], help: "Prefix for typo n-gram model files.")
@@ -472,11 +470,7 @@ extension Subcommands {
             } else {
                 .zenz
             }
-            let typoCorrectionConfig = ConvertRequestOptions.TypoCorrectionConfig(
-                mode: typoMode,
-                languageModel: typoLanguageModel,
-                experimentalZenzaiIncrementalTypoCorrection: self.experimentalZenzaiIncrementalTypoCorrection
-            )
+            let typoCorrectionConfig = ConvertRequestOptions.TypoCorrectionConfig(mode: typoMode, languageModel: typoLanguageModel)
             var option: ConvertRequestOptions = .init(
                 N_best: self.onlyWholeConversion ? max(self.configNBest, self.displayTopN) : self.configNBest,
                 requireJapanesePrediction: japanesePredictionMode,

@@ -67,14 +67,12 @@ fi
 
 # 設定
 TEST_IDS=(
-  "KanaKanjiConverterModuleWithDefaultDictionaryTests.ZenzaiTests/testRequestCandidates_AfterGradual_Roman2Kana_NoIncrementalTypo"
-  "KanaKanjiConverterModuleWithDefaultDictionaryTests.ZenzaiTests/testTypoCorrection_AfterGradualRequestCandidates_Roman2Kana"
+  "KanaKanjiConverterModuleWithDefaultDictionaryTests.ZenzaiTests/testTypoCorrection_OneShot_Roman2Kana"
 )
-# CPUモードでも同じ2ケースを実行
+# CPUモードでも同じケースを実行
 if [[ "$CPU_MODE" == true ]]; then
   TEST_IDS=(
     "KanaKanjiConverterModuleWithDefaultDictionaryTests.ZenzaiTests/testTypoCorrection_OneShot_Roman2Kana"
-    "KanaKanjiConverterModuleWithDefaultDictionaryTests.ZenzaiTests/testTypoCorrection_AfterGradualRequestCandidates_Roman2Kana"
   )
 fi
 TRAIT="Zenzai"
