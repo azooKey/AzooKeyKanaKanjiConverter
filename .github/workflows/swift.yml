@@ -133,7 +133,7 @@ jobs:
               ARCH_TARGET="armv7-unknown-linux-androideabi${{ matrix.swift-version.android }}"
           fi
           env -u ANDROID_NDK_ROOT ${TOOLCHAIN}/bin/swift sdk configure --show-configuration swift-${{ matrix.swift-version.version }}-RELEASE-android-${{ matrix.swift-version.android }}-0.1 $ARCH_TARGET
-          env -u ANDROID_NDK_ROOT ${TOOLCHAIN}/bin/swift build -c release --build-tests --swift-sdk $ARCH_TARGET
+          env -u ANDROID_NDK_ROOT ${TOOLCHAIN}/bin/swift build --build-tests --swift-sdk $ARCH_TARGET
       - name: Get cached Termux app
         if: ${{ matrix.arch == 'x86_64' }}
         id: cache-termux
@@ -157,11 +157,11 @@ jobs:
           mkdir -p pack
           TARGET="x86_64-unknown-linux-android${{ matrix.swift-version.android }}"
 
-          cp AzooKeyKanaKanjiConverter/.build/$TARGET/release/AzooKeyKanaKanjiConverterPackageTests.xctest pack
+          cp AzooKeyKanaKanjiConverter/.build/$TARGET/debug/AzooKeyKanaKanjiConverterPackageTests.xctest pack
           echo 'adb shell "cd /data/local/tmp/pack && export LD_LIBRARY_PATH=\$LD_LIBRARY_PATH:/data/local/tmp/pack && ./AzooKeyKanaKanjiConverterPackageTests.xctest"' >> ~/test-toolchain.sh
 
-          cp -r AzooKeyKanaKanjiConverter/.build/$TARGET/release/AzooKeyKanaKanjiConverter_KanaKanjiConverterModuleTests.resources pack
-          cp -r AzooKeyKanaKanjiConverter/.build/$TARGET/release/AzooKeyKanaKanjiConverter_KanaKanjiConverterModuleWithDefaultDictionary.resources pack
+          cp -r AzooKeyKanaKanjiConverter/.build/$TARGET/debug/AzooKeyKanaKanjiConverter_KanaKanjiConverterModuleTests.resources pack
+          cp -r AzooKeyKanaKanjiConverter/.build/$TARGET/debug/AzooKeyKanaKanjiConverter_KanaKanjiConverterModuleWithDefaultDictionary.resources pack
           cp ~/.config/swiftpm/swift-sdks/swift-${{ matrix.swift-version.version }}-RELEASE-android-${{ matrix.swift-version.android }}-*.artifactbundle/swift*sdk/android*sysroot/usr/lib/$(echo ${{ matrix.arch }} | sed "s/v7//")-linux-android/lib*so pack
           cp ~/.config/swiftpm/swift-sdks/swift-${{ matrix.swift-version.version }}-RELEASE-android-${{ matrix.swift-version.android }}-*.artifactbundle/swift*sdk/android*sysroot/usr/lib/$(echo ${{ matrix.arch }} | sed "s/v7//")-linux-android*/${{ matrix.swift-version.android }}/lib*so pack
           rm pack/lib{c,dl,log,m}.so
