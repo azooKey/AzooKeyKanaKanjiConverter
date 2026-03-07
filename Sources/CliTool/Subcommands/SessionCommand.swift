@@ -3,6 +3,7 @@ import ArgumentParser
 import Foundation
 import KanaKanjiConverterModuleWithDefaultDictionary
 import SwiftUtils
+import Tokenizers
 
 extension Subcommands {
     struct Session: AsyncParsableCommand {
@@ -134,13 +135,9 @@ extension Subcommands {
 
             var histories = [String]()
 
-            var inputs: [String]? = if let replayHistory = self.replayHistory {
-                try! String(contentsOfFile: replayHistory, encoding: .utf8)
-                    .split(separator: "\n")
-                    .map(String.init)
-            } else {
-                nil
-            }
+            var inputs = self.replayHistory.map {
+                try! String(contentsOfFile: $0, encoding: .utf8)
+            }?.split(by: "\n")
             inputs?.append(":q")
 
             while true {
@@ -262,11 +259,11 @@ extension Subcommands {
                     """)
                 default:
                     if input.hasPrefix(":ctx") {
-                        let ctx = String(input.dropFirst(":ctx ".count))
+                        let ctx = String(input.split(by: ":ctx ").last ?? "")
                         leftSideContext.append(ctx)
                         continue
                     } else if input.hasPrefix(":input") {
-                        let specialInput = String(input.dropFirst(":input ".count))
+                        let specialInput = String(input.split(by: ":input ").last ?? "")
                         switch specialInput {
                         case "eot":
                             composingText.insertAtCursorPosition([.init(piece: .compositionSeparator, inputStyle: inputStyle)])
