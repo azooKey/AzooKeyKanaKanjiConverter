@@ -29,14 +29,6 @@ package final class Zenz {
         try? self.zenzContext?.resetContext()
     }
 
-    package func kvCacheStatsSnapshot() -> ZenzKVCacheStats? {
-        self.zenzContext?.kvCacheStatsSnapshot()
-    }
-
-    package func resetKVCacheStats() {
-        self.zenzContext?.resetKVCacheStats()
-    }
-
     func candidateEvaluate(
         convertTarget: String,
         candidates: [Candidate],
