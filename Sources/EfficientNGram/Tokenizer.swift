@@ -1,5 +1,5 @@
 import Foundation
-#if canImport(Hub) && canImport(Tokenizers) && NGram
+#if NGram
 import Hub
 import Tokenizers
 
