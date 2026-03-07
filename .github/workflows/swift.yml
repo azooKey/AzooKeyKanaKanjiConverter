@@ -158,16 +158,15 @@ jobs:
           TARGET="x86_64-unknown-linux-android${{ matrix.swift-version.android }}"
 
           cp AzooKeyKanaKanjiConverter/.build/$TARGET/debug/AzooKeyKanaKanjiConverterPackageTests.xctest pack
-          echo 'adb shell "export LD_LIBRARY_PATH=/data/local/tmp/pack:\$LD_LIBRARY_PATH; /data/local/tmp/pack/AzooKeyKanaKanjiConverterPackageTests.xctest"' >> ~/test-toolchain.sh
+          echo 'adb shell "export LD_LIBRARY_PATH=\$LD_LIBRARY_PATH:/data/local/tmp/pack; /data/local/tmp/pack/AzooKeyKanaKanjiConverterPackageTests.xctest"' >> ~/test-toolchain.sh
 
           cp -r AzooKeyKanaKanjiConverter/.build/$TARGET/debug/AzooKeyKanaKanjiConverter_KanaKanjiConverterModuleTests.resources pack
           cp -r AzooKeyKanaKanjiConverter/.build/$TARGET/debug/AzooKeyKanaKanjiConverter_KanaKanjiConverterModuleWithDefaultDictionary.resources pack
           cp ~/.config/swiftpm/swift-sdks/swift-${{ matrix.swift-version.version }}-RELEASE-android-${{ matrix.swift-version.android }}-*.artifactbundle/swift*sdk/android*sysroot/usr/lib/$(echo ${{ matrix.arch }} | sed "s/v7//")-linux-android/lib*so pack
           cp ~/.config/swiftpm/swift-sdks/swift-${{ matrix.swift-version.version }}-RELEASE-android-${{ matrix.swift-version.android }}-*.artifactbundle/swift*sdk/android*sysroot/usr/lib/$(echo ${{ matrix.arch }} | sed "s/v7//")-linux-android*/${{ matrix.swift-version.android }}/lib*so pack
           rm pack/lib{c,dl,log,m}.so
-          # The NDK sysroot's libc++.so is a linker script; copy the real shared object for runtime loading.
+          # Keep the system libc++.so; only bundle the Swift/SDK-shipped shared libraries.
           rm -f pack/libc++.so
-          cp pack/libc++_shared.so pack/libc++.so
 
           chmod +x ~/test-toolchain.sh
 
