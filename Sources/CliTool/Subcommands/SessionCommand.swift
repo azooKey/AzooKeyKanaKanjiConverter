@@ -48,6 +48,14 @@ extension Subcommands {
         var zenzV3 = false
         @Flag(name: [.customLong("experimental_zenzai_predictive_input")], help: "Enable experimental zenzai predictive input.")
         var experimentalZenzaiPredictiveInput = false
+        @Option(name: [.customLong("config_typo_mode")], help: "Typo correction mode for normal conversion: auto/on/off.")
+        var configTypoMode: String = "auto"
+        @Option(name: [.customLong("config_typo_ngram_prefix")], help: "Prefix for experimental typo n-gram model files.")
+        var configTypoNGramPrefix: String?
+        @Option(name: [.customLong("config_typo_ngram_n")], help: "n for experimental typo n-gram LM. (default: 5)")
+        var configTypoNGramN: Int = 5
+        @Option(name: [.customLong("config_typo_ngram_d")], help: "discount d for experimental typo n-gram LM. (default: 0.75)")
+        var configTypoNGramD: Double = 0.75
         @Option(name: [.customLong("config_zenzai_base_lm")], help: "Marisa files for Base LM.")
         var configZenzaiBaseLM: String?
         @Option(name: [.customLong("config_zenzai_personal_lm")], help: "Marisa files for Personal LM.")
@@ -241,6 +249,91 @@ extension Subcommands {
                     let insertText = (inputStyle == .roman2kana) ? predictedText.toHiragana() : predictedText
                     composingText.insertAtCursorPosition(insertText, inputStyle: inputStyle)
                     input = insertText
+                case let command where command == ":tc" || command.hasPrefix(":tc "):
+                    // typo correction候補を取得する
+                    let parts = command.split(separator: " ")
+                    var nBest = 5
+                    var beamSize = 10
+                    var topK = 100
+                    var maxSteps: Int?
+                    var alpha: Float = 2.0
+                    var beta: Float = 3.0
+                    var gamma: Float = 2.0
+
+                    for part in parts.dropFirst() {
+                        if let parsed = Int(part) {
+                            nBest = parsed
+                            continue
+                        }
+                        if part.hasPrefix("beam=") {
+                            if let parsed = Int(part.dropFirst("beam=".count)) {
+                                beamSize = parsed
+                            }
+                            continue
+                        }
+                        if part.hasPrefix("top_k=") {
+                            if let parsed = Int(part.dropFirst("top_k=".count)) {
+                                topK = parsed
+                            }
+                            continue
+                        }
+                        if part.hasPrefix("max_steps=") {
+                            if let parsed = Int(part.dropFirst("max_steps=".count)) {
+                                maxSteps = parsed
+                            }
+                            continue
+                        }
+                        if part.hasPrefix("alpha=") {
+                            if let parsed = Float(part.dropFirst("alpha=".count)) {
+                                alpha = parsed
+                            }
+                            continue
+                        }
+                        if part.hasPrefix("beta=") {
+                            if let parsed = Float(part.dropFirst("beta=".count)) {
+                                beta = parsed
+                            }
+                            continue
+                        }
+                        if part.hasPrefix("gamma=") {
+                            if let parsed = Float(part.dropFirst("gamma=".count)) {
+                                gamma = parsed
+                            }
+                        }
+                    }
+
+                    let tcStart = Date()
+                    let typoCandidates = converter.experimentalRequestTypoCorrection(
+                        leftSideContext: leftSideContext,
+                        composingText: composingText,
+                        options: requestOptions(learningType: learningType, memoryDirectory: memoryDirectory, leftSideContext: leftSideContext),
+                        inputStyle: inputStyle,
+                        config: self.experimentalTypoCorrectionConfig(
+                            beamSize: max(1, min(beamSize, 256)),
+                            topK: max(1, min(topK, 256)),
+                            nBest: max(1, min(nBest, 50)),
+                            maxSteps: maxSteps,
+                            alpha: alpha,
+                            beta: beta,
+                            gamma: gamma
+                        )
+                    )
+                    if typoCandidates.isEmpty {
+                        print("No typo correction candidate found.")
+                        continue
+                    }
+                    for (i, candidate) in typoCandidates.indexed() {
+                        print(
+                            "\(bold: String(i)). \(candidate.correctedInput) " +
+                            "\(bold: "score:") \(candidate.score) " +
+                            "\(bold: "lm:") \(candidate.lmScore) " +
+                            "\(bold: "channel:") \(candidate.channelCost) " +
+                            "\(bold: "prom:") \(candidate.prominence) " +
+                            "\(bold: "text:") \(candidate.convertedText)"
+                        )
+                    }
+                    print("\(bold: "Time (tc):") \(-tcStart.timeIntervalSinceNow)")
+                    continue
                 case ":h", ":help":
                     // ヘルプ
                     print("""
@@ -251,6 +344,7 @@ extension Subcommands {
                     \(bold: ":n, :next") - see more candidates
                     \(bold: ":s, :save") - save memory to temporary directory
                     \(bold: ":ip [n] [max_entropy=F] [min_length=N]") - predict next input character(s) (zenz-v3)
+                    \(bold: ":tc [n] [beam=N] [top_k=N] [max_steps=N] [alpha=F] [beta=F] [gamma=F]") - typo correction candidates (LM + channel)
                     \(bold: ":%d") - select candidate at that index (like :3 to select 3rd candidate)
                     \(bold: ":ctx %s") - set the string as context
                     \(bold: ":input %s") - insert special characters to input. Supported special characters:
@@ -356,6 +450,16 @@ extension Subcommands {
                 personalizationMode = nil
             }
             let japanesePredictionMode: ConvertRequestOptions.PredictionMode = (!self.onlyWholeConversion && !self.disablePrediction) ? .autoMix : .disabled
+            let typoMode = switch self.configTypoMode {
+            case "auto":
+                ConvertRequestOptions.TypoCorrectionMode.automatic
+            case "on":
+                ConvertRequestOptions.TypoCorrectionMode.enabled
+            case "off":
+                ConvertRequestOptions.TypoCorrectionMode.disabled
+            default:
+                fatalError("Unknown --config_typo_mode '\(self.configTypoMode)'. Use auto/on/off.")
+            }
             var option: ConvertRequestOptions = .init(
                 N_best: self.onlyWholeConversion ? max(self.configNBest, self.displayTopN) : self.configNBest,
                 requireJapanesePrediction: japanesePredictionMode,
@@ -378,12 +482,42 @@ extension Subcommands {
                     versionDependentMode: zenzaiVersionDependentMode
                 ),
                 experimentalZenzaiPredictiveInput: self.experimentalZenzaiPredictiveInput,
+                typoCorrectionMode: typoMode,
                 metadata: .init(versionString: "anco for debugging")
             )
             if self.onlyWholeConversion {
                 option.requestQuery = .完全一致
             }
             return option
+        }
+
+        func experimentalTypoCorrectionConfig(
+            beamSize: Int = 32,
+            topK: Int = 64,
+            nBest: Int = 5,
+            maxSteps: Int? = nil,
+            alpha: Float = 2.0,
+            beta: Float = 3.0,
+            gamma: Float = 2.0
+        ) -> ExperimentalTypoCorrectionConfig {
+            if self.configTypoNGramN <= 0 {
+                fatalError("--config_typo_ngram_n must be positive")
+            }
+            let languageModel: ExperimentalTypoCorrectionConfig.LanguageModel = if let prefix = self.configTypoNGramPrefix, !prefix.isEmpty {
+                .ngram(.init(prefix: prefix, n: self.configTypoNGramN, d: self.configTypoNGramD))
+            } else {
+                .zenz
+            }
+            return .init(
+                languageModel: languageModel,
+                beamSize: beamSize,
+                topK: topK,
+                nBest: nBest,
+                maxSteps: maxSteps,
+                alpha: alpha,
+                beta: beta,
+                gamma: gamma
+            )
         }
     }
 }

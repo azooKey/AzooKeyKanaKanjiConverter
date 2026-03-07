@@ -7,7 +7,6 @@ import Algorithms
 import Foundation
 import SwiftUtils
 
-
 enum ZenzError: LocalizedError {
     case couldNotLoadModel(path: String)
     case couldNotLoadContext
@@ -123,10 +122,10 @@ final class ZenzContext {
             let currentPrefix = currentPrevInput.commonPrefix(with: tokens).count
             let otherPrefix = otherPrevInput.commonPrefix(with: tokens).count
             if otherPrefix > currentPrefix {
-                let prefixCacheCount = min(otherPrefix, logits_start_index)
-                if prefixCacheCount > 0 {
+                let copiedPrefixCount = min(otherPrefix, logits_start_index)
+                if copiedPrefixCount > 0 {
                     llama_kv_cache_seq_rm(context, seqId, 0, -1)
-                    llama_kv_cache_seq_cp(context, otherSeqId, seqId, 0, llama_pos(prefixCacheCount))
+                    llama_kv_cache_seq_cp(context, otherSeqId, seqId, 0, llama_pos(copiedPrefixCount))
                     effectivePrevInput = otherPrevInput
                 }
             }
@@ -192,8 +191,8 @@ final class ZenzContext {
         self.getLogits(tokens: tokens, logits_start_index: startOffset, seqId: inputPredictionSeqId)
     }
 
-    var vocabSize: Int32 {
-        llama_vocab_n_tokens(vocab)
+    var vocabSize: Int {
+        Int(llama_vocab_n_tokens(vocab))
     }
 
     var eosToken: llama_token {

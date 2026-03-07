@@ -24,6 +24,8 @@ extension Subcommands {
         var configZenzaiPersonalizationAlpha: Float = 0.5
         @Flag(name: [.customLong("experimental_zenzai_predictive_input")], help: "Enable experimental zenzai predictive input.")
         var experimentalZenzaiPredictiveInput = false
+        @Option(name: [.customLong("config_typo_mode")], help: "Typo correction mode for normal conversion: auto/on/off.")
+        var configTypoMode: String = "auto"
 
         @Flag(name: [.customLong("disable_prediction")], help: "Disable producing prediction candidates.")
         var disablePrediction = false
@@ -79,6 +81,16 @@ extension Subcommands {
                 personalizationMode = nil
             }
             let japanesePredictionMode: ConvertRequestOptions.PredictionMode = (!self.onlyWholeConversion && !self.disablePrediction) ? .autoMix : .disabled
+            let typoMode = switch self.configTypoMode {
+            case "auto":
+                ConvertRequestOptions.TypoCorrectionMode.automatic
+            case "on":
+                ConvertRequestOptions.TypoCorrectionMode.enabled
+            case "off":
+                ConvertRequestOptions.TypoCorrectionMode.disabled
+            default:
+                fatalError("Unknown --config_typo_mode '\(self.configTypoMode)'. Use auto/on/off.")
+            }
             var option: ConvertRequestOptions = .init(
                 N_best: self.onlyWholeConversion ? max(self.configNBest, self.displayTopN) : self.configNBest,
                 requireJapanesePrediction: japanesePredictionMode,
@@ -96,6 +108,7 @@ extension Subcommands {
                 specialCandidateProviders: KanaKanjiConverter.defaultSpecialCandidateProviders,
                 zenzaiMode: self.zenzWeightPath.isEmpty ? .off : .on(weight: URL(string: self.zenzWeightPath)!, inferenceLimit: self.configZenzaiInferenceLimit, personalizationMode: personalizationMode),
                 experimentalZenzaiPredictiveInput: self.experimentalZenzaiPredictiveInput,
+                typoCorrectionMode: typoMode,
                 metadata: .init(versionString: "anco for debugging")
             )
             if self.onlyWholeConversion {

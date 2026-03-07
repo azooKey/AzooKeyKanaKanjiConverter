@@ -16,6 +16,9 @@ extension Subcommands.NGram {
         @Option(name: [.customLong("resume")], help: "Resume from these lm data")
         var resumeFilePattern: String?
 
+        @Option(name: [.customLong("min_count")], help: "Minimum count threshold for saving LM entries")
+        var minCount: Int = 1
+
         static let configuration = CommandConfiguration(
             commandName: "train",
             abstract: "Train ngram and write the data"
@@ -29,7 +32,8 @@ extension Subcommands.NGram {
                 n: self.n,
                 baseFilePattern: "lm",
                 outputDir: self.outputDirectory,
-                resumeFilePattern: self.resumeFilePattern
+                resumeFilePattern: self.resumeFilePattern,
+                minCount: self.minCount
             )
         }
     }

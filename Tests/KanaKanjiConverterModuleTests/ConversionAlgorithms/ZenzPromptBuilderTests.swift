@@ -2,6 +2,11 @@
 import XCTest
 
 final class ZenzPromptBuilderTests: XCTestCase {
+    func testTypoCorrectionPromptPrefixWithoutLeftContextUsesOnlyInputTag() {
+        let prompt = ZenzPromptBuilder.typoCorrectionPromptPrefix(leftSideContext: "")
+        XCTAssertEqual(prompt, "\u{EE00}")
+    }
+
     func testInputPredictionPromptV3BuildsPromptWithConditionsAndTrimmedContext() {
         let mode = ConvertRequestOptions.ZenzaiV3DependentMode(
             profile: "profile",

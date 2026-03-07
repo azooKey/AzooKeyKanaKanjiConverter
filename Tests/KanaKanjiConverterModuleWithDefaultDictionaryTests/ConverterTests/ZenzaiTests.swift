@@ -10,11 +10,13 @@ final class ZenzaiTests: XCTestCase {
         }
     }
 
-    func requestOptions(inferenceLimit: Int = Int.max) -> ConvertRequestOptions {
+    func requestOptions(
+        inferenceLimit: Int = Int.max,
+        leftSideContext: String? = nil
+    ) -> ConvertRequestOptions {
         print("You need to install azooKeyMac.app to run this test.")
         return .init(
             N_best: 10,
-            needTypoCorrection: false,
             requireJapanesePrediction: .disabled,
             requireEnglishPrediction: .disabled,
             keyboardLanguage: .ja_JP,
@@ -32,8 +34,9 @@ final class ZenzaiTests: XCTestCase {
                 weight: URL(fileURLWithPath: "/Library/Input Methods/azooKeyMac.app/Contents/Resources/ggml-model-Q5_K_M.gguf"),
                 inferenceLimit: inferenceLimit,
                 personalizationMode: .none,
-                versionDependentMode: .v3(.init())
+                versionDependentMode: .v3(.init(leftSideContext: leftSideContext))
             ),
+            typoCorrectionMode: .automatic,
             metadata: nil
         )
     }
@@ -128,6 +131,23 @@ final class ZenzaiTests: XCTestCase {
                 }
             }
         }
+    }
+
+    func testTypoCorrection_OneShot_Roman2Kana() throws {
+        let converter = KanaKanjiConverter.withDefaultDictionary()
+        var c = ComposingText()
+        self.sequentialInput(&c, sequence: "ojsyougozainasu", inputStyle: .roman2kana)
+        let typoCandidates = converter.experimentalRequestTypoCorrection(
+            leftSideContext: "やあ、",
+            composingText: c,
+            options: self.requestOptions(leftSideContext: "やあ、"),
+            inputStyle: .roman2kana,
+            config: .init(languageModel: .zenz, beamSize: 10, topK: 100, nBest: 20)
+        )
+        XCTAssertTrue(
+            typoCandidates.contains(where: { $0.correctedInput == "ohayougozaimasu" }),
+            "expected ohayougozaimasu in typo candidates, got: \(typoCandidates.map(\.correctedInput))"
+        )
     }
 }
 #endif

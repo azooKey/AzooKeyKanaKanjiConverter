@@ -59,6 +59,14 @@ enum ZenzPromptBuilder {
         }
     }
 
+    static func typoCorrectionPromptPrefix(leftSideContext: String) -> String {
+        if leftSideContext.isEmpty {
+            return inputTag
+        } else {
+            return contextTag + leftSideContext + inputTag
+        }
+    }
+
     static func candidateEvaluationPrompt(
         input: String,
         userDictionaryPrompt: String,
