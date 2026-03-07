@@ -21,7 +21,7 @@ var dependencies: [Package.Dependency] = [
 ]
 
 var efficientNGramDependencies: [Target.Dependency] = [
-    .product(name: "Transformers", package: "swift-tokenizers")
+    .product(name: "Transformers", package: "swift-tokenizers", condition: .when(traits: ["NGram"]))
 ]
 
 #if (!os(Linux) || !canImport(Android)) && !os(Windows)
@@ -184,9 +184,10 @@ let package = Package(
         ),
     ],
     traits: [
+        .trait(name: "NGram"),
         .trait(name: "Zenzai"),
         .trait(name: "ZenzaiCPU"),
-        .default(enabledTraits: [])
+        .default(enabledTraits: ["NGram"])
     ],
     dependencies: dependencies,
     targets: targets

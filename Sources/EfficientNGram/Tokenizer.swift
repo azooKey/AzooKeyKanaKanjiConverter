@@ -1,4 +1,5 @@
 import Foundation
+#if canImport(Hub) && canImport(Tokenizers) && NGram
 import Hub
 import Tokenizers
 
@@ -29,3 +30,13 @@ public struct ZenzTokenizer {
         6000
     }
 }
+#else
+public struct ZenzTokenizer {
+    public init() {}
+    func encode(text _: String) -> [Int] { [] }
+    func decode(tokens _: [Int]) -> String { "" }
+    var startTokenID: Int { 0 }
+    var endTokenID: Int { 0 }
+    var vocabSize: Int { 6000 }
+}
+#endif
