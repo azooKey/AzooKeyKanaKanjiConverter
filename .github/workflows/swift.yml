@@ -154,6 +154,7 @@ jobs:
           adb push pack /data/local/tmp
           EOF
 
+          mkdir -p pack
           TARGET="x86_64-unknown-linux-android${{ matrix.swift-version.android }}"
 
           cp AzooKeyKanaKanjiConverter/.build/$TARGET/debug/AzooKeyKanaKanjiConverterPackageTests.xctest pack
