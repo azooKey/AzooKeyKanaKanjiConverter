@@ -75,6 +75,7 @@ final class AncoSessionTests: XCTestCase {
             content,
             [
                 ":cfg displayTopN=1",
+                ":cfg view=main",
                 ":cfg inputStyle=direct",
                 ":cfg onlyWholeConversion=false",
                 ":cfg disablePrediction=false",
@@ -172,5 +173,22 @@ final class AncoSessionTests: XCTestCase {
         XCTAssertTrue(content.contains(":cfg zenzai.experimentalPredictiveInput=true"))
         XCTAssertTrue(content.contains(":cfg zenzai.profile=developer"))
         XCTAssertTrue(content.contains(":cfg zenzai.topic=swift"))
+    }
+
+    func testSwitchingToPredictionViewImmediatelyReturnsPredictionCandidates() throws {
+        var session = self.makeSession()
+        _ = try session.execute(.setConfig(key: "inputStyle", value: "roman2kana"))
+
+        for input in ["a", "i", "u", "e", "o", "k", "a", "k", "i", "k", "u", "k", "e"] {
+            _ = try session.execute(.input(input))
+        }
+
+        let result = try session.execute(.setConfig(key: "view", value: "prediction"))
+
+        XCTAssertEqual(result.action, .configUpdated)
+        XCTAssertTrue(
+            result.displayedCandidates.contains(where: { $0.text == "あいうえおかきくけこ" }),
+            "expected view switch to immediately expose prediction candidates, got: \(result.displayedCandidates.map { $0.text })"
+        )
     }
 }

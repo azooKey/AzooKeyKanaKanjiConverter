@@ -42,4 +42,29 @@ final class ScenarioTests: XCTestCase {
             "expected stable prediction candidate to survive for unresolved suffix, got: \(session.lastCandidates.map { $0.text })"
         )
     }
+
+    func testPredictionViewKeepsStablePredictionResultsThroughUnresolvedSuffix() throws {
+        var session = self.makeSession()
+        _ = try session.execute(.setConfig(key: "inputStyle", value: "roman2kana"))
+
+        for input in ["a", "i", "u", "e", "o", "k", "a", "k", "i", "k", "u", "k", "e"] {
+            _ = try session.execute(.input(input))
+        }
+
+        _ = try session.execute(.setConfig(key: "view", value: "prediction"))
+
+        XCTAssertTrue(
+            session.lastCandidates.contains(where: { $0.text == "あいうえおかきくけこ" }),
+            "expected prediction view to include stable prediction candidate, got: \(session.lastCandidates.map { $0.text })"
+        )
+
+        _ = try session.execute(.input("k"))
+
+        XCTAssertEqual(session.composingText.convertTarget, "あいうえおかきくけk")
+        XCTAssertTrue(
+            session.lastCandidates.contains(where: { $0.text == "あいうえおかきくけこ" }),
+            "expected prediction view to keep stable prediction candidate through unresolved suffix, got: \(session.lastCandidates.map { $0.text })"
+        )
+    }
+
 }
