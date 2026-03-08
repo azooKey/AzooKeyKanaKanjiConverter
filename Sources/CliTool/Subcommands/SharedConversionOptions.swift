@@ -11,8 +11,8 @@ struct SharedConversionOptions: ParsableArguments {
     var zenzWeightPath: String = ""
     @Flag(name: [.customLong("mix_english_candidate")], help: "Enable mixing English Candidates.")
     var mixEnglishCandidate = false
-    @Flag(name: [.customLong("disable_prediction")], help: "Disable producing prediction candidates.")
-    var disablePrediction = false
+    @Option(name: [.customLong("prediction_mode")], help: "Japanese prediction mode: automix/manualmix/disabled.")
+    var predictionMode: String = "automix"
     @Flag(name: [.customLong("enable_memory")], help: "Enable memory.")
     var enableLearning = false
     @Option(name: [.customLong("readwrite_memory")], help: "Enable read/write memory.")
@@ -81,7 +81,7 @@ struct SharedConversionOptions: ParsableArguments {
             learningType = .nothing
         }
 
-        let japanesePredictionMode: ConvertRequestOptions.PredictionMode = (!self.onlyWholeConversion && !self.disablePrediction) ? .autoMix : .disabled
+        let japanesePredictionMode = try self.makePredictionMode()
         let typoMode = try self.makeTypoMode()
         var options = ConvertRequestOptions(
             N_best: self.onlyWholeConversion ? max(self.configNBest, self.displayTopN) : self.configNBest,
@@ -212,6 +212,22 @@ struct SharedConversionOptions: ParsableArguments {
             .disabled
         default:
             throw ValidationError("Unknown --config_typo_mode '\(self.configTypoMode)'. Use auto/on/off.")
+        }
+    }
+
+    func makePredictionMode() throws -> ConvertRequestOptions.PredictionMode {
+        if self.onlyWholeConversion {
+            return .disabled
+        }
+        switch self.predictionMode.lowercased() {
+        case "automix":
+            return .autoMix
+        case "manualmix":
+            return .manualMix
+        case "disabled":
+            return .disabled
+        default:
+            throw ValidationError("Unknown --prediction_mode '\(self.predictionMode)'. Use automix/manualmix/disabled.")
         }
     }
 

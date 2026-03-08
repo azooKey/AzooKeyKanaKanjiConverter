@@ -40,15 +40,15 @@ extension Subcommands {
             while true {
                 print()
                 print("\(bold: "== Type :q to end session, type :d to delete character, type :c to stop composition. For other commands, type :h ==")")
-                if !session.leftSideContext.isEmpty {
-                    print("\(bold: "Current Left-Side Context"): \(session.leftSideContext)")
-                }
 
                 let rawInput: String
                 if inputs != nil {
                     rawInput = inputs!.removeFirst()
                 } else {
-                    rawInput = readLine(strippingNewline: true) ?? ""
+                    guard let line = readLine(strippingNewline: true) else {
+                        return
+                    }
+                    rawInput = line
                 }
 
                 guard let command = AncoSessionRequest(decoding: rawInput) else {
@@ -98,8 +98,15 @@ extension Subcommands {
                 }
                 print(":tc [n] [beam=N] [top_k=N] [max_steps=N] [alpha=F] [beta=F] [gamma=F] - typo correction candidates (LM + channel)")
 
-            case .stateCleared, .saved, .configUpdated:
+            case .stateCleared, .saved:
                 if let message = result.message {
+                    print(message)
+                }
+
+            case .configUpdated:
+                if case .setConfig("view", _) = result.submittedCommand {
+                    self.printCandidates(result.displayedCandidates)
+                } else if let message = result.message {
                     print(message)
                 }
 
