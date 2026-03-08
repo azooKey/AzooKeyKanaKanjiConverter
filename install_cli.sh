@@ -75,13 +75,8 @@ else
   fi
 fi
 if [ "$USE_ZENZAI_COREML" -eq 1 ]; then
-  COREML_FW_PATH=$(find ".build" -type d -path "*/${CONFIGURATION}/ZenzCoreMLStateful8bit.framework" -print -quit)
-  if [ -z "$COREML_FW_PATH" ]; then
-    COREML_FW_PATH=$(find ".build" -type d -name "ZenzCoreMLStateful8bit.framework" -print -quit)
-  fi
-  [ -n "$COREML_FW_PATH" ] || fail "ZenzCoreMLStateful8bit.framework not found in .build. Build with --zenzai-coreml first."
-  echo "📦 Installing ZenzCoreMLStateful8bit.framework from $COREML_FW_PATH"
-  sudo cp -R "$COREML_FW_PATH" /usr/local/lib/
+  echo "ℹ️  CoreML runtime assets are downloaded from Hugging Face on first use."
+  echo "ℹ️  Override cache location with AZOO_KEY_COREML_CACHE_DIR if you do not want the default user caches directory."
 fi
 
 # Copy resource bundles needed at runtime (SwiftPM puts them next to the binary)

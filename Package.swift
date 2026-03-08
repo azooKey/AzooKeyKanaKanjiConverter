@@ -27,15 +27,6 @@ var dependencies: [Package.Dependency] = [
     .package(url: "https://github.com/Skyline-23/swift-transformers.git", branch: "feature/increase-compatibility")
 ]
 
-#if os(macOS) || os(iOS) 
-dependencies.append(
-    .package(
-        url: "https://github.com/Skyline-23/zenz-CoreML.git",
-        from: "3.1.1"
-    )
-)
-#endif
-
 var efficientNGramDependencies: [Target.Dependency] = [
     .product(name: "Tokenizers", package: "swift-transformers"),
     .product(name: "Hub", package: "swift-transformers")
@@ -127,12 +118,7 @@ targets.append(
     .target(
         name: "ZenzCoreMLBackend",
         dependencies: [
-            .product(name: "Tokenizers", package: "swift-transformers"),
-            .product(
-                name: "ZenzCoreMLStateful8bit",
-                package: "zenz-CoreML",
-                condition: .when(traits: ["ZenzaiCoreML"])
-            )
+            .product(name: "Tokenizers", package: "swift-transformers")
         ],
         resources: [],
         swiftSettings: swiftSettings,

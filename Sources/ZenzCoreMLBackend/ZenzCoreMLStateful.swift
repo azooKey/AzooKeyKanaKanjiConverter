@@ -20,9 +20,8 @@ private final class MLModelBox: @unchecked Sendable {
 
 @available(iOS 18.0, macOS 15.0, *)
 public enum ZenzCoreMLError: Error {
-    case bundleNotFound
-    case modelNotFound
-    case tokenizerNotFound
+    case downloadFailed
+    case modelCompileFailed
     case tokenizerLoadFailed(String)
     case missingLogits
     case multiArrayCreationFailed
@@ -58,6 +57,7 @@ public struct ZenzCoreMLLogits: Sendable {
 
 @available(iOS 18.0, macOS 15.0, *)
 public actor ZenzStateful8BitGenerator {
+    private static let sequenceLength = 1
     private let modelBox: MLModelBox
     private let tokenizer: any Tokenizer
     private var evalState: MLState
@@ -102,9 +102,7 @@ public actor ZenzStateful8BitGenerator {
     }
 
     private static func loadTokenizer() async throws -> any Tokenizer {
-        let tokenizerDirectory = try await MainActor.run {
-            try ZenzCoreMLLoader.tokenizerDirectory()
-        }
+        let tokenizerDirectory = try await ZenzCoreMLLoader.tokenizerDirectory()
         do {
             return try await AutoTokenizer.from(modelFolder: tokenizerDirectory)
         } catch {
@@ -114,17 +112,27 @@ public actor ZenzStateful8BitGenerator {
 
     private func advance(with chunk: [Int]) async throws {
         guard !chunk.isEmpty else { return }
-        let (inputIDs, attentionMask) = try Self.makeInputArrays(from: chunk)
-        let inputProvider = Stateful8BitInput(inputIDs: inputIDs, attentionMask: attentionMask)
-        let features = try await modelBox.model.prediction(from: inputProvider, using: evalState)
-        guard let logitsArray = features.featureValue(for: "logits")?.multiArrayValue else {
-            throw ZenzCoreMLError.missingLogits
+        var startIndex = 0
+        while startIndex < chunk.count {
+            let endIndex = min(startIndex + Self.sequenceLength, chunk.count)
+            let stepTokens = Array(chunk[startIndex..<endIndex])
+            let contextLength = min(cachedTokens.count + stepTokens.count, 128)
+            let (inputIDs, attentionMask) = try Self.makeInputArrays(
+                from: stepTokens,
+                contextLength: contextLength
+            )
+            let inputProvider = Stateful8BitInput(inputIDs: inputIDs, attentionMask: attentionMask)
+            let features = try await modelBox.model.prediction(from: inputProvider, using: evalState)
+            guard let logitsArray = features.featureValue(for: "logits")?.multiArrayValue else {
+                throw ZenzCoreMLError.missingLogits
+            }
+            if cachedVocabSize == 0 {
+                cachedVocabSize = logitsArray.shape[2].intValue
+            }
+            cachedTokens += stepTokens
+            cachedLogits += Self.flatten(logitsArray, timeSteps: stepTokens.count)
+            startIndex = endIndex
         }
-        if cachedVocabSize == 0 {
-            cachedVocabSize = logitsArray.shape[2].intValue
-        }
-        cachedTokens += chunk
-        cachedLogits += Self.flatten(logitsArray)
     }
 
     private func resetCache() {
@@ -134,24 +142,33 @@ public actor ZenzStateful8BitGenerator {
         evalState = modelBox.model.makeState()
     }
 
-    private static func makeInputArrays(from tokens: [Int]) throws -> (MLMultiArray, MLMultiArray) {
-        let sequenceLength = tokens.count
-        let shape = [NSNumber(value: 1), NSNumber(value: sequenceLength)]
+    private static func makeInputArrays(from tokens: [Int], contextLength: Int) throws -> (MLMultiArray, MLMultiArray) {
+        let inputShape = [NSNumber(value: 1), NSNumber(value: Self.sequenceLength)]
+        let attentionShape = [NSNumber(value: 1), NSNumber(value: 128)]
         guard
-            let inputIDs = try? MLMultiArray(shape: shape, dataType: .int32),
-            let attentionMask = try? MLMultiArray(shape: shape, dataType: .int32)
+            let inputIDs = try? MLMultiArray(shape: inputShape, dataType: .int32),
+            let attentionMask = try? MLMultiArray(shape: attentionShape, dataType: .int32)
         else {
             throw ZenzCoreMLError.multiArrayCreationFailed
         }
+        for idx in 0..<Self.sequenceLength {
+            inputIDs[idx] = 0
+        }
+        for idx in 0..<128 {
+            attentionMask[idx] = 0
+        }
         for (idx, token) in tokens.enumerated() {
             inputIDs[idx] = NSNumber(value: token)
+        }
+        for idx in 0..<min(contextLength, 128) {
             attentionMask[idx] = 1
         }
         return (inputIDs, attentionMask)
     }
 
-    private static func flatten(_ logits: MLMultiArray) -> [Float] {
-        let count = logits.count
+    private static func flatten(_ logits: MLMultiArray, timeSteps: Int) -> [Float] {
+        let vocabSize = logits.shape[2].intValue
+        let count = timeSteps * vocabSize
         var buffer = [Float](repeating: 0, count: count)
         switch logits.dataType {
         case .float32:
