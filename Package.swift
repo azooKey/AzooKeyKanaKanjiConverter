@@ -24,7 +24,7 @@ var dependencies: [Package.Dependency] = [
     .package(url: "https://github.com/apple/swift-algorithms", from: "1.0.0"),
     .package(url: "https://github.com/apple/swift-collections", from: "1.0.0"),
     .package(url: "https://github.com/apple/swift-argument-parser", .upToNextMajor(from: "1.0.0")),
-    .package(url: "https://github.com/Skyline-23/swift-transformers.git", revision: "e5e227ba3225644d8a98c518eff8fb79be652223")
+    .package(url: "https://github.com/Skyline-23/swift-transformers.git", revision: "5dac2238c39bf4cab0d98a0fafacc59a5788f59e")
 ]
 
 var efficientNGramDependencies: [Target.Dependency] = [
