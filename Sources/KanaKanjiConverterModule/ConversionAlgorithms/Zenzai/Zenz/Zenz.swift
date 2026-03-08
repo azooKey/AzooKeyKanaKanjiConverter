@@ -67,6 +67,58 @@ package final class Zenz {
         return await zenzContext.predict_next_character(leftSideContext: leftSideContext, count: count)
     }
 
+    func predictNextInputText(
+        leftSideContext: String,
+        composingText: String,
+        count: Int,
+        minLength: Int = 1,
+        maxEntropy: Float?,
+        versionDependentConfig: ConvertRequestOptions.ZenzaiVersionDependentMode,
+        possibleNexts: [String] = []
+    ) -> String {
+        #if ZenzaiCoreML && canImport(CoreML)
+        return ""
+        #else
+        guard let zenzContext = self.zenzContext as? ZenzContext else {
+            return ""
+        }
+        return ZenzInputTextGenerator.generate(
+            context: zenzContext,
+            leftSideContext: leftSideContext,
+            composingText: composingText,
+            count: count,
+            minLength: minLength,
+            maxEntropy: maxEntropy,
+            versionDependentConfig: versionDependentConfig,
+            possibleNexts: possibleNexts
+        )
+        #endif
+    }
+
+    func generateTypoCandidates(
+        leftSideContext: String,
+        composingText: ComposingText,
+        inputStyle: InputStyle,
+        experimentalConfig: ExperimentalTypoCorrectionConfig,
+        cache: ZenzaiTypoGenerationCache
+    ) -> [ZenzaiTypoCandidate] {
+        #if ZenzaiCoreML && canImport(CoreML)
+        return []
+        #else
+        guard let zenzContext = self.zenzContext as? ZenzContext else {
+            return []
+        }
+        return ZenzaiTypoCandidateGenerator.generate(
+            context: zenzContext,
+            leftSideContext: leftSideContext,
+            composingText: composingText,
+            inputStyle: inputStyle,
+            experimentalConfig: experimentalConfig,
+            cache: cache
+        )
+        #endif
+    }
+
 package func pureGreedyDecoding(pureInput: String, maxCount: Int = .max) async -> String {
     await (self.zenzContext?.pure_greedy_decoding(leftSideContext: pureInput, maxCount: maxCount) ?? "")
 }

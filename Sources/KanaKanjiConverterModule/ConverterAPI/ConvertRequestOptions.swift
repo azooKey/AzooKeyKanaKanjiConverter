@@ -103,6 +103,17 @@ public struct ConvertRequestOptions: Sendable {
     public var experimentalZenzaiPredictiveInput: Bool
     /// 通常の変換リクエストで classic typo correction をどう扱うかの設定。
     public var typoCorrectionMode: TypoCorrectionMode
+    /// Legacy compatibility shim for CoreML/zenz branches that still gate typo correction with an optional Bool.
+    public var needTypoCorrection: Bool? {
+        switch self.typoCorrectionMode {
+        case .automatic:
+            return nil
+        case .enabled:
+            return true
+        case .disabled:
+            return false
+        }
+    }
     // メタデータ
     public var metadata: Metadata?
 
@@ -197,9 +208,23 @@ public struct ConvertRequestOptions: Sendable {
         public var maxLeftSideContextLength: Int?
     }
 
+    public enum ZenzVersion: Sendable, Equatable, Hashable {
+        case v2
+        case v3
+    }
+
     public enum ZenzaiVersionDependentMode: Sendable, Equatable, Hashable {
         case v2(ZenzaiV2DependentMode)
         case v3(ZenzaiV3DependentMode)
+
+        public var version: ZenzVersion {
+            switch self {
+            case .v2:
+                return .v2
+            case .v3:
+                return .v3
+            }
+        }
     }
 
     public struct ZenzaiMode: Sendable, Equatable {

@@ -144,6 +144,48 @@ final class ZenzContext: ZenzContextProtocol {
         return llama_get_logits(context)
     }
 
+    func previousEvaluationPromptTokens() -> [llama_token] {
+        self.prevPrompt
+    }
+
+    func setPreviousEvaluationPromptTokens(_ tokens: [llama_token]) {
+        self.prevPrompt = tokens
+    }
+
+    func normalizeForModel(_ text: String) -> String {
+        text.replacingOccurrences(of: " ", with: "\u{3000}").replacingOccurrences(of: "\n", with: "")
+    }
+
+    func encode(_ text: String, addBOS: Bool, addEOS: Bool = false) -> [llama_token] {
+        self.tokenize(text: self.normalizeForModel(text), add_bos: addBOS, add_eos: addEOS)
+    }
+
+    func encodeRaw(_ text: String, addBOS: Bool, addEOS: Bool = false) -> [llama_token] {
+        self.tokenize(text: text, add_bos: addBOS, add_eos: addEOS)
+    }
+
+    func evaluationLogits(tokens: [llama_token], startOffset: Int) -> UnsafeMutablePointer<Float>? {
+        self.get_logits(tokens: tokens, logits_start_index: startOffset)
+    }
+
+    func inputPredictionLogits(tokens: [llama_token], startOffset: Int) -> UnsafeMutablePointer<Float>? {
+        self.get_logits(tokens: tokens, logits_start_index: startOffset)
+    }
+
+    var vocabSize: Int {
+        Int(llama_vocab_n_tokens(vocab))
+    }
+
+    var eosToken: llama_token {
+        llama_vocab_eos(vocab)
+    }
+
+    func decodeTokens(_ tokens: [llama_token]) -> String {
+        let cchars: [CChar] = tokens.flatMap(self.tokenToPiece)
+        let data = Data(cchars.map { UInt8(bitPattern: $0) })
+        return String(data: data, encoding: .utf8) ?? ""
+    }
+
     func evaluate(text: String, ignorePrompt: String = "") -> Float {
         let tokens_list = self.tokenize(text: text, add_bos: true, add_eos: true)
         guard let logits = self.get_logits(tokens: tokens_list) else {
@@ -484,6 +526,10 @@ final class ZenzContext: ZenzContextProtocol {
             let bufferPointer: UnsafeBufferPointer<Int8> = UnsafeBufferPointer(start: result, count: Int(nTokens))
             return Array(bufferPointer)
         }
+    }
+
+    func tokenToPiece(token: llama_token) -> [CChar] {
+        self.token_to_piece(token: token)
     }
 }
 #endif

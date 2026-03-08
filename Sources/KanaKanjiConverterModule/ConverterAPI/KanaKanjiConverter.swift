@@ -164,6 +164,90 @@ public final class KanaKanjiConverter {
     }
 #endif
 
+    package func predictNextInputText(
+        leftSideContext: String,
+        composingText: ComposingText,
+        count: Int,
+        minLength: Int = 1,
+        maxEntropy: Float?,
+        options: ConvertRequestOptions,
+        inputStyle: InputStyle = .direct,
+        debugPossibleNexts: Bool = false
+    ) -> (predictedText: String, suffixCount: Int) {
+        guard options.experimentalZenzaiPredictiveInput, options.zenzaiMode.enabled else {
+            return ("", 0)
+        }
+        guard case .v3 = options.zenzaiMode.versionDependentMode else {
+            return ("", 0)
+        }
+        #if ZenzaiCoreML && canImport(CoreML)
+        guard #available(iOS 18, macOS 15, *) else {
+            return ("", 0)
+        }
+        #endif
+        guard let zenz = self.getModel(modelURL: options.zenzaiMode.weightURL) else {
+            return ("", 0)
+        }
+        let source = self.converter.resolvePredictiveInputSource(composingText: composingText, inputStyle: inputStyle)
+        if debugPossibleNexts {
+            print("possibleNexts:", source.possibleNexts)
+        }
+        let predictedText = zenz.predictNextInputText(
+            leftSideContext: leftSideContext,
+            composingText: source.baseConvertTarget,
+            count: count,
+            minLength: minLength,
+            maxEntropy: maxEntropy,
+            versionDependentConfig: options.zenzaiMode.versionDependentMode,
+            possibleNexts: source.possibleNexts
+        )
+        return (predictedText, source.droppedSuffixCount)
+    }
+
+    public func experimentalRequestTypoCorrection(
+        leftSideContext: String,
+        composingText: ComposingText,
+        options: ConvertRequestOptions,
+        inputStyle: InputStyle,
+        config: ExperimentalTypoCorrectionConfig = .init()
+    ) -> [ZenzaiTypoCandidate] {
+        debug("[Warning] KanaKanjiConverter.experimentalRequestTypoCorrection is experimental and may change without notice.")
+        switch config.languageModel {
+        case .zenz:
+            #if ZenzaiCoreML && canImport(CoreML)
+            guard #available(iOS 18, macOS 15, *) else {
+                return []
+            }
+            #endif
+            guard options.zenzaiMode.enabled, let zenz = self.getModel(modelURL: options.zenzaiMode.weightURL) else {
+                return []
+            }
+            return zenz.generateTypoCandidates(
+                leftSideContext: leftSideContext,
+                composingText: composingText,
+                inputStyle: inputStyle,
+                experimentalConfig: config,
+                cache: ZenzaiTypoGenerationCache()
+            )
+        case .ngram:
+            let cache = NGramCache()
+            guard let context = ZenzaiTypoCandidateGenerator.resolveNGramContext(
+                experimentalConfig: config,
+                cache: cache
+            ) else {
+                return []
+            }
+            return ZenzaiTypoCandidateGenerator.generate(
+                context: context,
+                leftSideContext: leftSideContext,
+                composingText: composingText,
+                inputStyle: inputStyle,
+                experimentalConfig: config,
+                cache: ZenzaiTypoGenerationCache()
+            )
+        }
+    }
+
 #if ZenzaiCoreML && canImport(CoreML)
     public func predictNextCharacter(leftSideContext: String, count: Int, options: ConvertRequestOptions) -> [(character: Character, value: Float)] {
         guard #available(iOS 18, macOS 15, *) else {

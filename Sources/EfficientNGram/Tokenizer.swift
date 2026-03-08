@@ -70,7 +70,7 @@ public struct ZenzTokenizer {
         return output
     }
 
-    func encode(text: String, addSpecialTokens: Bool) -> [Int] {
+    public func encode(text: String, addSpecialTokens: Bool) -> [Int] {
         self.tokenizer.encode(text: text, addSpecialTokens: addSpecialTokens)
     }
     public func decode(tokens: [Int]) -> String {
