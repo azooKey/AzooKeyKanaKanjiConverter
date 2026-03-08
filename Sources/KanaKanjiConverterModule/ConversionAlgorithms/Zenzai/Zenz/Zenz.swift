@@ -67,6 +67,13 @@ package final class Zenz {
         return await zenzContext.predict_next_character(leftSideContext: leftSideContext, count: count)
     }
 
+package func pureGreedyDecoding(pureInput: String, maxCount: Int = .max) async -> String {
+    await (self.zenzContext?.pure_greedy_decoding(leftSideContext: pureInput, maxCount: maxCount) ?? "")
+}
+}
+
+#if !ZenzaiCoreML || !canImport(CoreML)
+extension Zenz {
     func predictNextInputText(
         leftSideContext: String,
         composingText: String,
@@ -76,9 +83,6 @@ package final class Zenz {
         versionDependentConfig: ConvertRequestOptions.ZenzaiVersionDependentMode,
         possibleNexts: [String] = []
     ) -> String {
-        #if ZenzaiCoreML && canImport(CoreML)
-        return ""
-        #else
         guard let zenzContext = self.zenzContext as? ZenzContext else {
             return ""
         }
@@ -92,7 +96,6 @@ package final class Zenz {
             versionDependentConfig: versionDependentConfig,
             possibleNexts: possibleNexts
         )
-        #endif
     }
 
     func generateTypoCandidates(
@@ -102,9 +105,6 @@ package final class Zenz {
         experimentalConfig: ExperimentalTypoCorrectionConfig,
         cache: ZenzaiTypoGenerationCache
     ) -> [ZenzaiTypoCandidate] {
-        #if ZenzaiCoreML && canImport(CoreML)
-        return []
-        #else
         guard let zenzContext = self.zenzContext as? ZenzContext else {
             return []
         }
@@ -116,13 +116,9 @@ package final class Zenz {
             experimentalConfig: experimentalConfig,
             cache: cache
         )
-        #endif
     }
-
-package func pureGreedyDecoding(pureInput: String, maxCount: Int = .max) async -> String {
-    await (self.zenzContext?.pure_greedy_decoding(leftSideContext: pureInput, maxCount: maxCount) ?? "")
 }
-}
+#endif
 
 // CoreML pipeline uses Zenz across async boundaries; treat it as unchecked sendable for bridging.
 @available(iOS 18, macOS 15, *)

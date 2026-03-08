@@ -228,7 +228,9 @@ public final class KanaKanjiConverter {
         guard #available(iOS 18, macOS 15, *) else {
             return ("", 0)
         }
-        #endif
+        self.invalidatePredictiveInputCache()
+        return ("", 0)
+        #else
         let cacheContext = PredictiveInputCacheContext(
             leftSideContext: leftSideContext,
             inputStyle: inputStyle,
@@ -272,6 +274,7 @@ public final class KanaKanjiConverter {
             }
         }
         return (predictedText, source.droppedSuffixCount)
+        #endif
     }
 
     public func experimentalRequestTypoCorrection(
@@ -288,7 +291,8 @@ public final class KanaKanjiConverter {
             guard #available(iOS 18, macOS 15, *) else {
                 return []
             }
-            #endif
+            return []
+            #else
             guard options.zenzaiMode.enabled, let zenz = self.getModel(modelURL: options.zenzaiMode.weightURL) else {
                 return []
             }
@@ -299,6 +303,7 @@ public final class KanaKanjiConverter {
                 experimentalConfig: config,
                 cache: self.currentSessionState.zenzaiTypoCache
             )
+            #endif
         case .ngram:
             guard let context = ZenzaiTypoCandidateGenerator.resolveNGramContext(
                 experimentalConfig: config,
