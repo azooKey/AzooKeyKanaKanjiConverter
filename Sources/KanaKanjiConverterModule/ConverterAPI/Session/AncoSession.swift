@@ -86,7 +86,7 @@ package struct AncoSession {
     package private(set) var leftSideContext: String = ""
     package private(set) var page: Int = 0
     package private(set) var histories: [AncoSessionRequest] = []
-    private var liveConversionState: LiveConversionState
+    private var core: AncoSessionCore
 
     package init(
         converter: KanaKanjiConverter,
@@ -113,7 +113,14 @@ package struct AncoSession {
         }
         self.configuration = configuration
         self.initialConfiguration = configuration
-        self.liveConversionState = LiveConversionState(config: configuration.effectiveConfig.liveConversion)
+        self.core = .init(
+            converter: converter,
+            configuration: .init(
+                requestOptions: configuration.effectiveConfig.requestOptions,
+                inputStyle: configuration.effectiveConfig.inputStyle,
+                liveConversion: configuration.effectiveConfig.liveConversion
+            )
+        )
 
         if !userDictionaryItems.isEmpty {
             let userDictionary = userDictionaryItems.map {
@@ -135,7 +142,7 @@ package struct AncoSession {
         }
         set {
             self.configuration = SessionConfiguration(defaultConfig: newValue)
-            self.liveConversionState.config = newValue.liveConversion
+            self.syncCoreState()
         }
     }
 
@@ -292,14 +299,9 @@ package struct AncoSession {
                 throw SessionError.invalidCandidateIndex(index)
             }
             let candidate = self.lastCandidates[index]
-            switch self.converter.completePrefixCandidate(candidate, composingText: &self.composingText) {
-            case .compositionEnded:
-                self.composingText.stopComposition()
-                self.liveConversionState.stopComposition()
-            case .compositionContinues:
-                self.liveConversionState.updateAfterFirstClauseCompletion()
-            }
-            self.leftSideContext += candidate.text
+            self.syncCoreState()
+            _ = self.core.selectCandidate(candidate)
+            self.syncFromCore()
             return self.updateCandidates(
                 submittedCommand: submittedCommand,
                 executedCommand: submittedCommand,
@@ -317,17 +319,10 @@ package struct AncoSession {
     }
 
     package mutating func reset() {
-        self.composingText.stopComposition()
         self.converter.stopComposition()
-        self.lastCandidates = []
-        self.lastMainCandidates = []
-        self.lastPredictionCandidates = []
-        self.lastFirstClauseCandidates = []
-        self.lastLiveConversionSnapshot = nil
-        self.leftSideContext = ""
+        self.core.reset()
+        self.syncFromCore()
         self.page = 0
-        self.liveConversionState.stopComposition()
-        self.liveConversionState.config = self.sessionConfig.liveConversion
     }
 
     package func experimentalRequestTypoCorrection(
@@ -351,27 +346,20 @@ package struct AncoSession {
         predictiveInputTime: TimeInterval? = nil
     ) -> ExecutionResult {
         let start = Date()
-        let result = self.converter.requestCandidates(
-            self.composingText,
-            options: self.requestOptions(leftSideContext: self.leftSideContext)
-        )
-        let mainResults = result.mainResults.filter {
-            if self.sessionConfig.requestOptions.requestQuery != .完全一致 {
-                return true
-            }
-            guard case let .input(input) = executedCommand else {
-                return false
-            }
-            return $0.data.reduce(into: "", {$0.append(contentsOf: $1.ruby)}) == input.toKatakana()
+        self.syncCoreState()
+        let wholeMatchInput: String?
+        if self.sessionConfig.requestOptions.requestQuery == .完全一致, case let .input(input) = executedCommand {
+            wholeMatchInput = input
+        } else {
+            wholeMatchInput = nil
         }
-        self.lastMainCandidates = mainResults
-        self.lastPredictionCandidates = result.predictionResults
-        self.lastFirstClauseCandidates = result.firstClauseResults
-        self.refreshLiveConversionSnapshot()
-        self.lastCandidates = self.currentCandidates()
+        let outputs = self.core.requestCandidates(filteredByWholeMatchInput: wholeMatchInput)
+        self.syncFromCore()
         self.page = 0
 
-        let entropy = self.sessionConfig.requestOptions.requestQuery == .完全一致 ? Self.calculateEntropy(candidates: mainResults) : nil
+        let entropy = self.sessionConfig.requestOptions.requestQuery == .完全一致
+            ? Self.calculateEntropy(candidates: outputs.mainCandidates)
+            : nil
         return self.makeResult(
             action: .candidatesUpdated,
             submittedCommand: submittedCommand,
@@ -483,7 +471,7 @@ package struct AncoSession {
             } else if !self.configuration.applyPreset(id: value) {
                 throw SessionError.invalidConfigValue(key: key, value: value)
             }
-            self.liveConversionState.config = self.sessionConfig.liveConversion
+            self.syncCoreState()
             self.refreshLiveConversionSnapshot()
 
         case "displayTopN":
@@ -554,7 +542,7 @@ package struct AncoSession {
                 throw SessionError.invalidConfigValue(key: key, value: value)
             }
             self.configuration.applyRuntimePatch(.init(liveConversionEnabled: parsed))
-            self.liveConversionState.config = self.sessionConfig.liveConversion
+            self.syncCoreState()
             self.refreshLiveConversionSnapshot()
 
         case "liveConversion.autoCommitThreshold":
@@ -565,7 +553,7 @@ package struct AncoSession {
             } else {
                 throw SessionError.invalidConfigValue(key: key, value: value)
             }
-            self.liveConversionState.config = self.sessionConfig.liveConversion
+            self.syncCoreState()
             self.refreshLiveConversionSnapshot()
 
         default:
@@ -755,17 +743,41 @@ package struct AncoSession {
     }
 
     private mutating func refreshLiveConversionSnapshot() {
-        guard self.sessionConfig.liveConversion.enabled else {
-            self.liveConversionState.stopComposition()
-            self.lastLiveConversionSnapshot = nil
-            return
-        }
-        self.lastLiveConversionSnapshot = self.liveConversionState.update(
-            self.composingText,
-            candidates: self.lastMainCandidates,
-            firstClauseResults: self.lastFirstClauseCandidates,
-            convertTargetCursorPosition: self.composingText.convertTargetCursorPosition,
-            convertTarget: self.composingText.convertTarget
+        self.syncCoreState()
+        let conversionResult = ConversionResult(
+            mainResults: self.lastMainCandidates,
+            predictionResults: self.lastPredictionCandidates,
+            englishPredictionResults: [],
+            firstClauseResults: self.lastFirstClauseCandidates
         )
+        _ = self.core.projectOutputs(conversionResult: conversionResult)
+        self.syncFromCore()
+    }
+
+    private var coreConfiguration: AncoSessionCore.Configuration {
+        .init(
+            requestOptions: self.sessionConfig.requestOptions,
+            inputStyle: self.sessionConfig.inputStyle,
+            liveConversion: self.sessionConfig.liveConversion
+        )
+    }
+
+    private mutating func syncCoreState() {
+        self.core.apply(
+            composingText: self.composingText,
+            leftSideContext: self.leftSideContext,
+            configuration: self.coreConfiguration
+        )
+    }
+
+    private mutating func syncFromCore() {
+        let snapshot = self.core.snapshot
+        self.composingText = snapshot.composingText
+        self.leftSideContext = snapshot.leftSideContext
+        self.lastMainCandidates = snapshot.outputs.mainCandidates
+        self.lastPredictionCandidates = snapshot.outputs.predictionCandidates
+        self.lastFirstClauseCandidates = snapshot.outputs.firstClauseCandidates
+        self.lastLiveConversionSnapshot = snapshot.outputs.liveConversionSnapshot
+        self.lastCandidates = self.currentCandidates()
     }
 }

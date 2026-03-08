@@ -7,4 +7,16 @@ public struct ConversionResult: Sendable {
     public var englishPredictionResults: [Candidate] = []
     /// 変換候補のうち最初の文節を変換したもの
     public var firstClauseResults: [Candidate]
+
+    public init(
+        mainResults: [Candidate],
+        predictionResults: [Candidate] = [],
+        englishPredictionResults: [Candidate] = [],
+        firstClauseResults: [Candidate]
+    ) {
+        self.mainResults = mainResults
+        self.predictionResults = predictionResults
+        self.englishPredictionResults = englishPredictionResults
+        self.firstClauseResults = firstClauseResults
+    }
 }

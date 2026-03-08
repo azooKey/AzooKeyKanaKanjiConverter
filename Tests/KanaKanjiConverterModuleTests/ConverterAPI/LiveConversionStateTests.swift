@@ -90,4 +90,28 @@ final class LiveConversionStateTests: XCTestCase {
         XCTAssertEqual(snapshot.autoCommitCandidate?.text, "甲")
         XCTAssertEqual(snapshot.firstClauseHistory.map(\.text), ["甲", "甲", "甲"])
     }
+
+    func testSessionCandidateResultsProjectsConversionResultWithLiveConversionSnapshot() {
+        var state = LiveConversionState(config: .init(enabled: true))
+        var composingText = ComposingText()
+        composingText.insertAtCursorPosition("abc", inputStyle: .direct)
+        let candidate = self.makeCandidate(
+            text: "甲",
+            data: [
+                .init(word: "甲", ruby: "ABC", cid: CIDData.一般名詞.cid, mid: MIDData.一般.mid, value: 0)
+            ],
+            inputCount: 3
+        )
+
+        let sessionCandidates = SessionCandidateResults(
+            conversionResult: .init(mainResults: [candidate], predictionResults: [candidate], englishPredictionResults: [], firstClauseResults: [candidate]),
+            composingText: composingText,
+            liveConversionState: &state
+        )
+
+        XCTAssertEqual(sessionCandidates.mainCandidates.map(\.text), ["甲"])
+        XCTAssertEqual(sessionCandidates.predictionCandidates.map(\.text), ["甲"])
+        XCTAssertEqual(sessionCandidates.firstClauseCandidates.map(\.text), ["甲"])
+        XCTAssertEqual(sessionCandidates.liveConversionSnapshot?.displayedText, "甲")
+    }
 }
