@@ -182,7 +182,7 @@ struct SharedConversionOptions: ParsableArguments {
     }
 
     func makeExperimentalTypoCorrectionConfig(
-        from command: AncoSessionCommand.TypoCorrection
+        from command: AncoSessionRequest.TypoCorrection
     ) -> ExperimentalTypoCorrectionConfig {
         precondition(self.configTypoNGramN > 0, "--config_typo_ngram_n must be positive")
         let languageModel: ExperimentalTypoCorrectionConfig.LanguageModel = if let prefix = self.configTypoNGramPrefix, !prefix.isEmpty {

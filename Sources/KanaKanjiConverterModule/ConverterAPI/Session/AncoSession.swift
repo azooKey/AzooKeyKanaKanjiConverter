@@ -28,15 +28,15 @@ package struct AncoSession {
     package struct ExecutionResult: Sendable {
         package init(
             action: Action,
-            submittedCommand: AncoSessionCommand,
-            executedCommand: AncoSessionCommand,
+            submittedCommand: AncoSessionRequest,
+            executedCommand: AncoSessionRequest,
             composingText: ComposingText,
             leftSideContext: String,
             candidates: [Candidate],
             displayedCandidates: [Candidate],
             displayedCandidateStartIndex: Int,
             page: Int,
-            histories: [AncoSessionCommand],
+            histories: [AncoSessionRequest],
             message: String? = nil,
             elapsedTime: TimeInterval? = nil,
             predictiveInputTime: TimeInterval? = nil,
@@ -59,15 +59,15 @@ package struct AncoSession {
         }
 
         package var action: Action
-        package var submittedCommand: AncoSessionCommand
-        package var executedCommand: AncoSessionCommand
+        package var submittedCommand: AncoSessionRequest
+        package var executedCommand: AncoSessionRequest
         package var composingText: ComposingText
         package var leftSideContext: String
         package var candidates: [Candidate]
         package var displayedCandidates: [Candidate]
         package var displayedCandidateStartIndex: Int
         package var page: Int
-        package var histories: [AncoSessionCommand]
+        package var histories: [AncoSessionRequest]
         package var message: String?
         package var elapsedTime: TimeInterval?
         package var predictiveInputTime: TimeInterval?
@@ -131,7 +131,7 @@ package struct AncoSession {
     package private(set) var lastCandidates: [Candidate] = []
     package private(set) var leftSideContext: String = ""
     package private(set) var page: Int = 0
-    package private(set) var histories: [AncoSessionCommand] = []
+    package private(set) var histories: [AncoSessionRequest] = []
 
     package init(
         converter: KanaKanjiConverter,
@@ -181,11 +181,11 @@ package struct AncoSession {
         }
     }
 
-    package mutating func recordHistory(_ command: AncoSessionCommand) {
+    package mutating func recordHistory(_ command: AncoSessionRequest) {
         self.histories.append(command)
     }
 
-    package mutating func execute(_ submittedCommand: AncoSessionCommand) throws -> ExecutionResult {
+    package mutating func execute(_ submittedCommand: AncoSessionRequest) throws -> ExecutionResult {
         self.histories.append(submittedCommand)
 
         switch submittedCommand {
@@ -253,7 +253,7 @@ package struct AncoSession {
 
             let insertText = self.inputStyle == .roman2kana ? predictedText.toHiragana() : predictedText
             self.composingText.insertAtCursorPosition(insertText, inputStyle: self.inputStyle)
-            let executedCommand = AncoSessionCommand.input(insertText)
+            let executedCommand = AncoSessionRequest.input(insertText)
 
             return self.updateCandidates(
                 submittedCommand: submittedCommand,
@@ -266,7 +266,7 @@ package struct AncoSession {
                 action: .helpRequested,
                 submittedCommand: submittedCommand,
                 executedCommand: submittedCommand,
-                message: AncoSessionCommand.helpText
+                message: AncoSessionRequest.helpText
             )
 
         case .typoCorrection:
@@ -356,8 +356,8 @@ package struct AncoSession {
     }
 
     private mutating func updateCandidates(
-        submittedCommand: AncoSessionCommand,
-        executedCommand: AncoSessionCommand,
+        submittedCommand: AncoSessionRequest,
+        executedCommand: AncoSessionRequest,
         message: String? = nil,
         predictiveInputTime: TimeInterval? = nil
     ) -> ExecutionResult {
@@ -392,8 +392,8 @@ package struct AncoSession {
 
     private func makeResult(
         action: Action,
-        submittedCommand: AncoSessionCommand,
-        executedCommand: AncoSessionCommand,
+        submittedCommand: AncoSessionRequest,
+        executedCommand: AncoSessionRequest,
         message: String? = nil,
         elapsedTime: TimeInterval? = nil,
         predictiveInputTime: TimeInterval? = nil,
@@ -529,7 +529,7 @@ package struct AncoSession {
         }
     }
 
-    private func replayableHistories() -> [AncoSessionCommand] {
+    private func replayableHistories() -> [AncoSessionRequest] {
         self.histories.filter { command in
             switch command {
             case .dumpHistory:
@@ -540,7 +540,7 @@ package struct AncoSession {
         }
     }
 
-    private func initialConfigCommands() -> [AncoSessionCommand] {
+    private func initialConfigCommands() -> [AncoSessionRequest] {
         Self.configCommands(
             requestOptions: self.initialRequestOptionsState,
             inputStyle: self.initialInputStyle,
@@ -552,7 +552,7 @@ package struct AncoSession {
         requestOptions: ConvertRequestOptions,
         inputStyle: InputStyle,
         displayTopN: Int
-    ) -> [AncoSessionCommand] {
+    ) -> [AncoSessionRequest] {
         let inputStyleValue: String
         switch inputStyle {
         case .direct:
@@ -563,7 +563,7 @@ package struct AncoSession {
             inputStyleValue = "direct"
         }
 
-        var commands: [AncoSessionCommand] = [
+        var commands: [AncoSessionRequest] = [
             .setConfig(key: "displayTopN", value: String(displayTopN)),
             .setConfig(key: "inputStyle", value: inputStyleValue),
             .setConfig(

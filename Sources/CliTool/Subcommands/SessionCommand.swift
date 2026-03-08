@@ -51,7 +51,7 @@ extension Subcommands {
                     rawInput = readLine(strippingNewline: true) ?? ""
                 }
 
-                guard let command = AncoSessionCommand(decoding: rawInput) else {
+                guard let command = AncoSessionRequest(decoding: rawInput) else {
                     print("\(bold: "Error"): Failed to parse command: \(rawInput)")
                     continue
                 }

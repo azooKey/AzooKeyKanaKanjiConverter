@@ -1,4 +1,4 @@
-package enum AncoSessionCommand: Sendable, Equatable {
+package enum AncoSessionRequest: Sendable, Equatable {
     package struct HelpItem: Sendable, Equatable {
         package init(usage: String, description: String) {
             self.usage = usage
