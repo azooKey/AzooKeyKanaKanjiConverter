@@ -180,7 +180,9 @@ package struct AncoSession {
 
         case .deleteBackward:
             if !self.composingText.isEmpty {
-                self.composingText.deleteBackwardFromCursorPosition(count: 1)
+                self.syncCoreState()
+                _ = self.core.send(.deleteBackward(1))
+                self.syncFromCore()
             } else {
                 _ = self.leftSideContext.popLast()
                 return self.makeResult(action: .noAction, submittedCommand: submittedCommand, executedCommand: submittedCommand)
@@ -234,12 +236,16 @@ package struct AncoSession {
             }
 
             if suffixCount > 0 {
-                self.composingText.deleteBackwardFromCursorPosition(count: suffixCount)
+                self.syncCoreState()
+                _ = self.core.send(.deleteBackward(suffixCount))
+                self.syncFromCore()
             }
 
             let inputStyle = self.sessionConfig.inputStyle
             let insertText = inputStyle == .roman2kana ? predictedText.toHiragana() : predictedText
-            self.composingText.insertAtCursorPosition(insertText, inputStyle: inputStyle)
+            self.syncCoreState()
+            _ = self.core.send(.insert(insertText, inputStyle: inputStyle))
+            self.syncFromCore()
             let executedCommand = AncoSessionRequest.input(insertText)
 
             return self.updateCandidates(
@@ -279,7 +285,9 @@ package struct AncoSession {
         case let .specialInput(specialInput):
             switch specialInput {
             case .endOfText:
-                self.composingText.insertAtCursorPosition([.init(piece: .compositionSeparator, inputStyle: self.sessionConfig.inputStyle)])
+                self.syncCoreState()
+                _ = self.core.send(.insertCompositionSeparator(inputStyle: self.sessionConfig.inputStyle))
+                self.syncFromCore()
             }
             return self.updateCandidates(submittedCommand: submittedCommand, executedCommand: submittedCommand)
 
@@ -310,7 +318,9 @@ package struct AncoSession {
 
         case let .input(rawInput):
             let input = Self.normalize(input: rawInput)
-            self.composingText.insertAtCursorPosition(input, inputStyle: self.sessionConfig.inputStyle)
+            self.syncCoreState()
+            _ = self.core.send(.insert(input, inputStyle: self.sessionConfig.inputStyle))
+            self.syncFromCore()
             return self.updateCandidates(
                 submittedCommand: submittedCommand,
                 executedCommand: .input(input)

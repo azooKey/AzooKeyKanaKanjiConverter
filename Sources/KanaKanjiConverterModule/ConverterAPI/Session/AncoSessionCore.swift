@@ -2,6 +2,22 @@ import Foundation
 import SwiftUtils
 
 public struct AncoSessionCore {
+    public enum Event: Sendable {
+        case insert(String, inputStyle: InputStyle)
+        case insertElements([ComposingText.InputElement])
+        case insertCompositionSeparator(inputStyle: InputStyle)
+        case deleteBackward(Int)
+        case deleteForward(Int)
+        case moveCursor(Int)
+        case stopComposition
+        case reset
+    }
+
+    public enum CandidateRequestTarget: Sendable {
+        case composingText
+        case prefixToCursorPosition
+    }
+
     public struct Configuration: Sendable {
         public var requestOptions: ConvertRequestOptions
         public var inputStyle: InputStyle
@@ -127,19 +143,64 @@ public struct AncoSessionCore {
     }
 
     @discardableResult
-    public mutating func requestCandidates(filteredByWholeMatchInput wholeMatchInput: String? = nil) -> Outputs {
+    public mutating func send(_ event: Event) -> Snapshot {
+        switch event {
+        case let .insert(text, inputStyle):
+            self.composingText.insertAtCursorPosition(text, inputStyle: inputStyle)
+            self.clearOutputsAfterEditing()
+        case let .insertElements(elements):
+            self.composingText.insertAtCursorPosition(elements)
+            self.clearOutputsAfterEditing()
+        case let .insertCompositionSeparator(inputStyle):
+            self.composingText.insertAtCursorPosition([.init(piece: .compositionSeparator, inputStyle: inputStyle)])
+            self.clearOutputsAfterEditing()
+        case let .deleteBackward(count):
+            self.composingText.deleteBackwardFromCursorPosition(count: count)
+            self.clearOutputsAfterEditing()
+        case let .deleteForward(count):
+            self.composingText.deleteForwardFromCursorPosition(count: count)
+            self.clearOutputsAfterEditing()
+        case let .moveCursor(count):
+            _ = self.composingText.moveCursorFromCursorPosition(count: count)
+            self.outputs = .init()
+        case .stopComposition:
+            self.stopComposition()
+        case .reset:
+            self.reset()
+        }
+        return self.snapshot
+    }
+
+    @discardableResult
+    public mutating func requestCandidates(
+        for target: CandidateRequestTarget = .composingText,
+        filteredByWholeMatchInput wholeMatchInput: String? = nil
+    ) -> Outputs {
+        let requestComposingText: ComposingText
+        switch target {
+        case .composingText:
+            requestComposingText = self.composingText
+        case .prefixToCursorPosition:
+            requestComposingText = self.composingText.prefixToCursorPosition()
+        }
         let result = self.converter.requestCandidates(
-            self.composingText,
+            requestComposingText,
             options: self.requestOptions(leftSideContext: self.leftSideContext)
         )
-        return self.projectOutputs(conversionResult: result, filteredByWholeMatchInput: wholeMatchInput)
+        return self.projectOutputs(
+            conversionResult: result,
+            using: requestComposingText,
+            filteredByWholeMatchInput: wholeMatchInput
+        )
     }
 
     @discardableResult
     public mutating func projectOutputs(
         conversionResult: ConversionResult,
+        using composingText: ComposingText? = nil,
         filteredByWholeMatchInput wholeMatchInput: String? = nil
     ) -> Outputs {
+        let projectedComposingText = composingText ?? self.composingText
         let mainCandidates: [Candidate]
         if let wholeMatchInput {
             mainCandidates = conversionResult.mainResults.filter {
@@ -150,7 +211,7 @@ public struct AncoSessionCore {
         }
         let projected = SessionCandidateResults(
             conversionResult: conversionResult,
-            composingText: self.composingText,
+            composingText: projectedComposingText,
             liveConversionState: &self.liveConversionState,
             mainCandidates: mainCandidates
         )
@@ -200,5 +261,14 @@ public struct AncoSessionCore {
             ))
         }
         return options
+    }
+
+    private mutating func clearOutputsAfterEditing() {
+        self.outputs = .init()
+        guard self.composingText.isEmpty else {
+            return
+        }
+        self.liveConversionState.stopComposition()
+        self.converter.stopComposition()
     }
 }
