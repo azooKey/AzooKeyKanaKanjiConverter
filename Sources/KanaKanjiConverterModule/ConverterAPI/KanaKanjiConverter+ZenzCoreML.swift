@@ -4,43 +4,30 @@ import Foundation
 
 extension KanaKanjiConverter {
     @available(iOS 18, macOS 15, *)
-    final class ZenzCoreMLService: @unchecked Sendable {
+    actor ZenzCoreMLService {
         unowned let owner: KanaKanjiConverter
-        private let stateLock = NSLock()
         private var zenz: Zenz?
 
         init(owner: KanaKanjiConverter) {
             self.owner = owner
         }
 
-        private func withStateLock<T>(_ operation: () -> T) -> T {
-            self.stateLock.lock()
-            defer { self.stateLock.unlock() }
-            return operation()
-        }
-
         func stopComposition() async {
-            let zenz = self.withStateLock { () -> Zenz? in
-                defer {
-                    self.zenz = nil
-                }
-                return self.zenz
-            }
+            let zenz = self.zenz
+            self.zenz = nil
             if let zenz {
                 await zenz.endSession()
             }
         }
 
         func getOrLoadModel(modelURL: URL) async -> Zenz? {
-            if let cached = self.withStateLock({ self.zenz?.resourceURL == modelURL ? self.zenz : nil }) {
+            if let cached = self.zenz, cached.resourceURL == modelURL {
                 self.owner.updateZenzStatus("load \(modelURL.absoluteString)")
                 return cached
             }
             do {
                 let model = try await Zenz(resourceURL: modelURL)
-                self.withStateLock {
-                    self.zenz = model
-                }
+                self.zenz = model
                 self.owner.updateZenzStatus("load \(modelURL.absoluteString)")
                 return model
             } catch {
