@@ -24,8 +24,13 @@ final class AncoSessionRequestTests: XCTestCase {
                 gamma: 2.0
             ))
         )
+        XCTAssertEqual(AncoSessionRequest(decoding: ":m -1"), .moveCursor(-1))
+        XCTAssertEqual(AncoSessionRequest(decoding: ":move 2"), .moveCursor(2))
+        XCTAssertEqual(AncoSessionRequest(decoding: ":e -1"), .editSegment(-1))
+        XCTAssertEqual(AncoSessionRequest(decoding: ":edit 3"), .editSegment(3))
         XCTAssertEqual(AncoSessionRequest(decoding: ":input eot"), .specialInput(.endOfText))
         XCTAssertEqual(AncoSessionRequest(decoding: ":cfg displayTopN=3"), .setConfig(key: "displayTopN", value: "3"))
+        XCTAssertEqual(AncoSessionRequest(decoding: ":cfg predictionMode=manualmix"), .setConfig(key: "predictionMode", value: "manualmix"))
         XCTAssertEqual(AncoSessionRequest(decoding: ":dump /tmp/history.txt"), .dumpHistory("/tmp/history.txt"))
         XCTAssertEqual(AncoSessionRequest(decoding: ":2"), .selectCandidate(2))
         XCTAssertEqual(AncoSessionRequest(decoding: "かな"), .input("かな"))
@@ -36,6 +41,8 @@ final class AncoSessionRequestTests: XCTestCase {
         XCTAssertNil(AncoSessionRequest(decoding: ":invalid"))
         XCTAssertNil(AncoSessionRequest(decoding: ":cfg"))
         XCTAssertNil(AncoSessionRequest(decoding: ":cfg broken"))
+        XCTAssertNil(AncoSessionRequest(decoding: ":move nope"))
+        XCTAssertNil(AncoSessionRequest(decoding: ":edit"))
     }
 
     func testEncodedCommandRoundTrip() {
@@ -57,7 +64,10 @@ final class AncoSessionRequestTests: XCTestCase {
                 beta: 3.0,
                 gamma: 2.0
             )),
+            .moveCursor(-1),
+            .editSegment(2),
             .setConfig(key: "displayTopN", value: "3"),
+            .setConfig(key: "predictionMode", value: "manualmix"),
             .setContext("左"),
             .specialInput(.endOfText),
             .dumpHistory("/tmp/history.txt"),
