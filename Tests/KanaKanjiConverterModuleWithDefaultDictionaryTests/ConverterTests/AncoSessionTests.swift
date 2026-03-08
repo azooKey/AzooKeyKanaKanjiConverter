@@ -78,7 +78,7 @@ final class AncoSessionTests: XCTestCase {
                 ":cfg view=main",
                 ":cfg inputStyle=direct",
                 ":cfg onlyWholeConversion=false",
-                ":cfg disablePrediction=false",
+                ":cfg predictionMode=automix",
                 ":cfg zenzai.inferenceLimit=10",
                 ":cfg zenzai.requestRichCandidates=false",
                 ":cfg zenzai.experimentalPredictiveInput=false",
@@ -120,7 +120,7 @@ final class AncoSessionTests: XCTestCase {
         let topNResult = try session.execute(.setConfig(key: "displayTopN", value: "3"))
         let styleResult = try session.execute(.setConfig(key: "inputStyle", value: "roman2kana"))
         let wholeResult = try session.execute(.setConfig(key: "onlyWholeConversion", value: "true"))
-        let predictResult = try session.execute(.setConfig(key: "disablePrediction", value: "true"))
+        let predictResult = try session.execute(.setConfig(key: "predictionMode", value: "manualmix"))
 
         XCTAssertEqual(topNResult.action, .configUpdated)
         XCTAssertEqual(topNResult.message, "displayTopN=3")
@@ -129,7 +129,7 @@ final class AncoSessionTests: XCTestCase {
         XCTAssertEqual(wholeResult.action, .configUpdated)
         XCTAssertEqual(wholeResult.message, "onlyWholeConversion=true")
         XCTAssertEqual(predictResult.action, .configUpdated)
-        XCTAssertEqual(predictResult.message, "disablePrediction=true")
+        XCTAssertEqual(predictResult.message, "predictionMode=manualmix")
     }
 
     func testCfgUpdatesZenzaiConfig() throws {

@@ -974,7 +974,7 @@ public final class KanaKanjiConverter {
             wordCandidates = consume candidates
         }
 
-        self.updateStablePredictionCandidateCache(inputData: inputData, inputStyle: inputStyle, candidates: fullCandidates)
+        self.updateStablePredictionCandidateCache(inputData: inputData, inputStyle: inputStyle, candidates: predictionResults)
 
         var result = consume fullCandidates
         // 3番目までに最低でも1つ、（誤り訂正ではなく）入力に完全一致する候補が入るようにする

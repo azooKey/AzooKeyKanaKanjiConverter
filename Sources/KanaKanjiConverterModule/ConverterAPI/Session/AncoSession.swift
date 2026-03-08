@@ -453,11 +453,11 @@ package struct AncoSession {
             }
             self.requestOptionsState.requestQuery = parsed ? .完全一致 : .default
 
-        case "disablePrediction":
-            guard let parsed = Self.parseBool(value) else {
+        case "predictionMode":
+            guard let parsed = Self.parsePredictionMode(value) else {
                 throw SessionError.invalidConfigValue(key: key, value: value)
             }
-            self.requestOptionsState.requireJapanesePrediction = parsed ? .disabled : .autoMix
+            self.requestOptionsState.requireJapanesePrediction = parsed
 
         case "zenzai.profile":
             switch self.requestOptionsState.zenzaiMode.versionDependentMode {
@@ -561,8 +561,8 @@ package struct AncoSession {
                 value: requestOptions.requestQuery == .完全一致 ? "true" : "false"
             ),
             .setConfig(
-                key: "disablePrediction",
-                value: requestOptions.requireJapanesePrediction == .disabled ? "true" : "false"
+                key: "predictionMode",
+                value: Self.predictionModeValue(requestOptions.requireJapanesePrediction)
             ),
             .setConfig(
                 key: "zenzai.inferenceLimit",
@@ -597,6 +597,30 @@ package struct AncoSession {
             false
         default:
             nil
+        }
+    }
+
+    private static func parsePredictionMode(_ value: String) -> ConvertRequestOptions.PredictionMode? {
+        switch value.lowercased() {
+        case "automix":
+            .autoMix
+        case "manualmix":
+            .manualMix
+        case "disabled":
+            .disabled
+        default:
+            nil
+        }
+    }
+
+    private static func predictionModeValue(_ mode: ConvertRequestOptions.PredictionMode) -> String {
+        switch mode {
+        case .autoMix:
+            "automix"
+        case .manualMix:
+            "manualmix"
+        case .disabled:
+            "disabled"
         }
     }
 

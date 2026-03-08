@@ -26,6 +26,7 @@ final class AncoSessionRequestTests: XCTestCase {
         )
         XCTAssertEqual(AncoSessionRequest(decoding: ":input eot"), .specialInput(.endOfText))
         XCTAssertEqual(AncoSessionRequest(decoding: ":cfg displayTopN=3"), .setConfig(key: "displayTopN", value: "3"))
+        XCTAssertEqual(AncoSessionRequest(decoding: ":cfg predictionMode=manualmix"), .setConfig(key: "predictionMode", value: "manualmix"))
         XCTAssertEqual(AncoSessionRequest(decoding: ":dump /tmp/history.txt"), .dumpHistory("/tmp/history.txt"))
         XCTAssertEqual(AncoSessionRequest(decoding: ":2"), .selectCandidate(2))
         XCTAssertEqual(AncoSessionRequest(decoding: "かな"), .input("かな"))
@@ -58,6 +59,7 @@ final class AncoSessionRequestTests: XCTestCase {
                 gamma: 2.0
             )),
             .setConfig(key: "displayTopN", value: "3"),
+            .setConfig(key: "predictionMode", value: "manualmix"),
             .setContext("左"),
             .specialInput(.endOfText),
             .dumpHistory("/tmp/history.txt"),
