@@ -12,7 +12,16 @@ final class AncoSessionCommandTests: XCTestCase {
         )
         XCTAssertEqual(
             AncoSessionCommand(decoding: ":tc 3 beam=8 top_k=16"),
-            .typoCorrection(":tc 3 beam=8 top_k=16")
+            .typoCorrection(.init(
+                rawCommand: ":tc 3 beam=8 top_k=16",
+                nBest: 3,
+                beamSize: 8,
+                topK: 16,
+                maxSteps: nil,
+                alpha: 2.0,
+                beta: 3.0,
+                gamma: 2.0
+            ))
         )
         XCTAssertEqual(AncoSessionCommand(decoding: ":input eot"), .specialInput(.endOfText))
         XCTAssertEqual(AncoSessionCommand(decoding: ":cfg displayTopN=3"), .setConfig(key: "displayTopN", value: "3"))
@@ -37,7 +46,16 @@ final class AncoSessionCommandTests: XCTestCase {
             .save,
             .predictInput(count: 3, maxEntropy: 0.5, minLength: 2),
             .help,
-            .typoCorrection(":tc 3 beam=8"),
+            .typoCorrection(.init(
+                rawCommand: ":tc 3 beam=8",
+                nBest: 3,
+                beamSize: 8,
+                topK: 100,
+                maxSteps: nil,
+                alpha: 2.0,
+                beta: 3.0,
+                gamma: 2.0
+            )),
             .setConfig(key: "displayTopN", value: "3"),
             .setContext("左"),
             .specialInput(.endOfText),

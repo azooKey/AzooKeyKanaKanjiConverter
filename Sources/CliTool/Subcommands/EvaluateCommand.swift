@@ -10,22 +10,12 @@ extension Subcommands {
 
         @Option(name: [.customLong("output")], help: "Output file path.")
         var outputFilePath: String?
-        @Option(name: [.customLong("config_n_best")], help: "The parameter n (n best parameter) for internal viterbi search.")
-        var configNBest: Int = 10
+        @OptionGroup
+        var options: SharedConversionOptions
         @Flag(name: [.customLong("stable")], help: "Report only stable properties; timestamps and values will not be reported.")
         var stable: Bool = false
-        @Option(name: [.customLong("zenz")], help: "gguf format model weight for zenz.")
-        var zenzWeightPath: String = ""
-        @Option(name: [.customLong("config_zenzai_inference_limit")], help: "inference limit for zenzai.")
-        var configZenzaiInferenceLimit: Int = .max
         @Flag(name: [.customLong("config_zenzai_ignore_left_context")], help: "ignore left_context")
         var configZenzaiIgnoreLeftContext: Bool = false
-        @Option(name: [.customLong("config_zenzai_base_lm")], help: "Marisa files for Base LM.")
-        var configZenzaiBaseLM: String?
-        @Option(name: [.customLong("config_zenzai_personal_lm")], help: "Marisa files for Personal LM.")
-        var configZenzaiPersonalLM: String?
-        @Option(name: [.customLong("config_zenzai_personalization_alpha")], help: "Strength of personalization (0.5 by default)")
-        var configZenzaiPersonalizationAlpha: Float = 0.5
 
         static let configuration = CommandConfiguration(commandName: "evaluate", abstract: "Evaluate quality of Conversion for input data.")
 
@@ -51,7 +41,10 @@ extension Subcommands {
                 // 変換
                 var composingText = ComposingText()
                 composingText.insertAtCursorPosition(item.query, inputStyle: .direct)
-                let requestOptions = self.requestOptions(leftSideContext: item.left_context)
+                let requestOptions = try self.options.makeEvaluateRequestOptions(
+                    leftSideContext: item.left_context,
+                    ignoreLeftContext: self.configZenzaiIgnoreLeftContext
+                )
                 let result = converter.requestCandidates(composingText, options: requestOptions)
                 let mainResults = result.mainResults.filter {
                     $0.data.reduce(into: "", {$0.append(contentsOf: $1.ruby)}) == item.query.toKatakana()
@@ -61,7 +54,7 @@ extension Subcommands {
                         query: item.query,
                         answers: item.answer,
                         left_context: item.left_context,
-                        outputs: mainResults.prefix(self.configNBest).map {
+                        outputs: mainResults.prefix(self.options.configNBest).map {
                             EvaluateItemOutput(text: $0.text, score: Double($0.value))
                         }
                     )
@@ -70,7 +63,7 @@ extension Subcommands {
                 // Explictly reset state
                 converter.stopComposition()
             }
-            var result = EvaluateResult(n_best: self.configNBest, execution_time: executionTime, items: resultItems)
+            var result = EvaluateResult(n_best: self.options.configNBest, execution_time: executionTime, items: resultItems)
             if stable {
                 result.execution_time = 0
                 result.timestamp = 0
@@ -91,43 +84,6 @@ extension Subcommands {
                 let string = String(data: json, encoding: .utf8)!
                 print(string)
             }
-        }
-
-        func requestOptions(leftSideContext: String?) -> ConvertRequestOptions {
-            let personalizationMode: ConvertRequestOptions.ZenzaiMode.PersonalizationMode?
-            if let base = self.configZenzaiBaseLM, let personal = self.configZenzaiPersonalLM {
-                personalizationMode = .init(
-                    baseNgramLanguageModel: base,
-                    personalNgramLanguageModel: personal,
-                    n: 5,
-                    d: 0.75,
-                    alpha: self.configZenzaiPersonalizationAlpha
-                )
-            } else if self.configZenzaiBaseLM != nil || self.configZenzaiPersonalLM != nil {
-                fatalError("Both --config_zenzai_base_lm and --config_zenzai_personal_lm must be set")
-            } else {
-                personalizationMode = nil
-            }
-            var option: ConvertRequestOptions = .init(
-                N_best: self.configNBest,
-                requireJapanesePrediction: .disabled,
-                requireEnglishPrediction: .disabled,
-                keyboardLanguage: .ja_JP,
-                englishCandidateInRoman2KanaInput: false,
-                fullWidthRomanCandidate: false,
-                halfWidthKanaCandidate: false,
-                learningType: .nothing,
-                maxMemoryCount: 0,
-                shouldResetMemory: false,
-                memoryDirectoryURL: URL(fileURLWithPath: ""),
-                sharedContainerURL: URL(fileURLWithPath: ""),
-                textReplacer: .withDefaultEmojiDictionary(),
-                specialCandidateProviders: KanaKanjiConverter.defaultSpecialCandidateProviders,
-                zenzaiMode: self.zenzWeightPath.isEmpty ? .off : .on(weight: URL(string: self.zenzWeightPath)!, inferenceLimit: self.configZenzaiInferenceLimit, personalizationMode: personalizationMode, versionDependentMode: .v3(.init(leftSideContext: self.configZenzaiIgnoreLeftContext ? nil : leftSideContext))),
-                metadata: .init(versionString: "anco for debugging")
-            )
-            option.requestQuery = .完全一致
-            return option
         }
     }
 

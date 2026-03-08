@@ -56,7 +56,16 @@ final class AncoSessionTests: XCTestCase {
 
         _ = try session.execute(.setConfig(key: "displayTopN", value: "3"))
         _ = try session.execute(.setConfig(key: "inputStyle", value: "roman2kana"))
-        session.recordHistory(.typoCorrection(":tc 3 beam=8"))
+        session.recordHistory(.typoCorrection(.init(
+            rawCommand: ":tc 3 beam=8",
+            nBest: 3,
+            beamSize: 8,
+            topK: 100,
+            maxSteps: nil,
+            alpha: 2.0,
+            beta: 3.0,
+            gamma: 2.0
+        )))
         _ = try session.execute(.input("あずーきー"))
         _ = try session.execute(.dumpHistory(historyURL.path))
 
