@@ -15,7 +15,7 @@ var coreMLMacOSLinkFlags: [String] = []
 #if os(macOS)
 // CoreML XCFrameworks are built for macOS 15.5+. When the CoreML trait is enabled,
 // apply a platform_version hint at link time to silence version mismatch warnings.
-coreMLMacOSLinkFlags = ["-Xlinker", "-platform_version", "-Xlinker", "macos", "-Xlinker", "15.0", "-Xlinker", "15.0"]
+coreMLMacOSLinkFlags = ["-Xlinker", "-platform_version", "-Xlinker", "macos", "-Xlinker", "15.5", "-Xlinker", "15.5"]
 #endif
 
 var dependencies: [Package.Dependency] = [
