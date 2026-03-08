@@ -60,17 +60,20 @@ public struct AncoSessionCore {
         public var composingText: ComposingText
         public var leftSideContext: String
         public var configuration: Configuration
+        public var isSegmentEditing: Bool
         public var outputs: Outputs
 
         public init(
             composingText: ComposingText,
             leftSideContext: String,
             configuration: Configuration,
+            isSegmentEditing: Bool,
             outputs: Outputs
         ) {
             self.composingText = composingText
             self.leftSideContext = leftSideContext
             self.configuration = configuration
+            self.isSegmentEditing = isSegmentEditing
             self.outputs = outputs
         }
     }
@@ -82,6 +85,7 @@ public struct AncoSessionCore {
 
     private let converter: KanaKanjiConverter
     private var liveConversionState: LiveConversionState
+    private var isSegmentEditing = false
 
     public private(set) var composingText: ComposingText
     public private(set) var leftSideContext: String
@@ -107,6 +111,7 @@ public struct AncoSessionCore {
             composingText: self.composingText,
             leftSideContext: self.leftSideContext,
             configuration: self.configuration,
+            isSegmentEditing: self.isSegmentEditing,
             outputs: self.outputs
         )
     }
@@ -131,12 +136,14 @@ public struct AncoSessionCore {
     public mutating func reset() {
         self.composingText.stopComposition()
         self.leftSideContext = ""
+        self.isSegmentEditing = false
         self.outputs = .init()
         self.liveConversionState.stopComposition()
     }
 
     public mutating func stopComposition() {
         self.composingText.stopComposition()
+        self.isSegmentEditing = false
         self.outputs = .init()
         self.liveConversionState.stopComposition()
         self.converter.stopComposition()
@@ -147,18 +154,23 @@ public struct AncoSessionCore {
         switch event {
         case let .insert(text, inputStyle):
             self.composingText.insertAtCursorPosition(text, inputStyle: inputStyle)
+            self.isSegmentEditing = false
             self.clearOutputsAfterEditing()
         case let .insertElements(elements):
             self.composingText.insertAtCursorPosition(elements)
+            self.isSegmentEditing = false
             self.clearOutputsAfterEditing()
         case let .insertCompositionSeparator(inputStyle):
             self.composingText.insertAtCursorPosition([.init(piece: .compositionSeparator, inputStyle: inputStyle)])
+            self.isSegmentEditing = false
             self.clearOutputsAfterEditing()
         case let .deleteBackward(count):
             self.composingText.deleteBackwardFromCursorPosition(count: count)
+            self.isSegmentEditing = false
             self.clearOutputsAfterEditing()
         case let .deleteForward(count):
             self.composingText.deleteForwardFromCursorPosition(count: count)
+            self.isSegmentEditing = false
             self.clearOutputsAfterEditing()
         case let .moveCursor(count):
             _ = self.composingText.moveCursorFromCursorPosition(count: count)
@@ -168,6 +180,50 @@ public struct AncoSessionCore {
         case .reset:
             self.reset()
         }
+        return self.snapshot
+    }
+
+    @discardableResult
+    public mutating func refreshCandidates(
+        leftSideContext: String,
+        configuration: Configuration,
+        for target: CandidateRequestTarget = .composingText,
+        filteredByWholeMatchInput wholeMatchInput: String? = nil
+    ) -> Snapshot {
+        self.apply(leftSideContext: leftSideContext, configuration: configuration)
+        _ = self.requestCandidates(for: target, filteredByWholeMatchInput: wholeMatchInput)
+        return self.snapshot
+    }
+
+    @discardableResult
+    public mutating func editSegment(
+        by count: Int,
+        selectedCandidate: Candidate?,
+        leftSideContext: String,
+        configuration: Configuration,
+        requestTarget: CandidateRequestTarget = .prefixToCursorPosition
+    ) -> Snapshot {
+        self.apply(leftSideContext: leftSideContext, configuration: configuration)
+        if let selectedCandidate {
+            var afterComposingText = self.composingText
+            afterComposingText.prefixComplete(composingCount: selectedCandidate.composingCount)
+            let prefixCount = self.composingText.convertTarget.count - afterComposingText.convertTarget.count
+            _ = self.send(.moveCursor(-self.composingText.convertTargetCursorPosition + prefixCount))
+        }
+        if count > 0 {
+            if self.composingText.isAtEndIndex && !self.isSegmentEditing {
+                _ = self.send(.moveCursor(-self.composingText.convertTargetCursorPosition + count))
+            } else {
+                _ = self.send(.moveCursor(count))
+            }
+        } else {
+            _ = self.send(.moveCursor(count))
+        }
+        if self.composingText.isAtStartIndex {
+            _ = self.send(.moveCursor(1))
+        }
+        self.isSegmentEditing = true
+        _ = self.requestCandidates(for: requestTarget)
         return self.snapshot
     }
 
@@ -232,13 +288,35 @@ public struct AncoSessionCore {
         switch result {
         case .compositionEnded:
             self.composingText.stopComposition()
+            self.isSegmentEditing = false
             self.outputs = .init()
             self.liveConversionState.stopComposition()
             return .compositionEnded
         case .compositionContinues:
+            self.isSegmentEditing = false
             self.liveConversionState.updateAfterFirstClauseCompletion()
             return .compositionContinues
         }
+    }
+
+    @discardableResult
+    public mutating func commitCandidate(
+        _ candidate: Candidate,
+        leftSideContext: String,
+        configuration: Configuration,
+        requestTarget: CandidateRequestTarget = .composingText,
+        moveCursorToEndOnContinuation: Bool = false
+    ) -> CandidateSelectionResult {
+        self.apply(leftSideContext: leftSideContext, configuration: configuration)
+        let selectionResult = self.selectCandidate(candidate)
+        guard selectionResult == .compositionContinues else {
+            return selectionResult
+        }
+        if moveCursorToEndOnContinuation {
+            _ = self.send(.moveCursor(self.composingText.convertTarget.count - self.composingText.convertTargetCursorPosition))
+        }
+        _ = self.requestCandidates(for: requestTarget)
+        return selectionResult
     }
 
     private func requestOptions(leftSideContext: String?) -> ConvertRequestOptions {
