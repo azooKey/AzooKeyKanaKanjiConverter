@@ -25,6 +25,8 @@ struct SharedConversionOptions: ParsableArguments {
     var reportScore = false
     @Flag(name: [.customLong("roman2kana")], help: "Use roman2kana input.")
     var roman2kana = false
+    @Option(name: [.customLong("session_preset")], help: "Apply a built-in session preset such as ios-default, macos-default, or cli-debug.")
+    var sessionPreset: String?
     @Option(name: [.customLong("config_user_dictionary")], help: "User Dictionary JSON file path")
     var configUserDictionary: String?
     @Option(name: [.customLong("config_zenzai_inference_limit")], help: "inference limit for zenzai.")

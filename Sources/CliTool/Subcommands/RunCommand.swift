@@ -18,6 +18,7 @@ extension Subcommands {
                 defaultDictionaryRequestOptions: try self.options.makeRequestOptions(),
                 inputStyle: self.options.inputStyle,
                 displayTopN: self.options.displayTopN,
+                preset: self.options.sessionPreset,
                 userDictionaryItems: try self.options.parseUserDictionaryItems()
             )
             let result = try session.execute(.input(self.input))

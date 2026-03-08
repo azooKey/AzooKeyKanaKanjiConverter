@@ -82,6 +82,7 @@ final class AncoSessionTests: XCTestCase {
                 ":cfg zenzai.inferenceLimit=10",
                 ":cfg zenzai.requestRichCandidates=false",
                 ":cfg zenzai.experimentalPredictiveInput=false",
+                ":cfg liveConversion.enabled=true",
                 ":cfg zenzai.profile=",
                 ":cfg zenzai.topic=",
                 ":cfg displayTopN=3",
@@ -201,5 +202,90 @@ final class AncoSessionTests: XCTestCase {
         XCTAssertEqual(result.action, .configUpdated)
         XCTAssertEqual(result.displayedCandidates.count, 1)
         XCTAssertEqual(result.displayedCandidates.first?.text, "azooKey")
+    }
+
+    func testExecuteSessionEventUpdatesSnapshot() throws {
+        var session = self.makeSession()
+
+        let result = try session.execute(event: .insert("あずーきー"))
+
+        XCTAssertEqual(result.executedCommand, .input("あずーきー"))
+        XCTAssertEqual(result.snapshot.composingText.convertTarget, "あずーきー")
+        XCTAssertEqual(result.snapshot.selectedView, .main)
+        switch result.snapshot.presentedContent {
+        case let .candidates(candidates):
+            XCTAssertEqual(candidates.first?.text, "azooKey")
+        case .liveConversion:
+            XCTFail("expected main candidate presentation")
+        }
+    }
+
+    func testSnapshotTracksOutputsAcrossViews() throws {
+        var session = self.makeSession()
+        _ = try session.execute(.input("あずーきー"))
+        _ = try session.execute(.setConfig(key: "view", value: "liveConversion"))
+
+        let snapshot = session.snapshot()
+
+        XCTAssertEqual(snapshot.outputs.mainCandidates.first?.text, "azooKey")
+        XCTAssertNotNil(snapshot.outputs.liveConversion)
+        XCTAssertTrue(snapshot.config.liveConversion.enabled)
+        XCTAssertEqual(snapshot.selectedView, .liveConversion)
+        switch snapshot.presentedContent {
+        case let .liveConversion(liveConversion):
+            XCTAssertEqual(liveConversion.displayedText, "azooKey")
+        case .candidates:
+            XCTFail("expected live conversion presentation")
+        }
+    }
+
+    func testPresetAppliesBuiltInConfiguration() throws {
+        var session = AncoSession(
+            defaultDictionaryRequestOptions: .init(
+                N_best: 10,
+                requireJapanesePrediction: .autoMix,
+                requireEnglishPrediction: .disabled,
+                keyboardLanguage: .ja_JP,
+                englishCandidateInRoman2KanaInput: false,
+                fullWidthRomanCandidate: false,
+                halfWidthKanaCandidate: false,
+                learningType: .nothing,
+                memoryDirectoryURL: URL(fileURLWithPath: ""),
+                sharedContainerURL: URL(fileURLWithPath: ""),
+                textReplacer: .withDefaultEmojiDictionary(),
+                specialCandidateProviders: KanaKanjiConverter.defaultSpecialCandidateProviders,
+                metadata: .init(versionString: "anco test")
+            ),
+            preset: "ios-default"
+        )
+
+        let result = try session.execute(event: .insert("あずーきー"))
+
+        XCTAssertEqual(result.snapshot.presetID, "ios-default")
+        XCTAssertEqual(result.snapshot.config.view, .liveConversion)
+        XCTAssertEqual(result.snapshot.config.displayTopN, 1)
+        XCTAssertTrue(result.snapshot.config.liveConversion.enabled)
+        switch result.snapshot.presentedContent {
+        case let .liveConversion(snapshot):
+            XCTAssertEqual(snapshot.displayedText, "azooKey")
+        case .candidates:
+            XCTFail("expected live conversion presentation for ios-default preset")
+        }
+    }
+
+    func testDisablingLiveConversionClearsPresentedLiveView() throws {
+        var session = self.makeSession()
+        _ = try session.execute(.input("あずーきー"))
+        _ = try session.execute(.setConfig(key: "view", value: "liveConversion"))
+
+        let result = try session.execute(.setConfig(key: "liveConversion.enabled", value: "false"))
+
+        XCTAssertEqual(result.snapshot.config.liveConversion.enabled, false)
+        switch result.snapshot.presentedContent {
+        case let .candidates(candidates):
+            XCTAssertTrue(candidates.isEmpty)
+        case .liveConversion:
+            XCTFail("expected live conversion view to fall back when disabled")
+        }
     }
 }

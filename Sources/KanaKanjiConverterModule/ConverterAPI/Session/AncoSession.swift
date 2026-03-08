@@ -23,6 +23,7 @@ package struct AncoSession {
         package var action: Action
         package var submittedCommand: AncoSessionRequest
         package var executedCommand: AncoSessionRequest
+        package var snapshot: SessionSnapshot
         package var composingText: ComposingText
         package var leftSideContext: String
         package var candidates: [Candidate]
@@ -39,12 +40,6 @@ package struct AncoSession {
     package struct TypoCorrectionResult: Sendable {
         package var candidates: [ZenzaiTypoCandidate]
         package var elapsedTime: TimeInterval
-    }
-
-    private enum CandidateView: String, Sendable {
-        case main
-        case prediction
-        case liveConversion
     }
 
     package enum SessionError: Error, LocalizedError {
@@ -74,29 +69,24 @@ package struct AncoSession {
     }
 
     private let converter: KanaKanjiConverter
-    private var requestOptionsState: ConvertRequestOptions
-    private var inputStyle: InputStyle
-    private var displayTopN: Int
-    private var view: CandidateView
+    private var configuration: SessionConfiguration
     private let debugPossibleNexts: Bool
-    private let initialRequestOptionsState: ConvertRequestOptions
-    private let initialInputStyle: InputStyle
-    private let initialDisplayTopN: Int
-    private let initialView: CandidateView
+    private let initialConfiguration: SessionConfiguration
 
     package var memoryDirectoryURL: URL {
-        self.requestOptionsState.memoryDirectoryURL
+        self.sessionConfig.requestOptions.memoryDirectoryURL
     }
 
     package private(set) var composingText = ComposingText()
     package private(set) var lastCandidates: [Candidate] = []
     package private(set) var lastMainCandidates: [Candidate] = []
     package private(set) var lastPredictionCandidates: [Candidate] = []
+    package private(set) var lastFirstClauseCandidates: [Candidate] = []
     package private(set) var lastLiveConversionSnapshot: LiveConversionSnapshot?
     package private(set) var leftSideContext: String = ""
     package private(set) var page: Int = 0
     package private(set) var histories: [AncoSessionRequest] = []
-    private var liveConversionState = LiveConversionState(config: .init(enabled: true))
+    private var liveConversionState: LiveConversionState
 
     package init(
         converter: KanaKanjiConverter,
@@ -104,19 +94,26 @@ package struct AncoSession {
         inputStyle: InputStyle = .direct,
         displayTopN: Int = 1,
         view: String = "main",
+        preset: String? = nil,
         debugPossibleNexts: Bool = false,
         userDictionaryItems: [InputUserDictionaryItem] = []
     ) {
-        self.view = CandidateView(rawValue: view) ?? .main
         self.converter = converter
-        self.requestOptionsState = requestOptions
-        self.inputStyle = inputStyle
-        self.displayTopN = displayTopN
         self.debugPossibleNexts = debugPossibleNexts
-        self.initialRequestOptionsState = requestOptions
-        self.initialInputStyle = inputStyle
-        self.initialDisplayTopN = displayTopN
-        self.initialView = self.view
+        let defaultConfig = SessionConfig(
+            requestOptions: requestOptions,
+            inputStyle: inputStyle,
+            displayTopN: displayTopN,
+            view: SessionView(rawValue: view) ?? .main,
+            liveConversion: .init(enabled: true)
+        )
+        var configuration = SessionConfiguration(defaultConfig: defaultConfig)
+        if let preset, !preset.isEmpty {
+            _ = configuration.applyPreset(id: preset)
+        }
+        self.configuration = configuration
+        self.initialConfiguration = configuration
+        self.liveConversionState = LiveConversionState(config: configuration.effectiveConfig.liveConversion)
 
         if !userDictionaryItems.isEmpty {
             let userDictionary = userDictionaryItems.map {
@@ -129,6 +126,16 @@ package struct AncoSession {
                 )
             }
             self.converter.importDynamicUserDictionary(userDictionary)
+        }
+    }
+
+    package var sessionConfig: SessionConfig {
+        get {
+            self.configuration.effectiveConfig
+        }
+        set {
+            self.configuration = SessionConfiguration(defaultConfig: newValue)
+            self.liveConversionState.config = newValue.liveConversion
         }
     }
 
@@ -151,6 +158,10 @@ package struct AncoSession {
 
     package mutating func recordHistory(_ command: AncoSessionRequest) {
         self.histories.append(command)
+    }
+
+    package mutating func execute(event: SessionEvent) throws -> ExecutionResult {
+        try self.execute(Self.request(for: event))
     }
 
     package mutating func execute(_ submittedCommand: AncoSessionRequest) throws -> ExecutionResult {
@@ -186,7 +197,7 @@ package struct AncoSession {
             self.composingText.stopComposition()
             self.converter.stopComposition()
             self.converter.commitUpdateLearningData()
-            let message = self.requestOptionsState.learningType.needUpdateMemory
+            let message = self.sessionConfig.requestOptions.learningType.needUpdateMemory
                 ? "saved"
                 : "anything should not be saved because the learning type is not for update memory"
             return self.makeResult(action: .saved, submittedCommand: submittedCommand, executedCommand: submittedCommand, message: message)
@@ -202,7 +213,7 @@ package struct AncoSession {
                 minLength: predictMinLength,
                 maxEntropy: maxEntropy,
                 options: self.requestOptions(leftSideContext: self.leftSideContext),
-                inputStyle: self.inputStyle,
+                inputStyle: self.sessionConfig.inputStyle,
                 debugPossibleNexts: self.debugPossibleNexts
             )
             let predictiveInputTime = -ipStart.timeIntervalSinceNow
@@ -219,8 +230,9 @@ package struct AncoSession {
                 self.composingText.deleteBackwardFromCursorPosition(count: suffixCount)
             }
 
-            let insertText = self.inputStyle == .roman2kana ? predictedText.toHiragana() : predictedText
-            self.composingText.insertAtCursorPosition(insertText, inputStyle: self.inputStyle)
+            let inputStyle = self.sessionConfig.inputStyle
+            let insertText = inputStyle == .roman2kana ? predictedText.toHiragana() : predictedText
+            self.composingText.insertAtCursorPosition(insertText, inputStyle: inputStyle)
             let executedCommand = AncoSessionRequest.input(insertText)
 
             return self.updateCandidates(
@@ -260,7 +272,7 @@ package struct AncoSession {
         case let .specialInput(specialInput):
             switch specialInput {
             case .endOfText:
-                self.composingText.insertAtCursorPosition([.init(piece: .compositionSeparator, inputStyle: self.inputStyle)])
+                self.composingText.insertAtCursorPosition([.init(piece: .compositionSeparator, inputStyle: self.sessionConfig.inputStyle)])
             }
             return self.updateCandidates(submittedCommand: submittedCommand, executedCommand: submittedCommand)
 
@@ -299,7 +311,7 @@ package struct AncoSession {
 
         case let .input(rawInput):
             let input = Self.normalize(input: rawInput)
-            self.composingText.insertAtCursorPosition(input, inputStyle: self.inputStyle)
+            self.composingText.insertAtCursorPosition(input, inputStyle: self.sessionConfig.inputStyle)
             return self.updateCandidates(
                 submittedCommand: submittedCommand,
                 executedCommand: .input(input)
@@ -313,10 +325,12 @@ package struct AncoSession {
         self.lastCandidates = []
         self.lastMainCandidates = []
         self.lastPredictionCandidates = []
+        self.lastFirstClauseCandidates = []
         self.lastLiveConversionSnapshot = nil
         self.leftSideContext = ""
         self.page = 0
         self.liveConversionState.stopComposition()
+        self.liveConversionState.config = self.sessionConfig.liveConversion
     }
 
     package func experimentalRequestTypoCorrection(
@@ -327,7 +341,7 @@ package struct AncoSession {
             leftSideContext: self.leftSideContext,
             composingText: self.composingText,
             options: self.requestOptions(leftSideContext: self.leftSideContext),
-            inputStyle: self.inputStyle,
+            inputStyle: self.sessionConfig.inputStyle,
             config: config
         )
         return .init(candidates: candidates, elapsedTime: -start.timeIntervalSinceNow)
@@ -345,7 +359,7 @@ package struct AncoSession {
             options: self.requestOptions(leftSideContext: self.leftSideContext)
         )
         let mainResults = result.mainResults.filter {
-            if self.requestOptionsState.requestQuery != .完全一致 {
+            if self.sessionConfig.requestOptions.requestQuery != .完全一致 {
                 return true
             }
             guard case let .input(input) = executedCommand else {
@@ -355,17 +369,12 @@ package struct AncoSession {
         }
         self.lastMainCandidates = mainResults
         self.lastPredictionCandidates = result.predictionResults
-        self.lastLiveConversionSnapshot = self.liveConversionState.update(
-            self.composingText,
-            candidates: mainResults,
-            firstClauseResults: result.firstClauseResults,
-            convertTargetCursorPosition: self.composingText.convertTargetCursorPosition,
-            convertTarget: self.composingText.convertTarget
-        )
+        self.lastFirstClauseCandidates = result.firstClauseResults
+        self.refreshLiveConversionSnapshot()
         self.lastCandidates = self.currentCandidates()
         self.page = 0
 
-        let entropy = self.requestOptionsState.requestQuery == .完全一致 ? Self.calculateEntropy(candidates: mainResults) : nil
+        let entropy = self.sessionConfig.requestOptions.requestQuery == .完全一致 ? Self.calculateEntropy(candidates: mainResults) : nil
         return self.makeResult(
             action: .candidatesUpdated,
             submittedCommand: submittedCommand,
@@ -386,13 +395,14 @@ package struct AncoSession {
         predictiveInputTime: TimeInterval? = nil,
         entropy: Double? = nil
     ) -> ExecutionResult {
-        let startIndex = self.page * self.displayTopN
-        let endIndex = min(startIndex + self.displayTopN, self.lastCandidates.count)
+        let startIndex = self.page * self.sessionConfig.displayTopN
+        let endIndex = min(startIndex + self.sessionConfig.displayTopN, self.lastCandidates.count)
         let displayedCandidates = startIndex < endIndex ? Array(self.lastCandidates[startIndex..<endIndex]) : []
         return ExecutionResult(
             action: action,
             submittedCommand: submittedCommand,
             executedCommand: executedCommand,
+            snapshot: self.snapshot(),
             composingText: self.composingText,
             leftSideContext: self.leftSideContext,
             candidates: self.lastCandidates,
@@ -407,8 +417,36 @@ package struct AncoSession {
         )
     }
 
+    package func snapshot() -> SessionSnapshot {
+        let outputs = SessionOutputs(
+            mainCandidates: self.lastMainCandidates,
+            predictionCandidates: self.lastPredictionCandidates,
+            liveConversion: self.lastLiveConversionSnapshot
+        )
+        let presentedContent: SessionPresentedContent
+        switch self.sessionConfig.view {
+        case .main, .prediction:
+            presentedContent = .candidates(self.currentCandidates())
+        case .liveConversion:
+            if let snapshot = self.lastLiveConversionSnapshot {
+                presentedContent = .liveConversion(snapshot)
+            } else {
+                presentedContent = .candidates([])
+            }
+        }
+        return .init(
+            composingText: self.composingText,
+            leftSideContext: self.leftSideContext,
+            config: self.sessionConfig,
+            presetID: self.configuration.preset?.id,
+            outputs: outputs,
+            selectedView: self.sessionConfig.view,
+            presentedContent: presentedContent
+        )
+    }
+
     private func currentCandidates() -> [Candidate] {
-        switch self.view {
+        switch self.sessionConfig.view {
         case .main:
             self.lastMainCandidates
         case .prediction:
@@ -419,7 +457,7 @@ package struct AncoSession {
     }
 
     private func requestOptions(leftSideContext: String?) -> ConvertRequestOptions {
-        var options = self.requestOptionsState
+        var options = self.sessionConfig.requestOptions
         switch options.zenzaiMode.versionDependentMode {
         case let .v2(mode):
             options.zenzaiMode.versionDependentMode = .v2(.init(
@@ -442,24 +480,33 @@ package struct AncoSession {
 
     private mutating func updateConfig(key: String, value: String) throws {
         switch key {
+        case "preset":
+            if value.isEmpty {
+                self.configuration.clearPreset()
+            } else if !self.configuration.applyPreset(id: value) {
+                throw SessionError.invalidConfigValue(key: key, value: value)
+            }
+            self.liveConversionState.config = self.sessionConfig.liveConversion
+            self.refreshLiveConversionSnapshot()
+
         case "displayTopN":
             guard let parsed = Int(value), parsed > 0 else {
                 throw SessionError.invalidConfigValue(key: key, value: value)
             }
-            self.displayTopN = parsed
+            self.configuration.applyRuntimePatch(.init(displayTopN: parsed))
 
         case "view":
-            guard let parsed = CandidateView(rawValue: value) else {
+            guard let parsed = SessionView(rawValue: value) else {
                 throw SessionError.invalidConfigValue(key: key, value: value)
             }
-            self.view = parsed
+            self.configuration.applyRuntimePatch(.init(view: parsed))
 
         case "inputStyle":
             switch value {
             case "direct":
-                self.inputStyle = .direct
+                self.configuration.applyRuntimePatch(.init(inputStyle: .direct))
             case "roman2kana":
-                self.inputStyle = .roman2kana
+                self.configuration.applyRuntimePatch(.init(inputStyle: .roman2kana))
             default:
                 throw SessionError.invalidConfigValue(key: key, value: value)
             }
@@ -468,65 +515,61 @@ package struct AncoSession {
             guard let parsed = Self.parseBool(value) else {
                 throw SessionError.invalidConfigValue(key: key, value: value)
             }
-            self.requestOptionsState.requestQuery = parsed ? .完全一致 : .default
+            self.configuration.applyRuntimePatch(.init(onlyWholeConversion: parsed))
 
         case "predictionMode":
             guard let parsed = Self.parsePredictionMode(value) else {
                 throw SessionError.invalidConfigValue(key: key, value: value)
             }
-            self.requestOptionsState.requireJapanesePrediction = parsed
+            self.configuration.applyRuntimePatch(.init(predictionMode: parsed))
 
         case "zenzai.profile":
-            switch self.requestOptionsState.zenzaiMode.versionDependentMode {
-            case let .v2(mode):
-                self.requestOptionsState.zenzaiMode.versionDependentMode = .v2(.init(
-                    profile: value.isEmpty ? nil : value,
-                    leftSideContext: mode.leftSideContext,
-                    maxLeftSideContextLength: mode.maxLeftSideContextLength
-                ))
-            case let .v3(mode):
-                self.requestOptionsState.zenzaiMode.versionDependentMode = .v3(.init(
-                    profile: value.isEmpty ? nil : value,
-                    topic: mode.topic,
-                    style: mode.style,
-                    preference: mode.preference,
-                    leftSideContext: mode.leftSideContext,
-                    maxLeftSideContextLength: mode.maxLeftSideContextLength
-                ))
-            }
+            self.configuration.applyRuntimePatch(.init(zenzaiProfile: .set(value.isEmpty ? nil : value)))
 
         case "zenzai.topic":
-            switch self.requestOptionsState.zenzaiMode.versionDependentMode {
+            switch self.sessionConfig.requestOptions.zenzaiMode.versionDependentMode {
             case .v2:
                 throw SessionError.invalidConfigValue(key: key, value: value)
-            case let .v3(mode):
-                self.requestOptionsState.zenzaiMode.versionDependentMode = .v3(.init(
-                    profile: mode.profile,
-                    topic: value.isEmpty ? nil : value,
-                    style: mode.style,
-                    preference: mode.preference,
-                    leftSideContext: mode.leftSideContext,
-                    maxLeftSideContextLength: mode.maxLeftSideContextLength
-                ))
+            case .v3:
+                self.configuration.applyRuntimePatch(.init(zenzaiTopic: .set(value.isEmpty ? nil : value)))
             }
 
         case "zenzai.inferenceLimit":
             guard let parsed = Int(value), parsed > 0 else {
                 throw SessionError.invalidConfigValue(key: key, value: value)
             }
-            self.requestOptionsState.zenzaiMode.inferenceLimit = parsed
+            self.configuration.applyRuntimePatch(.init(zenzaiInferenceLimit: parsed))
 
         case "zenzai.requestRichCandidates":
             guard let parsed = Self.parseBool(value) else {
                 throw SessionError.invalidConfigValue(key: key, value: value)
             }
-            self.requestOptionsState.zenzaiMode.requestRichCandidates = parsed
+            self.configuration.applyRuntimePatch(.init(zenzaiRequestRichCandidates: parsed))
 
         case "zenzai.experimentalPredictiveInput":
             guard let parsed = Self.parseBool(value) else {
                 throw SessionError.invalidConfigValue(key: key, value: value)
             }
-            self.requestOptionsState.experimentalZenzaiPredictiveInput = parsed
+            self.configuration.applyRuntimePatch(.init(experimentalZenzaiPredictiveInput: parsed))
+
+        case "liveConversion.enabled":
+            guard let parsed = Self.parseBool(value) else {
+                throw SessionError.invalidConfigValue(key: key, value: value)
+            }
+            self.configuration.applyRuntimePatch(.init(liveConversionEnabled: parsed))
+            self.liveConversionState.config = self.sessionConfig.liveConversion
+            self.refreshLiveConversionSnapshot()
+
+        case "liveConversion.autoCommitThreshold":
+            if value.isEmpty {
+                self.configuration.applyRuntimePatch(.init(liveConversionAutoCommitThreshold: .set(nil)))
+            } else if let parsed = Int(value), parsed > 0 {
+                self.configuration.applyRuntimePatch(.init(liveConversionAutoCommitThreshold: .set(parsed)))
+            } else {
+                throw SessionError.invalidConfigValue(key: key, value: value)
+            }
+            self.liveConversionState.config = self.sessionConfig.liveConversion
+            self.refreshLiveConversionSnapshot()
 
         default:
             throw SessionError.invalidConfigKey(key)
@@ -545,22 +588,19 @@ package struct AncoSession {
     }
 
     private func initialConfigCommands() -> [AncoSessionRequest] {
-        Self.configCommands(
-            requestOptions: self.initialRequestOptionsState,
-            inputStyle: self.initialInputStyle,
-            displayTopN: self.initialDisplayTopN,
-            view: self.initialView
-        )
+        var commands: [AncoSessionRequest] = []
+        if let presetID = self.initialConfiguration.preset?.id {
+            commands.append(.setConfig(key: "preset", value: presetID))
+        }
+        commands.append(contentsOf: Self.configCommands(config: self.initialConfiguration.effectiveConfig))
+        return commands
     }
 
     private static func configCommands(
-        requestOptions: ConvertRequestOptions,
-        inputStyle: InputStyle,
-        displayTopN: Int,
-        view: CandidateView
+        config: SessionConfig
     ) -> [AncoSessionRequest] {
         let inputStyleValue: String
-        switch inputStyle {
+        switch config.inputStyle {
         case .direct:
             inputStyleValue = "direct"
         case .roman2kana:
@@ -570,32 +610,39 @@ package struct AncoSession {
         }
 
         var commands: [AncoSessionRequest] = [
-            .setConfig(key: "displayTopN", value: String(displayTopN)),
-            .setConfig(key: "view", value: view.rawValue),
+            .setConfig(key: "displayTopN", value: String(config.displayTopN)),
+            .setConfig(key: "view", value: config.view.rawValue),
             .setConfig(key: "inputStyle", value: inputStyleValue),
             .setConfig(
                 key: "onlyWholeConversion",
-                value: requestOptions.requestQuery == .完全一致 ? "true" : "false"
+                value: config.requestOptions.requestQuery == .完全一致 ? "true" : "false"
             ),
             .setConfig(
                 key: "predictionMode",
-                value: Self.predictionModeValue(requestOptions.requireJapanesePrediction)
+                value: Self.predictionModeValue(config.requestOptions.requireJapanesePrediction)
             ),
             .setConfig(
                 key: "zenzai.inferenceLimit",
-                value: String(requestOptions.zenzaiMode.inferenceLimit)
+                value: String(config.requestOptions.zenzaiMode.inferenceLimit)
             ),
             .setConfig(
                 key: "zenzai.requestRichCandidates",
-                value: requestOptions.zenzaiMode.requestRichCandidates ? "true" : "false"
+                value: config.requestOptions.zenzaiMode.requestRichCandidates ? "true" : "false"
             ),
             .setConfig(
                 key: "zenzai.experimentalPredictiveInput",
-                value: requestOptions.experimentalZenzaiPredictiveInput ? "true" : "false"
+                value: config.requestOptions.experimentalZenzaiPredictiveInput ? "true" : "false"
+            ),
+            .setConfig(
+                key: "liveConversion.enabled",
+                value: config.liveConversion.enabled ? "true" : "false"
             )
         ]
+        if let threshold = config.liveConversion.autoCommitThreshold {
+            commands.append(.setConfig(key: "liveConversion.autoCommitThreshold", value: String(threshold)))
+        }
 
-        switch requestOptions.zenzaiMode.versionDependentMode {
+        switch config.requestOptions.zenzaiMode.versionDependentMode {
         case let .v2(mode):
             commands.append(.setConfig(key: "zenzai.profile", value: mode.profile ?? ""))
         case let .v3(mode):
@@ -666,5 +713,62 @@ package struct AncoSession {
         return -probabilities.reduce(into: 0.0) { result, probability in
             result += probability * log(probability)
         }
+    }
+
+    private static func request(for event: SessionEvent) -> AncoSessionRequest {
+        switch event {
+        case .quit:
+            .quit
+        case .deleteBackward:
+            .deleteBackward
+        case .clearComposition:
+            .clearComposition
+        case .nextPage:
+            .nextPage
+        case .save:
+            .save
+        case let .predictInput(count, maxEntropy, minLength):
+            .predictInput(count: count, maxEntropy: maxEntropy, minLength: minLength)
+        case .help:
+            .help
+        case let .typoCorrection(request):
+            .typoCorrection(.init(
+                rawCommand: request.rawCommand,
+                nBest: request.nBest,
+                beamSize: request.beamSize,
+                topK: request.topK,
+                maxSteps: request.maxSteps,
+                alpha: request.alpha,
+                beta: request.beta,
+                gamma: request.gamma
+            ))
+        case let .updateConfig(key, value):
+            .setConfig(key: key, value: value)
+        case let .setLeftContext(context):
+            .setContext(context)
+        case let .specialInput(specialInput):
+            .specialInput(.init(rawValue: specialInput.rawValue)!)
+        case let .dumpHistory(path):
+            .dumpHistory(path)
+        case let .selectCandidate(index):
+            .selectCandidate(index)
+        case let .insert(text):
+            .input(text)
+        }
+    }
+
+    private mutating func refreshLiveConversionSnapshot() {
+        guard self.sessionConfig.liveConversion.enabled else {
+            self.liveConversionState.stopComposition()
+            self.lastLiveConversionSnapshot = nil
+            return
+        }
+        self.lastLiveConversionSnapshot = self.liveConversionState.update(
+            self.composingText,
+            candidates: self.lastMainCandidates,
+            firstClauseResults: self.lastFirstClauseCandidates,
+            convertTargetCursorPosition: self.composingText.convertTargetCursorPosition,
+            convertTarget: self.composingText.convertTarget
+        )
     }
 }

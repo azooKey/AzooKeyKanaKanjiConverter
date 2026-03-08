@@ -30,6 +30,7 @@ extension Subcommands {
                 defaultDictionaryRequestOptions: requestOptions,
                 inputStyle: self.options.inputStyle,
                 displayTopN: self.options.displayTopN,
+                preset: self.options.sessionPreset,
                 debugPossibleNexts: true,
                 userDictionaryItems: userDictionaryItems
             )
@@ -65,7 +66,7 @@ extension Subcommands {
                         self.printTypoCorrectionResult(result)
                         continue
                     }
-                    let result = try session.execute(command)
+                    let result = try session.execute(event: Self.event(for: command))
                     self.printResult(result)
                     if result.action == .quit {
                         return
@@ -105,13 +106,13 @@ extension Subcommands {
 
             case .configUpdated:
                 if case .setConfig("view", _) = result.submittedCommand {
-                    self.printCandidates(result.displayedCandidates)
+                    self.printPresentedContent(result.snapshot.presentedContent)
                 } else if let message = result.message {
                     print(message)
                 }
 
             case .pageUpdated:
-                self.printCandidates(result.displayedCandidates)
+                self.printPresentedContent(result.snapshot.presentedContent, fallbackCandidates: result.displayedCandidates)
 
             case .candidatesUpdated:
                 if let message = result.message {
@@ -121,7 +122,7 @@ extension Subcommands {
                     print("\(bold: "Time (ip):") \(predictiveInputTime)")
                 }
                 print(result.composingText.convertTarget)
-                self.printCandidates(result.displayedCandidates)
+                self.printPresentedContent(result.snapshot.presentedContent, fallbackCandidates: result.displayedCandidates)
                 if let entropy = result.entropy {
                     print("\(bold: "Entropy:") \(entropy)")
                 }
@@ -161,6 +162,66 @@ extension Subcommands {
                 } else {
                     print("\(bold: String(index)). \(candidate.text)")
                 }
+            }
+        }
+
+        private func printPresentedContent(
+            _ content: SessionPresentedContent,
+            fallbackCandidates: [Candidate] = []
+        ) {
+            switch content {
+            case let .candidates(candidates):
+                self.printCandidates(candidates.isEmpty ? fallbackCandidates : candidates)
+            case let .liveConversion(snapshot):
+                print("\(bold: "Live:") \(snapshot.displayedText)")
+                if let autoCommitCandidate = snapshot.autoCommitCandidate {
+                    print("\(bold: "Auto Commit:") \(autoCommitCandidate.text)")
+                }
+                if let currentCandidate = snapshot.currentCandidate {
+                    self.printCandidates([currentCandidate])
+                }
+            }
+        }
+
+        private static func event(for request: AncoSessionRequest) -> SessionEvent {
+            switch request {
+            case .quit:
+                .quit
+            case .deleteBackward:
+                .deleteBackward
+            case .clearComposition:
+                .clearComposition
+            case .nextPage:
+                .nextPage
+            case .save:
+                .save
+            case let .predictInput(count, maxEntropy, minLength):
+                .predictInput(count: count, maxEntropy: maxEntropy, minLength: minLength)
+            case .help:
+                .help
+            case let .typoCorrection(command):
+                .typoCorrection(.init(
+                    rawCommand: command.rawCommand,
+                    nBest: command.nBest,
+                    beamSize: command.beamSize,
+                    topK: command.topK,
+                    maxSteps: command.maxSteps,
+                    alpha: command.alpha,
+                    beta: command.beta,
+                    gamma: command.gamma
+                ))
+            case let .setConfig(key, value):
+                .updateConfig(key: key, value: value)
+            case let .setContext(context):
+                .setLeftContext(context)
+            case let .specialInput(input):
+                .specialInput(.init(rawValue: input.rawValue)!)
+            case let .dumpHistory(path):
+                .dumpHistory(path)
+            case let .selectCandidate(index):
+                .selectCandidate(index)
+            case let .input(text):
+                .insert(text)
             }
         }
     }

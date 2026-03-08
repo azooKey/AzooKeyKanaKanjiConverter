@@ -6,6 +6,7 @@ extension AncoSession {
         preloadDictionary: Bool = false,
         inputStyle: InputStyle = .direct,
         displayTopN: Int = 1,
+        preset: String? = nil,
         debugPossibleNexts: Bool = false,
         userDictionaryItems: [InputUserDictionaryItem] = []
     ) {
@@ -14,6 +15,7 @@ extension AncoSession {
             requestOptions: requestOptions,
             inputStyle: inputStyle,
             displayTopN: displayTopN,
+            preset: preset,
             debugPossibleNexts: debugPossibleNexts,
             userDictionaryItems: userDictionaryItems
         )
