@@ -42,7 +42,6 @@ public struct ZenzTokenizer {
         self.tokenizer = tokenizer
         self.fastPathState = .init(isEnabled: enableFastTokenizerPath)
     }
-
     public func encode(text: String) -> [Int] {
         guard self.fastPathState.shouldUseFastPath() else {
             return self.encodeSlow(text: text)
@@ -71,6 +70,9 @@ public struct ZenzTokenizer {
         return output
     }
 
+    public func encode(text: String, addSpecialTokens: Bool) -> [Int] {
+        self.tokenizer.encode(text: text, addSpecialTokens: addSpecialTokens)
+    }
     public func decode(tokens: [Int]) -> String {
         self.tokenizer.decode(tokens: tokens)
     }

@@ -133,3 +133,5 @@ extension RegisteredNode {
         return CandidateData(clauses: clauses, data: data)
     }
 }
+
+extension RegisteredNode: Sendable {}

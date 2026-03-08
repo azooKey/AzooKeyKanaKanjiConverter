@@ -1,3 +1,4 @@
+#if !ZenzaiCoreML || !canImport(CoreML)
 #if Zenzai || ZenzaiCPU
 import llama
 #endif
@@ -124,3 +125,4 @@ struct ZenzInputTextGenerator {
         return String(predictedCharacters)
     }
 }
+#endif
