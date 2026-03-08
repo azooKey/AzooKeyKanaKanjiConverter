@@ -292,14 +292,11 @@ package struct AncoSession {
                 throw SessionError.invalidCandidateIndex(index)
             }
             let candidate = self.lastCandidates[index]
-            self.converter.setCompletedData(candidate)
-            self.converter.updateLearningData(candidate)
-            self.composingText.prefixComplete(composingCount: candidate.composingCount)
-            if self.composingText.isEmpty {
+            switch self.converter.completePrefixCandidate(candidate, composingText: &self.composingText) {
+            case .compositionEnded:
                 self.composingText.stopComposition()
-                self.converter.stopComposition()
                 self.liveConversionState.stopComposition()
-            } else {
+            case .compositionContinues:
                 self.liveConversionState.updateAfterFirstClauseCompletion()
             }
             self.leftSideContext += candidate.text
