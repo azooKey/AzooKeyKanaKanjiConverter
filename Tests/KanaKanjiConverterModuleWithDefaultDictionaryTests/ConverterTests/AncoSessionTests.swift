@@ -191,4 +191,15 @@ final class AncoSessionTests: XCTestCase {
             "expected view switch to immediately expose prediction candidates, got: \(result.displayedCandidates.map { $0.text })"
         )
     }
+
+    func testSwitchingToLiveConversionViewImmediatelyReturnsLiveCandidate() throws {
+        var session = self.makeSession()
+        _ = try session.execute(.input("あずーきー"))
+
+        let result = try session.execute(.setConfig(key: "view", value: "liveConversion"))
+
+        XCTAssertEqual(result.action, .configUpdated)
+        XCTAssertEqual(result.displayedCandidates.count, 1)
+        XCTAssertEqual(result.displayedCandidates.first?.text, "azooKey")
+    }
 }

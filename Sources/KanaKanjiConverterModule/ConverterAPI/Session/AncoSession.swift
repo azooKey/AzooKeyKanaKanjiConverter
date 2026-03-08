@@ -44,6 +44,7 @@ package struct AncoSession {
     private enum CandidateView: String, Sendable {
         case main
         case prediction
+        case liveConversion
     }
 
     package enum SessionError: Error, LocalizedError {
@@ -91,9 +92,11 @@ package struct AncoSession {
     package private(set) var lastCandidates: [Candidate] = []
     package private(set) var lastMainCandidates: [Candidate] = []
     package private(set) var lastPredictionCandidates: [Candidate] = []
+    package private(set) var lastLiveConversionSnapshot: LiveConversionSnapshot?
     package private(set) var leftSideContext: String = ""
     package private(set) var page: Int = 0
     package private(set) var histories: [AncoSessionRequest] = []
+    private var liveConversionState = LiveConversionState(config: .init(enabled: true))
 
     package init(
         converter: KanaKanjiConverter,
@@ -283,6 +286,9 @@ package struct AncoSession {
             if self.composingText.isEmpty {
                 self.composingText.stopComposition()
                 self.converter.stopComposition()
+                self.liveConversionState.stopComposition()
+            } else {
+                self.liveConversionState.updateAfterFirstClauseCompletion()
             }
             self.leftSideContext += candidate.text
             return self.updateCandidates(
@@ -307,8 +313,10 @@ package struct AncoSession {
         self.lastCandidates = []
         self.lastMainCandidates = []
         self.lastPredictionCandidates = []
+        self.lastLiveConversionSnapshot = nil
         self.leftSideContext = ""
         self.page = 0
+        self.liveConversionState.stopComposition()
     }
 
     package func experimentalRequestTypoCorrection(
@@ -347,6 +355,13 @@ package struct AncoSession {
         }
         self.lastMainCandidates = mainResults
         self.lastPredictionCandidates = result.predictionResults
+        self.lastLiveConversionSnapshot = self.liveConversionState.update(
+            self.composingText,
+            candidates: mainResults,
+            firstClauseResults: result.firstClauseResults,
+            convertTargetCursorPosition: self.composingText.convertTargetCursorPosition,
+            convertTarget: self.composingText.convertTarget
+        )
         self.lastCandidates = self.currentCandidates()
         self.page = 0
 
@@ -398,6 +413,8 @@ package struct AncoSession {
             self.lastMainCandidates
         case .prediction:
             self.lastPredictionCandidates
+        case .liveConversion:
+            self.lastLiveConversionSnapshot?.currentCandidate.map { [$0] } ?? []
         }
     }
 
