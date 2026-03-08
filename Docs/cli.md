@@ -71,7 +71,7 @@ $ anco session --roman2kana -n 10 --disable_prediction
 == Type :q to end session, type :d to delete character, type :c to stop composition. For other commands, type :h ==
 ```
 
-キーを入力してEnterを押すと変換候補が表示されます。`:`で始まる特殊コマンドを利用することで、削除、確定、文脈の設定などの諸操作を行うことが出来ます。
+通常の入力文字は1文字ごとに即時処理され、変換候補が更新されます。`:`で始まる特殊コマンドはコマンド全体を入力してEnterで実行します。通常の入力文字もEnterを押してから処理したい場合は`--disable-immediate-input`を指定します。
 
 ### リプレイ
 
