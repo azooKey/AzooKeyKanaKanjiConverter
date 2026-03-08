@@ -67,7 +67,7 @@ extension Subcommands {
                     }
                     let result = try session.execute(command)
                     self.printResult(result)
-                    if result.shouldQuit {
+                    if result.action == .quit {
                         return
                     }
                 } catch {

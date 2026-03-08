@@ -1,10 +1,5 @@
 package enum AncoSessionRequest: Sendable, Equatable {
     package struct HelpItem: Sendable, Equatable {
-        package init(usage: String, description: String) {
-            self.usage = usage
-            self.description = description
-        }
-
         package var usage: String
         package var description: String
     }
@@ -22,26 +17,6 @@ package enum AncoSessionRequest: Sendable, Equatable {
     }
 
     package struct TypoCorrection: Sendable, Equatable {
-        package init(
-            rawCommand: String,
-            nBest: Int,
-            beamSize: Int,
-            topK: Int,
-            maxSteps: Int?,
-            alpha: Float,
-            beta: Float,
-            gamma: Float
-        ) {
-            self.rawCommand = rawCommand
-            self.nBest = nBest
-            self.beamSize = beamSize
-            self.topK = topK
-            self.maxSteps = maxSteps
-            self.alpha = alpha
-            self.beta = beta
-            self.gamma = gamma
-        }
-
         package var rawCommand: String
         package var nBest: Int
         package var beamSize: Int

@@ -3,12 +3,6 @@ import SwiftUtils
 
 package struct AncoSession {
     package struct InputUserDictionaryItem: Codable, Sendable, Equatable {
-        package init(word: String, reading: String, hint: String? = nil) {
-            self.word = word
-            self.reading = reading
-            self.hint = hint
-        }
-
         package var word: String
         package var reading: String
         package var hint: String?
@@ -26,38 +20,6 @@ package struct AncoSession {
     }
 
     package struct ExecutionResult: Sendable {
-        package init(
-            action: Action,
-            submittedCommand: AncoSessionRequest,
-            executedCommand: AncoSessionRequest,
-            composingText: ComposingText,
-            leftSideContext: String,
-            candidates: [Candidate],
-            displayedCandidates: [Candidate],
-            displayedCandidateStartIndex: Int,
-            page: Int,
-            histories: [AncoSessionRequest],
-            message: String? = nil,
-            elapsedTime: TimeInterval? = nil,
-            predictiveInputTime: TimeInterval? = nil,
-            entropy: Double? = nil
-        ) {
-            self.action = action
-            self.submittedCommand = submittedCommand
-            self.executedCommand = executedCommand
-            self.composingText = composingText
-            self.leftSideContext = leftSideContext
-            self.candidates = candidates
-            self.displayedCandidates = displayedCandidates
-            self.displayedCandidateStartIndex = displayedCandidateStartIndex
-            self.page = page
-            self.histories = histories
-            self.message = message
-            self.elapsedTime = elapsedTime
-            self.predictiveInputTime = predictiveInputTime
-            self.entropy = entropy
-        }
-
         package var action: Action
         package var submittedCommand: AncoSessionRequest
         package var executedCommand: AncoSessionRequest
@@ -72,18 +34,9 @@ package struct AncoSession {
         package var elapsedTime: TimeInterval?
         package var predictiveInputTime: TimeInterval?
         package var entropy: Double?
-
-        package var shouldQuit: Bool {
-            self.action == .quit
-        }
     }
 
     package struct TypoCorrectionResult: Sendable {
-        package init(candidates: [ZenzaiTypoCandidate], elapsedTime: TimeInterval) {
-            self.candidates = candidates
-            self.elapsedTime = elapsedTime
-        }
-
         package var candidates: [ZenzaiTypoCandidate]
         package var elapsedTime: TimeInterval
     }
