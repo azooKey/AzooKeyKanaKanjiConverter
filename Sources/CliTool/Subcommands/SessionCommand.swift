@@ -1,9 +1,7 @@
-import Algorithms
 import ArgumentParser
 import Foundation
 import KanaKanjiConverterModuleWithDefaultDictionary
 import SwiftUtils
-import Tokenizers
 
 extension Subcommands {
     struct Session: AsyncParsableCommand {
@@ -68,372 +66,86 @@ extension Subcommands {
 
         static let configuration = CommandConfiguration(commandName: "session", abstract: "Start session for incremental input.")
 
-        private func getTemporaryDirectory() -> URL? {
-            let fileManager = FileManager.default
-            let tempDirectoryURL = fileManager.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-
-            do {
-                try fileManager.createDirectory(at: tempDirectoryURL, withIntermediateDirectories: true, attributes: nil)
-                print("Temporary directory created at \(tempDirectoryURL)")
-                return tempDirectoryURL
-            } catch {
-                print("Error creating temporary directory: \(error)")
-                return nil
-            }
-        }
-
-        private func parseUserDictionaryFile() throws -> [InputUserDictionaryItem] {
-            guard let configUserDictionary else {
-                return []
-            }
-            let url = URL(fileURLWithPath: configUserDictionary)
-            let data = try Data(contentsOf: url)
-            return try JSONDecoder().decode([InputUserDictionaryItem].self, from: data)
-        }
-
-        @MainActor mutating func run() async {
+        @MainActor mutating func run() async throws {
             if self.zenzV2 {
-                print("\(bold: "We strongly recommend to use zenz-v3 models")")
-            }
-            if (self.zenzV2 || self.zenzV3) && self.zenzWeightPath.isEmpty {
-                preconditionFailure("\(bold: "zenz version is specified but --zenz weight is not specified")")
+                Swift.print("\(bold: "We strongly recommend to use zenz-v3 models")")
             }
             if !self.zenzWeightPath.isEmpty && (!self.zenzV2 && !self.zenzV3) {
-                print("zenz version is not specified. By default, zenz-v3 will be used.")
+                Swift.print("zenz version is not specified. By default, zenz-v3 will be used.")
             }
 
-            let userDictionary = try! self.parseUserDictionaryFile().map {
-                DicdataElement(word: $0.word, ruby: $0.reading.toKatakana(), cid: CIDData.固有名詞.cid, mid: MIDData.一般.mid, value: -10)
-            }
+            let requestOptions = try self.makeRequestOptions()
+            let userDictionaryItems = try AncoSession.parseUserDictionaryItems(
+                from: self.configUserDictionary.map(URL.init(fileURLWithPath:))
+            )
+            var session = AncoSession(
+                defaultDictionaryRequestOptions: requestOptions,
+                inputStyle: self.roman2kana ? .roman2kana : .direct,
+                displayTopN: self.displayTopN,
+                debugPossibleNexts: true,
+                userDictionaryItems: userDictionaryItems
+            )
 
-            let learningType: LearningType = if self.writableMemoryPath != nil {
-                .inputAndOutput
-            } else if self.readOnlyMemoryPath != nil {
-                // 読み取りのみ
-                .onlyOutput
-            } else if self.enableLearning {
-                // 読み書き
-                .inputAndOutput
-            } else {
-                // 読み書きなし
-                .nothing
-            }
-            let memoryDirectory = if let writableMemoryPath {
-                URL(fileURLWithPath: writableMemoryPath)
-            } else if let readOnlyMemoryPath {
-                URL(fileURLWithPath: readOnlyMemoryPath)
-            } else if self.enableLearning {
-                if let dir = self.getTemporaryDirectory() {
-                    dir
-                } else {
-                    fatalError("Could not get temporary directory.")
-                }
-            } else {
-                URL(fileURLWithPath: "")
-            }
-            print("Working with \(learningType) mode. Memory path is \(memoryDirectory).")
+            Swift.print("Working with \(requestOptions.learningType) mode. Memory path is \(session.memoryDirectoryURL).")
 
-            let converter = KanaKanjiConverter.withDefaultDictionary()
-            converter.importDynamicUserDictionary(userDictionary)
-            var composingText = ComposingText()
-            let inputStyle: InputStyle = self.roman2kana ? .roman2kana : .direct
-            var lastCandidates: [Candidate] = []
-            var leftSideContext: String = ""
-            var page = 0
-
-            var histories = [String]()
-
-            var inputs = self.replayHistory.map {
-                try! String(contentsOfFile: $0, encoding: .utf8)
-            }?.split(by: "\n")
-            inputs?.append(":q")
-
+            var inputs = try self.loadReplayInputs()
             while true {
-                print()
-                print("\(bold: "== Type :q to end session, type :d to delete character, type :c to stop composition. For other commands, type :h ==")")
-                if !leftSideContext.isEmpty {
-                    print("\(bold: "Current Left-Side Context"): \(leftSideContext)")
+                Swift.print()
+                Swift.print("\(bold: "== Type :q to end session, type :d to delete character, type :c to stop composition. For other commands, type :h ==")")
+                if !session.leftSideContext.isEmpty {
+                    Swift.print("\(bold: "Current Left-Side Context"): \(session.leftSideContext)")
                 }
-                var input = if inputs != nil {
-                    inputs!.removeFirst()
+
+                let rawInput: String
+                if inputs != nil {
+                    rawInput = inputs!.removeFirst()
                 } else {
-                    readLine(strippingNewline: true) ?? ""
+                    rawInput = readLine(strippingNewline: true) ?? ""
                 }
-                histories.append(input)
-                switch input {
-                case ":q", ":quit":
-                    // 終了
-                    return
-                case ":d", ":del":
-                    if !composingText.isEmpty {
-                        composingText.deleteBackwardFromCursorPosition(count: 1)
-                    } else {
-                        _ = leftSideContext.popLast()
-                        continue
-                    }
-                case ":c", ":clear":
-                    // クリア
-                    composingText.stopComposition()
-                    converter.stopComposition()
-                    leftSideContext = ""
-                    print("composition is stopped")
-                    continue
-                case ":n", ":next":
-                    // ページ送り
-                    page += 1
-                    for (i, candidate) in lastCandidates[self.displayTopN * page ..< self.displayTopN * (page + 1)].indexed() {
-                        if self.reportScore {
-                            print("\(bold: String(i)). \(candidate.text) \(bold: "score:") \(candidate.value)")
-                        } else {
-                            print("\(bold: String(i)). \(candidate.text)")
-                        }
-                    }
-                    continue
-                case ":s", ":save":
-                    composingText.stopComposition()
-                    converter.stopComposition()
-                    converter.commitUpdateLearningData()
-                    if learningType.needUpdateMemory {
-                        print("saved")
-                    } else {
-                        print("anything should not be saved because the learning type is not for update memory")
-                    }
-                    continue
-                case let command where command == ":ip" || command.hasPrefix(":ip "):
-                    // 入力中の次の文字の予測を取得する (zenz-v3)
-                    let parts = command.split(separator: " ")
-                    var requestedCount: Int = 1
-                    var maxEntropy: Float?
-                    var minLength: Int = 1
-                    for part in parts.dropFirst() {
-                        if let count = Int(part) {
-                            requestedCount = count
-                            continue
-                        }
-                        if part.hasPrefix("max_entropy=") {
-                            let value = part.dropFirst("max_entropy=".count)
-                            if let parsed = Float(value) {
-                                maxEntropy = parsed
-                            }
-                            continue
-                        }
-                        if part.hasPrefix("min_length=") {
-                            let value = part.dropFirst("min_length=".count)
-                            if let parsed = Int(value) {
-                                minLength = parsed
-                            }
-                        }
-                    }
-                    let predictCount = max(1, min(requestedCount, 50))
-                    let predictMinLength = max(1, min(minLength, predictCount))
-                    let ipStart = Date()
-                    let (predictedText, suffixCount) = converter.predictNextInputText(
-                        leftSideContext: leftSideContext,
-                        composingText: composingText,
-                        count: predictCount,
-                        minLength: predictMinLength,
-                        maxEntropy: maxEntropy,
-                        options: requestOptions(learningType: learningType, memoryDirectory: memoryDirectory, leftSideContext: leftSideContext),
-                        inputStyle: inputStyle,
-                        debugPossibleNexts: true
-                    )
-                    guard !predictedText.isEmpty else {
-                        continue
-                    }
-                    print("\(bold: "Time (ip):") \(-ipStart.timeIntervalSinceNow)")
 
-                    if suffixCount > 0 {
-                        composingText.deleteBackwardFromCursorPosition(count: suffixCount)
-                    }
-
-                    let insertText = (inputStyle == .roman2kana) ? predictedText.toHiragana() : predictedText
-                    composingText.insertAtCursorPosition(insertText, inputStyle: inputStyle)
-                    input = insertText
-                case let command where command == ":tc" || command.hasPrefix(":tc "):
-                    // typo correction候補を取得する
-                    let parts = command.split(separator: " ")
-                    var nBest = 5
-                    var beamSize = 10
-                    var topK = 100
-                    var maxSteps: Int?
-                    var alpha: Float = 2.0
-                    var beta: Float = 3.0
-                    var gamma: Float = 2.0
-
-                    for part in parts.dropFirst() {
-                        if let parsed = Int(part) {
-                            nBest = parsed
-                            continue
-                        }
-                        if part.hasPrefix("beam=") {
-                            if let parsed = Int(part.dropFirst("beam=".count)) {
-                                beamSize = parsed
-                            }
-                            continue
-                        }
-                        if part.hasPrefix("top_k=") {
-                            if let parsed = Int(part.dropFirst("top_k=".count)) {
-                                topK = parsed
-                            }
-                            continue
-                        }
-                        if part.hasPrefix("max_steps=") {
-                            if let parsed = Int(part.dropFirst("max_steps=".count)) {
-                                maxSteps = parsed
-                            }
-                            continue
-                        }
-                        if part.hasPrefix("alpha=") {
-                            if let parsed = Float(part.dropFirst("alpha=".count)) {
-                                alpha = parsed
-                            }
-                            continue
-                        }
-                        if part.hasPrefix("beta=") {
-                            if let parsed = Float(part.dropFirst("beta=".count)) {
-                                beta = parsed
-                            }
-                            continue
-                        }
-                        if part.hasPrefix("gamma=") {
-                            if let parsed = Float(part.dropFirst("gamma=".count)) {
-                                gamma = parsed
-                            }
-                        }
-                    }
-
-                    let tcStart = Date()
-                    let typoCandidates = converter.experimentalRequestTypoCorrection(
-                        leftSideContext: leftSideContext,
-                        composingText: composingText,
-                        options: requestOptions(learningType: learningType, memoryDirectory: memoryDirectory, leftSideContext: leftSideContext),
-                        inputStyle: inputStyle,
-                        config: self.experimentalTypoCorrectionConfig(
-                            beamSize: max(1, min(beamSize, 256)),
-                            topK: max(1, min(topK, 256)),
-                            nBest: max(1, min(nBest, 50)),
-                            maxSteps: maxSteps,
-                            alpha: alpha,
-                            beta: beta,
-                            gamma: gamma
-                        )
-                    )
-                    if typoCandidates.isEmpty {
-                        print("No typo correction candidate found.")
-                        continue
-                    }
-                    for (i, candidate) in typoCandidates.indexed() {
-                        print(
-                            "\(bold: String(i)). \(candidate.correctedInput) " +
-                            "\(bold: "score:") \(candidate.score) " +
-                            "\(bold: "lm:") \(candidate.lmScore) " +
-                            "\(bold: "channel:") \(candidate.channelCost) " +
-                            "\(bold: "prom:") \(candidate.prominence) " +
-                            "\(bold: "text:") \(candidate.convertedText)"
-                        )
-                    }
-                    print("\(bold: "Time (tc):") \(-tcStart.timeIntervalSinceNow)")
+                if let typoConfig = self.parseTypoCorrectionCommand(rawInput) {
+                    session.recordHistory(.typoCorrection(rawInput))
+                    let result = session.experimentalRequestTypoCorrection(config: typoConfig)
+                    self.printTypoCorrectionResult(result)
                     continue
-                case ":h", ":help":
-                    // ヘルプ
-                    print("""
-                    \(bold: "== anco session commands ==")
-                    \(bold: ":q, :quit") - quit session
-                    \(bold: ":c, :clear") - clear composition
-                    \(bold: ":d, :del") - delete one character
-                    \(bold: ":n, :next") - see more candidates
-                    \(bold: ":s, :save") - save memory to temporary directory
-                    \(bold: ":ip [n] [max_entropy=F] [min_length=N]") - predict next input character(s) (zenz-v3)
-                    \(bold: ":tc [n] [beam=N] [top_k=N] [max_steps=N] [alpha=F] [beta=F] [gamma=F]") - typo correction candidates (LM + channel)
-                    \(bold: ":%d") - select candidate at that index (like :3 to select 3rd candidate)
-                    \(bold: ":ctx %s") - set the string as context
-                    \(bold: ":input %s") - insert special characters to input. Supported special characters:
-                    - eot: end of text (for finalizing composition)
-                    \(bold: ":dump %s") - dump command history to specified file name (default: history.txt).
-                    """)
-                default:
-                    if input.hasPrefix(":ctx") {
-                        let ctx = String(input.split(by: ":ctx ").last ?? "")
-                        leftSideContext.append(ctx)
-                        continue
-                    } else if input.hasPrefix(":input") {
-                        let specialInput = String(input.split(by: ":input ").last ?? "")
-                        switch specialInput {
-                        case "eot":
-                            composingText.insertAtCursorPosition([.init(piece: .compositionSeparator, inputStyle: inputStyle)])
-                        default:
-                            fatalError("Unknown special input: \(specialInput)")
-                        }
-                    } else if input.hasPrefix(":dump") {
-                        let fileName = if ":dump " < input {
-                            String(input.dropFirst(6))
-                        } else {
-                            "history.txt"
-                        }
-                        histories.removeAll(where: {$0.hasPrefix(":dump")})
-                        let content = histories.joined(separator: "\n")
-                        try! content.write(to: URL(fileURLWithPath: fileName), atomically: true, encoding: .utf8)
-                        continue
-                    } else if input.hasPrefix(":"), let index = Int(input.dropFirst()) {
-                        if !lastCandidates.indices.contains(index) {
-                            print("\(bold: "Error"): Index \(index) is not available for current context.")
-                            continue
-                        }
-                        let candidate = lastCandidates[index]
-                        print("Submit \(candidate.text)")
-                        converter.setCompletedData(candidate)
-                        converter.updateLearningData(candidate)
-                        composingText.prefixComplete(composingCount: candidate.composingCount)
-                        if composingText.isEmpty {
-                            composingText.stopComposition()
-                            converter.stopComposition()
-                        }
-                        leftSideContext += candidate.text
-                    } else {
-                        input = String(input.map { (c: Character) -> Character in
-                            [
-                                "-": "ー",
-                                ".": "。",
-                                ",": "、"
-                            ][c, default: c]
-                        })
-                        composingText.insertAtCursorPosition(input, inputStyle: inputStyle)
+                }
+
+                guard let command = AncoSessionCommand(decoding: rawInput) else {
+                    Swift.print("\(bold: "Error"): Failed to parse command: \(rawInput)")
+                    continue
+                }
+
+                do {
+                    let result = try session.execute(command)
+                    self.printResult(result)
+                    if result.shouldQuit {
+                        return
                     }
+                } catch {
+                    Swift.print("\(bold: "Error"): \(error.localizedDescription)")
                 }
-                print(composingText.convertTarget)
-                let start = Date()
-                let result = converter.requestCandidates(composingText, options: requestOptions(learningType: learningType, memoryDirectory: memoryDirectory, leftSideContext: leftSideContext))
-                let mainResults = result.mainResults.filter {
-                    !self.onlyWholeConversion || $0.data.reduce(into: "", {$0.append(contentsOf: $1.ruby)}) == input.toKatakana()
-                }
-                for (i, candidate) in mainResults.prefix(self.displayTopN).indexed() {
-                    if self.reportScore {
-                        print("\(bold: String(i)). \(candidate.text) \(bold: "score:") \(candidate.value)")
-                    } else {
-                        print("\(bold: String(i)). \(candidate.text)")
-                    }
-                }
-                lastCandidates = mainResults
-                page = 0
-                if self.onlyWholeConversion {
-                    // entropyを示す
-                    let mean = mainResults.reduce(into: 0) { $0 += Double($1.value) } / Double(mainResults.count)
-                    let expValues = mainResults.map { exp(Double($0.value) - mean) }
-                    let sumOfExpValues = expValues.reduce(into: 0, +=)
-                    // 確率値に補正
-                    let probs = mainResults.map { exp(Double($0.value) - mean) / sumOfExpValues }
-                    let entropy = -probs.reduce(into: 0) { $0 += $1 * log($1) }
-                    print("\(bold: "Entropy:") \(entropy)")
-                }
-                print("\(bold: "Time:") \(-start.timeIntervalSinceNow)")
             }
         }
 
-        func requestOptions(learningType: LearningType, memoryDirectory: URL, leftSideContext: String?) -> ConvertRequestOptions {
-            let zenzaiVersionDependentMode: ConvertRequestOptions.ZenzaiVersionDependentMode = if self.zenzV2 {
-                .v2(.init(profile: self.configZenzaiProfile, leftSideContext: leftSideContext))
+        private func makeRequestOptions() throws -> ConvertRequestOptions {
+            if (self.zenzV2 || self.zenzV3) && self.zenzWeightPath.isEmpty {
+                throw ValidationError("zenz version is specified but --zenz weight is not specified")
+            }
+            let learningType: LearningType
+            if self.writableMemoryPath != nil {
+                learningType = .inputAndOutput
+            } else if self.readOnlyMemoryPath != nil {
+                learningType = .onlyOutput
+            } else if self.enableLearning {
+                learningType = .inputAndOutput
             } else {
-                .v3(.init(profile: self.configZenzaiProfile, topic: self.configZenzaiTopic, leftSideContext: leftSideContext))
+                learningType = .nothing
+            }
+
+            let zenzaiVersionDependentMode: ConvertRequestOptions.ZenzaiVersionDependentMode = if self.zenzV2 {
+                .v2(.init(profile: self.configZenzaiProfile))
+            } else {
+                .v3(.init(profile: self.configZenzaiProfile, topic: self.configZenzaiTopic))
             }
             let personalizationMode: ConvertRequestOptions.ZenzaiMode.PersonalizationMode?
             if let base = self.configZenzaiBaseLM, let personal = self.configZenzaiPersonalLM {
@@ -445,22 +157,13 @@ extension Subcommands {
                     alpha: self.configZenzaiPersonalizationAlpha
                 )
             } else if self.configZenzaiBaseLM != nil || self.configZenzaiPersonalLM != nil {
-                fatalError("Both --config_zenzai_base_lm and --config_zenzai_personal_lm must be set")
+                throw ValidationError("Both --config_zenzai_base_lm and --config_zenzai_personal_lm must be set")
             } else {
                 personalizationMode = nil
             }
             let japanesePredictionMode: ConvertRequestOptions.PredictionMode = (!self.onlyWholeConversion && !self.disablePrediction) ? .autoMix : .disabled
-            let typoMode = switch self.configTypoMode {
-            case "auto":
-                ConvertRequestOptions.TypoCorrectionMode.automatic
-            case "on":
-                ConvertRequestOptions.TypoCorrectionMode.enabled
-            case "off":
-                ConvertRequestOptions.TypoCorrectionMode.disabled
-            default:
-                fatalError("Unknown --config_typo_mode '\(self.configTypoMode)'. Use auto/on/off.")
-            }
-            var option: ConvertRequestOptions = .init(
+            let typoMode = try self.makeTypoMode()
+            var options = ConvertRequestOptions(
                 N_best: self.onlyWholeConversion ? max(self.configNBest, self.displayTopN) : self.configNBest,
                 requireJapanesePrediction: japanesePredictionMode,
                 requireEnglishPrediction: .disabled,
@@ -470,12 +173,14 @@ extension Subcommands {
                 halfWidthKanaCandidate: false,
                 learningType: learningType,
                 shouldResetMemory: false,
-                memoryDirectoryURL: memoryDirectory,
+                memoryDirectoryURL: self.writableMemoryPath.map(URL.init(fileURLWithPath:))
+                    ?? self.readOnlyMemoryPath.map(URL.init(fileURLWithPath:))
+                    ?? (learningType == .nothing ? URL(fileURLWithPath: "") : FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)),
                 sharedContainerURL: URL(fileURLWithPath: ""),
                 textReplacer: .withDefaultEmojiDictionary(),
                 specialCandidateProviders: KanaKanjiConverter.defaultSpecialCandidateProviders,
                 zenzaiMode: self.zenzWeightPath.isEmpty ? .off : .on(
-                    weight: URL(string: self.zenzWeightPath)!,
+                    weight: URL(fileURLWithPath: self.zenzWeightPath),
                     inferenceLimit: self.configZenzaiInferenceLimit,
                     requestRichCandidates: self.configRequestRichCandidates,
                     personalizationMode: personalizationMode,
@@ -486,12 +191,179 @@ extension Subcommands {
                 metadata: .init(versionString: "anco for debugging")
             )
             if self.onlyWholeConversion {
-                option.requestQuery = .完全一致
+                options.requestQuery = .完全一致
             }
-            return option
+            if learningType != .nothing,
+               self.writableMemoryPath == nil,
+               self.readOnlyMemoryPath == nil,
+               self.enableLearning {
+                try FileManager.default.createDirectory(at: options.memoryDirectoryURL, withIntermediateDirectories: true)
+            }
+            return options
         }
 
-        func experimentalTypoCorrectionConfig(
+        private func makeTypoMode() throws -> ConvertRequestOptions.TypoCorrectionMode {
+            switch self.configTypoMode {
+            case "auto":
+                .automatic
+            case "on":
+                .enabled
+            case "off":
+                .disabled
+            default:
+                throw ValidationError("Unknown --config_typo_mode '\(self.configTypoMode)'. Use auto/on/off.")
+            }
+        }
+
+        private func parseTypoCorrectionCommand(_ input: String) -> ExperimentalTypoCorrectionConfig? {
+            guard input == ":tc" || input.hasPrefix(":tc ") else {
+                return nil
+            }
+
+            let parts = input.split(separator: " ")
+            var nBest = 5
+            var beamSize = 10
+            var topK = 100
+            var maxSteps: Int?
+            var alpha: Float = 2.0
+            var beta: Float = 3.0
+            var gamma: Float = 2.0
+
+            for part in parts.dropFirst() {
+                if let parsed = Int(part) {
+                    nBest = parsed
+                    continue
+                }
+                if part.hasPrefix("beam=") {
+                    if let parsed = Int(part.dropFirst("beam=".count)) {
+                        beamSize = parsed
+                    }
+                    continue
+                }
+                if part.hasPrefix("top_k=") {
+                    if let parsed = Int(part.dropFirst("top_k=".count)) {
+                        topK = parsed
+                    }
+                    continue
+                }
+                if part.hasPrefix("max_steps=") {
+                    if let parsed = Int(part.dropFirst("max_steps=".count)) {
+                        maxSteps = parsed
+                    }
+                    continue
+                }
+                if part.hasPrefix("alpha=") {
+                    if let parsed = Float(part.dropFirst("alpha=".count)) {
+                        alpha = parsed
+                    }
+                    continue
+                }
+                if part.hasPrefix("beta=") {
+                    if let parsed = Float(part.dropFirst("beta=".count)) {
+                        beta = parsed
+                    }
+                    continue
+                }
+                if part.hasPrefix("gamma=") {
+                    if let parsed = Float(part.dropFirst("gamma=".count)) {
+                        gamma = parsed
+                    }
+                }
+            }
+
+            return self.experimentalTypoCorrectionConfig(
+                beamSize: max(1, min(beamSize, 256)),
+                topK: max(1, min(topK, 256)),
+                nBest: max(1, min(nBest, 50)),
+                maxSteps: maxSteps,
+                alpha: alpha,
+                beta: beta,
+                gamma: gamma
+            )
+        }
+
+        private func loadReplayInputs() throws -> [String]? {
+            guard let replayHistory else {
+                return nil
+            }
+            var inputs = try String(contentsOfFile: replayHistory, encoding: .utf8)
+                .components(separatedBy: .newlines)
+                .filter { !$0.isEmpty }
+            inputs.append(":q")
+            return inputs
+        }
+
+        private func printResult(_ result: AncoSession.ExecutionResult) {
+            switch result.action {
+            case .quit:
+                return
+
+            case .helpRequested:
+                if let message = result.message {
+                    Swift.print(message)
+                }
+                Swift.print(":tc [n] [beam=N] [top_k=N] [max_steps=N] [alpha=F] [beta=F] [gamma=F] - typo correction candidates (LM + channel)")
+
+            case .stateCleared, .saved, .configUpdated:
+                if let message = result.message {
+                    Swift.print(message)
+                }
+
+            case .pageUpdated:
+                self.printCandidates(result.displayedCandidates)
+
+            case .candidatesUpdated:
+                if let message = result.message {
+                    Swift.print(message)
+                }
+                if let predictiveInputTime = result.predictiveInputTime {
+                    Swift.print("\(bold: "Time (ip):") \(predictiveInputTime)")
+                }
+                Swift.print(result.composingText.convertTarget)
+                self.printCandidates(result.displayedCandidates)
+                if let entropy = result.entropy {
+                    Swift.print("\(bold: "Entropy:") \(entropy)")
+                }
+                if let elapsedTime = result.elapsedTime {
+                    Swift.print("\(bold: "Time:") \(elapsedTime)")
+                }
+
+            case .noAction:
+                if let message = result.message {
+                    Swift.print(message)
+                }
+            }
+        }
+
+        private func printTypoCorrectionResult(_ result: AncoSession.TypoCorrectionResult) {
+            if result.candidates.isEmpty {
+                Swift.print("No typo correction candidate found.")
+            } else {
+                for (index, candidate) in result.candidates.enumerated() {
+                    Swift.print(
+                        "\(bold: String(index)). \(candidate.correctedInput) " +
+                        "\(bold: "score:") \(candidate.score) " +
+                        "\(bold: "lm:") \(candidate.lmScore) " +
+                        "\(bold: "channel:") \(candidate.channelCost) " +
+                        "\(bold: "prom:") \(candidate.prominence) " +
+                        "\(bold: "text:") \(candidate.convertedText)"
+                    )
+                }
+            }
+            Swift.print("\(bold: "Time (tc):") \(result.elapsedTime)")
+        }
+
+        private func printCandidates(_ candidates: [Candidate]) {
+            for (index, candidate) in candidates.enumerated() {
+                if self.reportScore {
+                    Swift.print("\(bold: String(index)). \(candidate.text) \(bold: "score:") \(candidate.value)")
+                } else {
+                    Swift.print("\(bold: String(index)). \(candidate.text)")
+                }
+            }
+        }
+
+        private func experimentalTypoCorrectionConfig(
             beamSize: Int = 32,
             topK: Int = 64,
             nBest: Int = 5,
@@ -500,9 +372,7 @@ extension Subcommands {
             beta: Float = 3.0,
             gamma: Float = 2.0
         ) -> ExperimentalTypoCorrectionConfig {
-            if self.configTypoNGramN <= 0 {
-                fatalError("--config_typo_ngram_n must be positive")
-            }
+            precondition(self.configTypoNGramN > 0, "--config_typo_ngram_n must be positive")
             let languageModel: ExperimentalTypoCorrectionConfig.LanguageModel = if let prefix = self.configTypoNGramPrefix, !prefix.isEmpty {
                 .ngram(.init(prefix: prefix, n: self.configTypoNGramN, d: self.configTypoNGramD))
             } else {
