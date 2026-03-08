@@ -191,4 +191,38 @@ final class AncoSessionTests: XCTestCase {
             "expected view switch to immediately expose prediction candidates, got: \(result.displayedCandidates.map { $0.text })"
         )
     }
+
+    func testMoveCursorAllowsPartialCommitOfPrefixCandidate() throws {
+        var session = self.makeSession()
+
+        _ = try session.execute(.input("あずーきーは"))
+        let moveResult = try session.execute(.moveCursor(-1))
+
+        XCTAssertEqual(moveResult.composingText.convertTarget, "あずーきーは")
+        XCTAssertEqual(moveResult.composingText.convertTargetCursorPosition, "あずーきー".count)
+
+        guard let azooKeyIndex = moveResult.candidates.firstIndex(where: { $0.text == "azooKey" }) else {
+            return XCTFail("expected azooKey candidate in \(moveResult.candidates.map(\.text))")
+        }
+
+        let commitResult = try session.execute(.selectCandidate(azooKeyIndex))
+
+        XCTAssertEqual(commitResult.message, "Submit azooKey")
+        XCTAssertEqual(session.leftSideContext, "azooKey")
+        XCTAssertEqual(session.composingText.convertTarget, "は")
+        XCTAssertEqual(session.composingText.convertTargetCursorPosition, 1)
+    }
+
+    func testEditSegmentMovesCursorAndRefreshesPrefixCandidates() throws {
+        var session = self.makeSession()
+
+        _ = try session.execute(.input("あずーきーは"))
+        let result = try session.execute(.editSegment(-1))
+
+        XCTAssertEqual(result.composingText.convertTargetCursorPosition, "あずーきー".count)
+        XCTAssertTrue(
+            result.candidates.contains(where: { $0.text == "azooKey" }),
+            "expected prefix candidates for azooKey, got: \(result.candidates.map(\.text))"
+        )
+    }
 }

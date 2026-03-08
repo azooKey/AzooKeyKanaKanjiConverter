@@ -35,6 +35,8 @@ package enum AncoSessionRequest: Sendable, Equatable {
     case predictInput(count: Int, maxEntropy: Float?, minLength: Int)
     case help
     case typoCorrection(TypoCorrection)
+    case moveCursor(Int)
+    case editSegment(Int)
     case setConfig(key: String, value: String)
     case setContext(String)
     case specialInput(SpecialInput)
@@ -50,6 +52,8 @@ package enum AncoSessionRequest: Sendable, Equatable {
         .init(usage: ":s, :save", description: "save memory"),
         .init(usage: ":ip [n] [max_entropy=F] [min_length=N]", description: "predict next input character(s) (zenz-v3)"),
         .init(usage: ":tc [n] [beam=N] [top_k=N] [max_steps=N] [alpha=F] [beta=F] [gamma=F]", description: "typo correction candidates (LM + channel)"),
+        .init(usage: ":m, :move %d", description: "move cursor by relative offset"),
+        .init(usage: ":e, :edit %d", description: "edit segment boundary by relative offset"),
         .init(usage: ":cfg key=value", description: "update session config"),
         .init(usage: ":%d", description: "select candidate at that index (like :3 to select 3rd candidate)"),
         .init(usage: ":ctx %s", description: "set the string as context"),
@@ -82,6 +86,18 @@ package enum AncoSessionRequest: Sendable, Equatable {
             self = .save
         case ":h", ":help":
             self = .help
+        case let command where command == ":m" || command.hasPrefix(":m ") || command == ":move" || command.hasPrefix(":move "):
+            let parts = command.split(separator: " ")
+            guard parts.count == 2, let count = Int(parts[1]) else {
+                return nil
+            }
+            self = .moveCursor(count)
+        case let command where command == ":e" || command.hasPrefix(":e ") || command == ":edit" || command.hasPrefix(":edit "):
+            let parts = command.split(separator: " ")
+            guard parts.count == 2, let count = Int(parts[1]) else {
+                return nil
+            }
+            self = .editSegment(count)
         case let command where command == ":tc" || command.hasPrefix(":tc "):
             let parts = command.split(separator: " ")
             var nBest = 5
@@ -226,6 +242,10 @@ package enum AncoSessionRequest: Sendable, Equatable {
             return ":h"
         case let .typoCorrection(command):
             return command.rawCommand
+        case let .moveCursor(count):
+            return ":m \(count)"
+        case let .editSegment(count):
+            return ":e \(count)"
         case let .setConfig(key, value):
             return ":cfg \(key)=\(value)"
         case let .setContext(context):

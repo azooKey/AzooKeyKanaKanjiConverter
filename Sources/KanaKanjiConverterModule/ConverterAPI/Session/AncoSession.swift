@@ -82,6 +82,7 @@ package struct AncoSession {
     private let initialInputStyle: InputStyle
     private let initialDisplayTopN: Int
     private let initialView: CandidateView
+    private var didExperienceSegmentEdition = false
 
     package var memoryDirectoryURL: URL {
         self.requestOptionsState.memoryDirectoryURL
@@ -159,6 +160,12 @@ package struct AncoSession {
 
         case .deleteBackward:
             if !self.composingText.isEmpty {
+                if !self.composingText.isAtEndIndex {
+                    _ = self.composingText.moveCursorFromCursorPosition(
+                        count: self.composingText.convertTarget.count - self.composingText.convertTargetCursorPosition
+                    )
+                    self.didExperienceSegmentEdition = false
+                }
                 self.composingText.deleteBackwardFromCursorPosition(count: 1)
             } else {
                 _ = self.leftSideContext.popLast()
@@ -237,6 +244,21 @@ package struct AncoSession {
         case .typoCorrection:
             return self.makeResult(action: .noAction, submittedCommand: submittedCommand, executedCommand: submittedCommand)
 
+        case let .moveCursor(count):
+            guard !self.composingText.isEmpty else {
+                return self.makeResult(action: .noAction, submittedCommand: submittedCommand, executedCommand: submittedCommand)
+            }
+            _ = self.composingText.moveCursorFromCursorPosition(count: count)
+            self.didExperienceSegmentEdition = !self.composingText.isAtEndIndex
+            return self.updateCandidates(submittedCommand: submittedCommand, executedCommand: submittedCommand)
+
+        case let .editSegment(count):
+            guard !self.composingText.isEmpty else {
+                return self.makeResult(action: .noAction, submittedCommand: submittedCommand, executedCommand: submittedCommand)
+            }
+            self.editSegment(count: count)
+            return self.updateCandidates(submittedCommand: submittedCommand, executedCommand: submittedCommand)
+
         case let .setConfig(key, value):
             try self.updateConfig(key: key, value: value)
             self.page = 0
@@ -283,7 +305,12 @@ package struct AncoSession {
             if self.composingText.isEmpty {
                 self.composingText.stopComposition()
                 self.converter.stopComposition()
+            } else {
+                _ = self.composingText.moveCursorFromCursorPosition(
+                    count: self.composingText.convertTarget.count - self.composingText.convertTargetCursorPosition
+                )
             }
+            self.didExperienceSegmentEdition = false
             self.leftSideContext += candidate.text
             return self.updateCandidates(
                 submittedCommand: submittedCommand,
@@ -309,6 +336,7 @@ package struct AncoSession {
         self.lastPredictionCandidates = []
         self.leftSideContext = ""
         self.page = 0
+        self.didExperienceSegmentEdition = false
     }
 
     package func experimentalRequestTypoCorrection(
@@ -333,7 +361,7 @@ package struct AncoSession {
     ) -> ExecutionResult {
         let start = Date()
         let result = self.converter.requestCandidates(
-            self.composingText,
+            self.composingText.prefixToCursorPosition(),
             options: self.requestOptions(leftSideContext: self.leftSideContext)
         )
         let mainResults = result.mainResults.filter {
@@ -399,6 +427,24 @@ package struct AncoSession {
         case .prediction:
             self.lastPredictionCandidates
         }
+    }
+
+    private mutating func editSegment(count: Int) {
+        if count > 0 {
+            if self.composingText.isAtEndIndex && !self.didExperienceSegmentEdition {
+                _ = self.composingText.moveCursorFromCursorPosition(
+                    count: -self.composingText.convertTargetCursorPosition + count
+                )
+            } else {
+                _ = self.composingText.moveCursorFromCursorPosition(count: count)
+            }
+        } else {
+            _ = self.composingText.moveCursorFromCursorPosition(count: count)
+        }
+        if self.composingText.isAtStartIndex {
+            _ = self.composingText.moveCursorFromCursorPosition(count: 1)
+        }
+        self.didExperienceSegmentEdition = true
     }
 
     private func requestOptions(leftSideContext: String?) -> ConvertRequestOptions {
