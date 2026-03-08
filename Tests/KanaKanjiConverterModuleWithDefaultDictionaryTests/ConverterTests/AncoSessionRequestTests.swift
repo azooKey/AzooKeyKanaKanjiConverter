@@ -1,4 +1,5 @@
 import Foundation
+@testable import KanaKanjiConverterModule
 @testable import KanaKanjiConverterModuleWithDefaultDictionary
 import XCTest
 
