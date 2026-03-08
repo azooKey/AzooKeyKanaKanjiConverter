@@ -106,8 +106,8 @@ final class ZenzContext: ZenzContextProtocol {
                 var logprob: Float
             }
             var sumexp: Float = 0
-            let startIndex = (i - 1 - startOffset) * n_vocab
-            let endIndex = (i - startOffset) * n_vocab
+            let startIndex = (i - 1) * n_vocab
+            let endIndex = i * n_vocab
             var tokenHeap = FixedSizeHeap<TokenAndLogprob>(size: requestRichCandidates ? 3 : 1)
             for index in startIndex..<endIndex {
                 sumexp += expf(logits[index])
@@ -211,8 +211,8 @@ final class ZenzContext: ZenzContextProtocol {
         let n_vocab = logitsResult.vocabSize
 
         var exp_sum: Float = 0
-        let startIndex = (prompt_tokens.count - 1 - startOffset) * n_vocab
-        let endIndex = (prompt_tokens.count - startOffset) * n_vocab
+        let startIndex = startOffset * n_vocab
+        let endIndex = (startOffset + 1) * n_vocab
 
         var minHeap: FixedSizeHeap<NextCharacterCandidate> = .init(size: count)
         let token_to_penalty_weight: [Int: Float] = prompt_tokens.indexed().reduce(into: [:]) { dict, item in
@@ -248,8 +248,8 @@ final class ZenzContext: ZenzContextProtocol {
             }
             let logits = logitsResult.values
             let n_vocab = logitsResult.vocabSize
-            let startIndex = (prompt_tokens.count - 1 - startOffset) * n_vocab
-            let endIndex = (prompt_tokens.count - startOffset) * n_vocab
+            let startIndex = startOffset * n_vocab
+            let endIndex = (startOffset + 1) * n_vocab
             var max_token: Int = -1
             var max_value: Float = -.infinity
             for index in startIndex..<endIndex {
@@ -266,9 +266,9 @@ final class ZenzContext: ZenzContextProtocol {
             }
         }
 
-        let cchars: [CChar] = prompt_tokens.dropFirst(initial_count).flatMap(self.token_to_cchars)
-        let data = Data(cchars.map { UInt8(bitPattern: $0) })
-        return String(data: data, encoding: .utf8) ?? ""
+        let generatedTokens = Array(prompt_tokens.dropFirst(initial_count))
+        return tokenizer.decode(tokens: generatedTokens)
+            .replacingOccurrences(of: "[PAD]", with: "")
     }
 
     private func get_logits(tokens: [Int]) async -> ZenzCoreMLLogits? {

@@ -6,7 +6,7 @@
 //
 
 @preconcurrency import CoreML
-import Foundation
+public import Foundation
 import Tokenizers
 
 @available(iOS 18.0, macOS 15.0, *)
@@ -19,12 +19,27 @@ private final class MLModelBox: @unchecked Sendable {
 }
 
 @available(iOS 18.0, macOS 15.0, *)
-public enum ZenzCoreMLError: Error {
+public enum ZenzCoreMLError: Error, LocalizedError {
     case downloadFailed
-    case modelCompileFailed
+    case modelCompileFailed(String)
     case tokenizerLoadFailed(String)
     case missingLogits
     case multiArrayCreationFailed
+
+    public var errorDescription: String? {
+        switch self {
+        case .downloadFailed:
+            return "Failed to download CoreML assets from Hugging Face."
+        case .modelCompileFailed(let message):
+            return "Failed to compile or load the CoreML model. \(message)"
+        case .tokenizerLoadFailed(let message):
+            return "Failed to load tokenizer. \(message)"
+        case .missingLogits:
+            return "CoreML prediction output did not contain logits."
+        case .multiArrayCreationFailed:
+            return "Failed to create CoreML input MLMultiArray values."
+        }
+    }
 }
 
 @available(iOS 18.0, macOS 15.0, *)
@@ -68,11 +83,27 @@ public actor ZenzStateful8BitGenerator {
     private static let modelName = "zenz_v3.1_stateful-8bit"
     public init(computeUnits: ZenzCoreMLComputeUnits = .cpuAndGPU) async throws {
         let configuration = MLModelConfiguration()
-        configuration.computeUnits = computeUnits.coreMLValue
+        configuration.computeUnits = Self.resolvedComputeUnits(from: computeUnits).coreMLValue
         let model = try await ZenzCoreMLLoader.loadStateful8bit(configuration: configuration)
         self.modelBox = MLModelBox(model: model)
         self.evalState = model.makeState()
         self.tokenizer = try await Self.loadTokenizer()
+    }
+
+    private static func resolvedComputeUnits(from fallback: ZenzCoreMLComputeUnits) -> ZenzCoreMLComputeUnits {
+        guard let raw = ProcessInfo.processInfo.environment["AZOO_KEY_COREML_COMPUTE_UNITS"]?.lowercased() else {
+            return fallback
+        }
+        switch raw {
+        case "cpu", "cpuonly":
+            return .cpuOnly
+        case "all":
+            return .all
+        case "cpugpu", "cpuandgpu":
+            return .cpuAndGPU
+        default:
+            return fallback
+        }
     }
 
     /// Resets the internal KV state so the next prediction starts fresh.
@@ -160,7 +191,8 @@ public actor ZenzStateful8BitGenerator {
         for (idx, token) in tokens.enumerated() {
             inputIDs[idx] = NSNumber(value: token)
         }
-        for idx in 0..<min(contextLength, 128) {
+        let clampedContextLength = min(contextLength, 128)
+        for idx in 0..<clampedContextLength {
             attentionMask[idx] = 1
         }
         return (inputIDs, attentionMask)

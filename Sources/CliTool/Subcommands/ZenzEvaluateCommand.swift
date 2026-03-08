@@ -49,7 +49,7 @@ extension Subcommands {
             var resultItems: [EvaluateItem] = []
 
             guard let zenz = converter.getModel(modelURL: URL(string: self.zenzWeightPath)!) else {
-                print("Failed to initialize zenz model")
+                print("Failed to initialize zenz model: \(converter.zenzStatus)")
                 return
             }
 
