@@ -10,7 +10,6 @@ package struct AncoSession {
 
     package enum Action: Sendable, Equatable {
         case candidatesUpdated
-        case pageUpdated
         case stateCleared
         case saved
         case helpRequested
@@ -25,10 +24,6 @@ package struct AncoSession {
         package var executedCommand: AncoSessionRequest
         package var composingText: ComposingText
         package var leftSideContext: String
-        package var candidates: [Candidate]
-        package var displayedCandidates: [Candidate]
-        package var displayedCandidateStartIndex: Int
-        package var page: Int
         package var histories: [AncoSessionRequest]
         package var message: String?
         package var elapsedTime: TimeInterval?
@@ -39,11 +34,6 @@ package struct AncoSession {
     package struct TypoCorrectionResult: Sendable {
         package var candidates: [ZenzaiTypoCandidate]
         package var elapsedTime: TimeInterval
-    }
-
-    private enum CandidateView: String, Sendable {
-        case main
-        case prediction
     }
 
     package enum SessionError: Error, LocalizedError {
@@ -75,13 +65,11 @@ package struct AncoSession {
     private let converter: KanaKanjiConverter
     private var requestOptionsState: ConvertRequestOptions
     private var inputStyle: InputStyle
-    private var displayTopN: Int
-    private var view: CandidateView
+    package private(set) var displayTopN: Int
     private let debugPossibleNexts: Bool
     private let initialRequestOptionsState: ConvertRequestOptions
     private let initialInputStyle: InputStyle
     private let initialDisplayTopN: Int
-    private let initialView: CandidateView
     private var didExperienceSegmentEdition = false
 
     package var memoryDirectoryURL: URL {
@@ -89,11 +77,9 @@ package struct AncoSession {
     }
 
     package private(set) var composingText = ComposingText()
-    package private(set) var lastCandidates: [Candidate] = []
     package private(set) var lastMainCandidates: [Candidate] = []
     package private(set) var lastPredictionCandidates: [Candidate] = []
     package private(set) var leftSideContext: String = ""
-    package private(set) var page: Int = 0
     package private(set) var histories: [AncoSessionRequest] = []
 
     package init(
@@ -101,11 +87,9 @@ package struct AncoSession {
         requestOptions: ConvertRequestOptions,
         inputStyle: InputStyle = .direct,
         displayTopN: Int = 1,
-        view: String = "main",
         debugPossibleNexts: Bool = false,
         userDictionaryItems: [InputUserDictionaryItem] = []
     ) {
-        self.view = CandidateView(rawValue: view) ?? .main
         self.converter = converter
         self.requestOptionsState = requestOptions
         self.inputStyle = inputStyle
@@ -114,7 +98,6 @@ package struct AncoSession {
         self.initialRequestOptionsState = requestOptions
         self.initialInputStyle = inputStyle
         self.initialDisplayTopN = displayTopN
-        self.initialView = self.view
 
         if !userDictionaryItems.isEmpty {
             let userDictionary = userDictionaryItems.map {
@@ -181,10 +164,6 @@ package struct AncoSession {
                 executedCommand: submittedCommand,
                 message: "composition is stopped"
             )
-
-        case .nextPage:
-            self.page += 1
-            return self.makeResult(action: .pageUpdated, submittedCommand: submittedCommand, executedCommand: submittedCommand)
 
         case .save:
             self.composingText.stopComposition()
@@ -261,10 +240,6 @@ package struct AncoSession {
 
         case let .setConfig(key, value):
             try self.updateConfig(key: key, value: value)
-            self.page = 0
-            if key == "view" {
-                self.lastCandidates = self.currentCandidates()
-            }
             return self.makeResult(
                 action: .configUpdated,
                 submittedCommand: submittedCommand,
@@ -295,28 +270,10 @@ package struct AncoSession {
             return self.makeResult(action: .noAction, submittedCommand: submittedCommand, executedCommand: submittedCommand)
 
         case let .selectCandidate(index):
-            guard self.lastCandidates.indices.contains(index) else {
+            guard self.lastMainCandidates.indices.contains(index) else {
                 throw SessionError.invalidCandidateIndex(index)
             }
-            let candidate = self.lastCandidates[index]
-            self.converter.setCompletedData(candidate)
-            self.converter.updateLearningData(candidate)
-            self.composingText.prefixComplete(composingCount: candidate.composingCount)
-            if self.composingText.isEmpty {
-                self.composingText.stopComposition()
-                self.converter.stopComposition()
-            } else {
-                _ = self.composingText.moveCursorFromCursorPosition(
-                    count: self.composingText.convertTarget.count - self.composingText.convertTargetCursorPosition
-                )
-            }
-            self.didExperienceSegmentEdition = false
-            self.leftSideContext += candidate.text
-            return self.updateCandidates(
-                submittedCommand: submittedCommand,
-                executedCommand: submittedCommand,
-                message: "Submit \(candidate.text)"
-            )
+            return self.commit(candidate: self.lastMainCandidates[index], submittedCommand: submittedCommand)
 
         case let .input(rawInput):
             let input = Self.normalize(input: rawInput)
@@ -331,12 +288,34 @@ package struct AncoSession {
     package mutating func reset() {
         self.composingText.stopComposition()
         self.converter.stopComposition()
-        self.lastCandidates = []
         self.lastMainCandidates = []
         self.lastPredictionCandidates = []
         self.leftSideContext = ""
-        self.page = 0
         self.didExperienceSegmentEdition = false
+    }
+
+    package mutating func commit(
+        candidate: Candidate,
+        submittedCommand: AncoSessionRequest
+    ) -> ExecutionResult {
+        self.converter.setCompletedData(candidate)
+        self.converter.updateLearningData(candidate)
+        self.composingText.prefixComplete(composingCount: candidate.composingCount)
+        if self.composingText.isEmpty {
+            self.composingText.stopComposition()
+            self.converter.stopComposition()
+        } else {
+            _ = self.composingText.moveCursorFromCursorPosition(
+                count: self.composingText.convertTarget.count - self.composingText.convertTargetCursorPosition
+            )
+        }
+        self.didExperienceSegmentEdition = false
+        self.leftSideContext += candidate.text
+        return self.updateCandidates(
+            submittedCommand: submittedCommand,
+            executedCommand: submittedCommand,
+            message: "Submit \(candidate.text)"
+        )
     }
 
     package func experimentalRequestTypoCorrection(
@@ -375,8 +354,6 @@ package struct AncoSession {
         }
         self.lastMainCandidates = mainResults
         self.lastPredictionCandidates = result.predictionResults
-        self.lastCandidates = self.currentCandidates()
-        self.page = 0
 
         let entropy = self.requestOptionsState.requestQuery == .完全一致 ? Self.calculateEntropy(candidates: mainResults) : nil
         return self.makeResult(
@@ -399,34 +376,18 @@ package struct AncoSession {
         predictiveInputTime: TimeInterval? = nil,
         entropy: Double? = nil
     ) -> ExecutionResult {
-        let startIndex = self.page * self.displayTopN
-        let endIndex = min(startIndex + self.displayTopN, self.lastCandidates.count)
-        let displayedCandidates = startIndex < endIndex ? Array(self.lastCandidates[startIndex..<endIndex]) : []
         return ExecutionResult(
             action: action,
             submittedCommand: submittedCommand,
             executedCommand: executedCommand,
             composingText: self.composingText,
             leftSideContext: self.leftSideContext,
-            candidates: self.lastCandidates,
-            displayedCandidates: displayedCandidates,
-            displayedCandidateStartIndex: startIndex,
-            page: self.page,
             histories: self.histories,
             message: message,
             elapsedTime: elapsedTime,
             predictiveInputTime: predictiveInputTime,
             entropy: entropy
         )
-    }
-
-    private func currentCandidates() -> [Candidate] {
-        switch self.view {
-        case .main:
-            self.lastMainCandidates
-        case .prediction:
-            self.lastPredictionCandidates
-        }
     }
 
     private mutating func editSegment(count: Int) {
@@ -476,12 +437,6 @@ package struct AncoSession {
                 throw SessionError.invalidConfigValue(key: key, value: value)
             }
             self.displayTopN = parsed
-
-        case "view":
-            guard let parsed = CandidateView(rawValue: value) else {
-                throw SessionError.invalidConfigValue(key: key, value: value)
-            }
-            self.view = parsed
 
         case "inputStyle":
             switch value {
@@ -577,16 +532,14 @@ package struct AncoSession {
         Self.configCommands(
             requestOptions: self.initialRequestOptionsState,
             inputStyle: self.initialInputStyle,
-            displayTopN: self.initialDisplayTopN,
-            view: self.initialView
+            displayTopN: self.initialDisplayTopN
         )
     }
 
     private static func configCommands(
         requestOptions: ConvertRequestOptions,
         inputStyle: InputStyle,
-        displayTopN: Int,
-        view: CandidateView
+        displayTopN: Int
     ) -> [AncoSessionRequest] {
         let inputStyleValue: String
         switch inputStyle {
@@ -600,7 +553,6 @@ package struct AncoSession {
 
         var commands: [AncoSessionRequest] = [
             .setConfig(key: "displayTopN", value: String(displayTopN)),
-            .setConfig(key: "view", value: view.rawValue),
             .setConfig(key: "inputStyle", value: inputStyleValue),
             .setConfig(
                 key: "onlyWholeConversion",

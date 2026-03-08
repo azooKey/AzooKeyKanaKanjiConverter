@@ -28,13 +28,13 @@ final class AncoSessionTests: XCTestCase {
         var session = self.makeSession()
 
         let result = try session.execute(.input("あずーきー"))
+        let presentation = AncoSessionPresenter.present(session: session, context: .init())
 
         XCTAssertEqual(result.action, .candidatesUpdated)
         XCTAssertEqual(result.executedCommand, .input("あずーきー"))
         XCTAssertEqual(result.composingText.convertTarget, "あずーきー")
         XCTAssertEqual(session.composingText.convertTarget, "あずーきー")
-        XCTAssertEqual(result.candidates.first?.text, "azooKey")
-        XCTAssertEqual(session.page, 0)
+        XCTAssertEqual(presentation.candidates.first?.text, "azooKey")
     }
 
     func testContextAndClearCommandsUpdateState() throws {
@@ -75,7 +75,6 @@ final class AncoSessionTests: XCTestCase {
             content,
             [
                 ":cfg displayTopN=1",
-                ":cfg view=main",
                 ":cfg inputStyle=direct",
                 ":cfg onlyWholeConversion=false",
                 ":cfg predictionMode=automix",
@@ -175,20 +174,21 @@ final class AncoSessionTests: XCTestCase {
         XCTAssertTrue(content.contains(":cfg zenzai.topic=swift"))
     }
 
-    func testSwitchingToPredictionViewImmediatelyReturnsPredictionCandidates() throws {
+    func testPresenterCanProjectPredictionCandidates() throws {
         var session = self.makeSession()
         _ = try session.execute(.setConfig(key: "inputStyle", value: "roman2kana"))
 
         for input in ["a", "i", "u", "e", "o", "k", "a", "k", "i", "k", "u", "k", "e"] {
             _ = try session.execute(.input(input))
         }
+        let presentation = AncoSessionPresenter.present(
+            session: session,
+            context: .init(candidateSource: .prediction)
+        )
 
-        let result = try session.execute(.setConfig(key: "view", value: "prediction"))
-
-        XCTAssertEqual(result.action, .configUpdated)
         XCTAssertTrue(
-            result.displayedCandidates.contains(where: { $0.text == "あいうえおかきくけこ" }),
-            "expected view switch to immediately expose prediction candidates, got: \(result.displayedCandidates.map { $0.text })"
+            presentation.candidates.contains(where: { $0.text == "あいうえおかきくけこ" }),
+            "expected prediction presentation to expose prediction candidates, got: \(presentation.candidates.map { $0.text })"
         )
     }
 
@@ -197,12 +197,13 @@ final class AncoSessionTests: XCTestCase {
 
         _ = try session.execute(.input("あずーきーは"))
         let moveResult = try session.execute(.moveCursor(-1))
+        let movePresentation = AncoSessionPresenter.present(session: session, context: .init())
 
         XCTAssertEqual(moveResult.composingText.convertTarget, "あずーきーは")
         XCTAssertEqual(moveResult.composingText.convertTargetCursorPosition, "あずーきー".count)
 
-        guard let azooKeyIndex = moveResult.candidates.firstIndex(where: { $0.text == "azooKey" }) else {
-            return XCTFail("expected azooKey candidate in \(moveResult.candidates.map(\.text))")
+        guard let azooKeyIndex = movePresentation.candidates.firstIndex(where: { $0.text == "azooKey" }) else {
+            return XCTFail("expected azooKey candidate in \(movePresentation.candidates.map(\.text))")
         }
 
         let commitResult = try session.execute(.selectCandidate(azooKeyIndex))
@@ -218,11 +219,37 @@ final class AncoSessionTests: XCTestCase {
 
         _ = try session.execute(.input("あずーきーは"))
         let result = try session.execute(.editSegment(-1))
+        let presentation = AncoSessionPresenter.present(session: session, context: .init())
 
         XCTAssertEqual(result.composingText.convertTargetCursorPosition, "あずーきー".count)
         XCTAssertTrue(
-            result.candidates.contains(where: { $0.text == "azooKey" }),
-            "expected prefix candidates for azooKey, got: \(result.candidates.map(\.text))"
+            presentation.candidates.contains(where: { $0.text == "azooKey" }),
+            "expected prefix candidates for azooKey, got: \(presentation.candidates.map(\.text))"
+        )
+    }
+
+    func testPresenterSelectingPhaseBuildsMarkedTextForSelectedCandidate() throws {
+        var session = self.makeSession()
+
+        _ = try session.execute(.input("あずーきーは"))
+        _ = try session.execute(.moveCursor(-1))
+        let basePresentation = AncoSessionPresenter.present(session: session, context: .init())
+        guard let azooKeyIndex = basePresentation.candidates.firstIndex(where: { $0.text == "azooKey" }) else {
+            return XCTFail("expected azooKey candidate in \(basePresentation.candidates.map(\.text))")
+        }
+
+        let selectingPresentation = AncoSessionPresenter.present(
+            session: session,
+            context: .init(phase: .selecting, candidateSource: .main, selectedIndex: azooKeyIndex)
+        )
+
+        XCTAssertEqual(selectingPresentation.selectedCandidate?.text, "azooKey")
+        XCTAssertEqual(
+            selectingPresentation.markedText.text,
+            [
+                .init(content: "azooKey", focus: .focused),
+                .init(content: "は", focus: .unfocused)
+            ]
         )
     }
 }

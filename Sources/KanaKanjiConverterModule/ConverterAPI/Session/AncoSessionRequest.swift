@@ -30,7 +30,6 @@ package enum AncoSessionRequest: Sendable, Equatable {
     case quit
     case deleteBackward
     case clearComposition
-    case nextPage
     case save
     case predictInput(count: Int, maxEntropy: Float?, minLength: Int)
     case help
@@ -48,7 +47,6 @@ package enum AncoSessionRequest: Sendable, Equatable {
         .init(usage: ":q, :quit", description: "quit session"),
         .init(usage: ":c, :clear", description: "clear composition"),
         .init(usage: ":d, :del", description: "delete one character"),
-        .init(usage: ":n, :next", description: "see more candidates"),
         .init(usage: ":s, :save", description: "save memory"),
         .init(usage: ":ip [n] [max_entropy=F] [min_length=N]", description: "predict next input character(s) (zenz-v3)"),
         .init(usage: ":tc [n] [beam=N] [top_k=N] [max_steps=N] [alpha=F] [beta=F] [gamma=F]", description: "typo correction candidates (LM + channel)"),
@@ -80,8 +78,6 @@ package enum AncoSessionRequest: Sendable, Equatable {
             self = .deleteBackward
         case ":c", ":clear":
             self = .clearComposition
-        case ":n", ":next":
-            self = .nextPage
         case ":s", ":save":
             self = .save
         case ":h", ":help":
@@ -222,8 +218,6 @@ package enum AncoSessionRequest: Sendable, Equatable {
             return ":d"
         case .clearComposition:
             return ":c"
-        case .nextPage:
-            return ":n"
         case .save:
             return ":s"
         case let .predictInput(count, maxEntropy, minLength):

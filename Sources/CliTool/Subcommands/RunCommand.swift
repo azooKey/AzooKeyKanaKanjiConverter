@@ -21,8 +21,9 @@ extension Subcommands {
                 userDictionaryItems: try self.options.parseUserDictionaryItems()
             )
             let result = try session.execute(.input(self.input))
+            let presentation = AncoSessionPresenter.present(session: session, context: .init())
 
-            for candidate in result.displayedCandidates {
+            for candidate in presentation.candidates.prefix(session.displayTopN) {
                 if self.options.reportScore {
                     print("\(candidate.text) \(bold: "score:") \(candidate.value)")
                 } else {

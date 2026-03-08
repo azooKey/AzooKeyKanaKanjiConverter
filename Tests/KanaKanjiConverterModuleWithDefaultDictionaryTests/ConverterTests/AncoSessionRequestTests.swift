@@ -50,7 +50,6 @@ final class AncoSessionRequestTests: XCTestCase {
             .quit,
             .deleteBackward,
             .clearComposition,
-            .nextPage,
             .save,
             .predictInput(count: 3, maxEntropy: 0.5, minLength: 2),
             .help,
