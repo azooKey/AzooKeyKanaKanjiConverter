@@ -11,4 +11,8 @@ extension DefaultStringInterpolation {
     mutating func appendInterpolation(bold value: String) {
         self.appendInterpolation("\u{1B}[1m" + value + "\u{1B}[m")
     }
+
+    mutating func appendInterpolation(inputHighlighted value: String) {
+        self.appendInterpolation("\u{1B}[30;106m" + value + "\u{1B}[m")
+    }
 }

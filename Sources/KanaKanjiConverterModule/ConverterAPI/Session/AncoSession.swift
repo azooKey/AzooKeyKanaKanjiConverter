@@ -25,6 +25,7 @@ package struct AncoSession {
         package var executedCommand: AncoSessionRequest
         package var composingText: ComposingText
         package var leftSideContext: String
+        package var rightSideContext: String
         package var candidates: [Candidate]
         package var displayedCandidates: [Candidate]
         package var displayedCandidateStartIndex: Int
@@ -93,6 +94,7 @@ package struct AncoSession {
     package private(set) var lastMainCandidates: [Candidate] = []
     package private(set) var lastPredictionCandidates: [Candidate] = []
     package private(set) var leftSideContext: String = ""
+    package private(set) var rightSideContext: String = ""
     package private(set) var page: Int = 0
     package private(set) var histories: [AncoSessionRequest] = []
 
@@ -245,10 +247,9 @@ package struct AncoSession {
             return self.makeResult(action: .noAction, submittedCommand: submittedCommand, executedCommand: submittedCommand)
 
         case let .moveCursor(count):
-            guard !self.composingText.isEmpty else {
+            if self.moveCursorInSurroundingText(count: count) {
                 return self.makeResult(action: .noAction, submittedCommand: submittedCommand, executedCommand: submittedCommand)
             }
-            _ = self.composingText.moveCursorFromCursorPosition(count: count)
             self.didExperienceSegmentEdition = !self.composingText.isAtEndIndex
             return self.updateCandidates(submittedCommand: submittedCommand, executedCommand: submittedCommand)
 
@@ -335,6 +336,7 @@ package struct AncoSession {
         self.lastMainCandidates = []
         self.lastPredictionCandidates = []
         self.leftSideContext = ""
+        self.rightSideContext = ""
         self.page = 0
         self.didExperienceSegmentEdition = false
     }
@@ -408,6 +410,7 @@ package struct AncoSession {
             executedCommand: executedCommand,
             composingText: self.composingText,
             leftSideContext: self.leftSideContext,
+            rightSideContext: self.rightSideContext,
             candidates: self.lastCandidates,
             displayedCandidates: displayedCandidates,
             displayedCandidateStartIndex: startIndex,
@@ -445,6 +448,60 @@ package struct AncoSession {
             _ = self.composingText.moveCursorFromCursorPosition(count: 1)
         }
         self.didExperienceSegmentEdition = true
+    }
+
+    private mutating func moveCursorInSurroundingText(count: Int) -> Bool {
+        guard count != 0 else {
+            return true
+        }
+        if self.composingText.isEmpty {
+            self.shiftSurroundingCursor(count: count)
+            return true
+        }
+
+        let originalCursor = self.composingText.convertTargetCursorPosition
+        _ = self.composingText.moveCursorFromCursorPosition(count: count)
+        let actualMoved = self.composingText.convertTargetCursorPosition - originalCursor
+        let remaining = count - actualMoved
+        guard remaining != 0 else {
+            return false
+        }
+
+        let committedText = self.composingText.convertTarget
+        self.composingText.stopComposition()
+        self.converter.stopComposition()
+        self.lastCandidates = []
+        self.lastMainCandidates = []
+        self.lastPredictionCandidates = []
+        self.page = 0
+        self.didExperienceSegmentEdition = false
+
+        if remaining < 0 {
+            self.rightSideContext = committedText + self.rightSideContext
+        } else {
+            self.leftSideContext += committedText
+        }
+        self.shiftSurroundingCursor(count: remaining)
+        return true
+    }
+
+    private mutating func shiftSurroundingCursor(count: Int) {
+        if count < 0 {
+            for _ in 0..<(-count) {
+                guard let character = self.leftSideContext.popLast() else {
+                    break
+                }
+                self.rightSideContext.insert(character, at: self.rightSideContext.startIndex)
+            }
+        } else {
+            for _ in 0..<count {
+                guard let character = self.rightSideContext.first else {
+                    break
+                }
+                self.rightSideContext.removeFirst()
+                self.leftSideContext.append(character)
+            }
+        }
     }
 
     private func requestOptions(leftSideContext: String?) -> ConvertRequestOptions {

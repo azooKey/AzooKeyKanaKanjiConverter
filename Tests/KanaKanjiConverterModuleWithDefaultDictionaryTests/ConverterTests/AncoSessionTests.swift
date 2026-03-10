@@ -225,4 +225,34 @@ final class AncoSessionTests: XCTestCase {
             "expected prefix candidates for azooKey, got: \(result.candidates.map(\.text))"
         )
     }
+
+    func testMoveCursorShiftsSurroundingTextWhenCompositionIsEmpty() throws {
+        var session = self.makeSession()
+
+        _ = try session.execute(.setContext("abc"))
+        let leftResult = try session.execute(.moveCursor(-2))
+
+        XCTAssertEqual(leftResult.leftSideContext, "a")
+        XCTAssertEqual(leftResult.rightSideContext, "bc")
+        XCTAssertTrue(leftResult.composingText.isEmpty)
+
+        let rightResult = try session.execute(.moveCursor(1))
+
+        XCTAssertEqual(rightResult.leftSideContext, "ab")
+        XCTAssertEqual(rightResult.rightSideContext, "c")
+        XCTAssertTrue(rightResult.composingText.isEmpty)
+    }
+
+    func testMoveCursorPastCompositionBoundaryCommitsIntoSurroundingText() throws {
+        var session = self.makeSession()
+
+        _ = try session.execute(.setContext("x"))
+        _ = try session.execute(.input("あ"))
+        let result = try session.execute(.moveCursor(-2))
+
+        XCTAssertEqual(result.leftSideContext, "")
+        XCTAssertEqual(result.rightSideContext, "xあ")
+        XCTAssertTrue(result.composingText.isEmpty)
+        XCTAssertTrue(result.candidates.isEmpty)
+    }
 }

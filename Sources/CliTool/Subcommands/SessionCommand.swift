@@ -107,6 +107,13 @@ extension Subcommands {
                 if let message = result.message {
                     print(message)
                 }
+                if result.action == .stateCleared {
+                    self.printComposingLine(
+                        leftSideContext: result.leftSideContext,
+                        composingText: result.composingText,
+                        rightSideContext: result.rightSideContext
+                    )
+                }
 
             case .configUpdated:
                 if case .setConfig("view", _) = result.submittedCommand {
@@ -125,7 +132,11 @@ extension Subcommands {
                 if let predictiveInputTime = result.predictiveInputTime {
                     print("\(bold: "Time (ip):") \(predictiveInputTime)")
                 }
-                print(result.composingText.convertTarget)
+                self.printComposingLine(
+                    leftSideContext: result.leftSideContext,
+                    composingText: result.composingText,
+                    rightSideContext: result.rightSideContext
+                )
                 self.printCandidates(result.displayedCandidates)
                 if let entropy = result.entropy {
                     print("\(bold: "Entropy:") \(entropy)")
@@ -138,6 +149,11 @@ extension Subcommands {
                 if let message = result.message {
                     print(message)
                 }
+                self.printComposingLine(
+                    leftSideContext: result.leftSideContext,
+                    composingText: result.composingText,
+                    rightSideContext: result.rightSideContext
+                )
             }
         }
 
@@ -167,6 +183,18 @@ extension Subcommands {
                     print("\(bold: String(index)). \(candidate.text)")
                 }
             }
+        }
+
+        private func printComposingLine(leftSideContext: String, composingText: ComposingText, rightSideContext: String) {
+            let beforeCursor = String(composingText.convertTarget.prefix(composingText.convertTargetCursorPosition))
+            let afterCursor = String(composingText.convertTarget.dropFirst(composingText.convertTargetCursorPosition))
+
+            if composingText.isEmpty {
+                print("\(leftSideContext)|\(rightSideContext)")
+                return
+            }
+
+            print("\(leftSideContext)\(inputHighlighted: beforeCursor)|\(inputHighlighted: afterCursor)\(rightSideContext)")
         }
     }
 }
@@ -284,6 +312,12 @@ private struct SessionInputReader {
             case "\u{04}":
                 return nil
 
+            case "\u{1B}":
+                if let command = self.readEscapeSequence() {
+                    return command
+                }
+                continue
+
             case "\r", "\n":
                 if let commandBuffer = self.commandBuffer {
                     self.commandBuffer = nil
@@ -330,6 +364,26 @@ private struct SessionInputReader {
             }
         }
         return nil
+    }
+
+    private mutating func readEscapeSequence() -> String? {
+        guard self.commandBuffer == nil else {
+            return nil
+        }
+        guard let first = self.readByte(), first == UInt8(ascii: "[") else {
+            return nil
+        }
+        guard let second = self.readByte() else {
+            return nil
+        }
+        switch second {
+        case UInt8(ascii: "D"):
+            return ":m -1"
+        case UInt8(ascii: "C"):
+            return ":m 1"
+        default:
+            return nil
+        }
     }
 
     private mutating func readCharacter() -> Character? {
