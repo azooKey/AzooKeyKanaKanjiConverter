@@ -105,4 +105,29 @@ final class PredictiveInputCacheTests: XCTestCase {
             ["あいうえおかきくけこ"]
         )
     }
+
+    func testStablePredictionCandidateCacheUpdatesComposingCountForGrownDirectInput() {
+        let entry = StablePredictionCandidateCacheEntry(
+            originalConvertTarget: "おはよ",
+            suffixCount: 0,
+            candidates: [
+                Candidate(
+                    text: "おはようございます",
+                    value: 0,
+                    composingCount: .surfaceCount(3),
+                    lastMid: MIDData.一般.mid,
+                    data: [.init(word: "おはようございます", ruby: "オハヨウゴザイマス", cid: CIDData.固有名詞.cid, mid: MIDData.一般.mid, value: 0)]
+                )
+            ]
+        )
+
+        let candidates = entry.compatibleCandidates(
+            currentConvertTarget: "おはよう",
+            baseConvertTarget: "おはよう",
+            possibleNexts: []
+        )
+
+        XCTAssertEqual(candidates.map(\.text), ["おはようございます"])
+        XCTAssertEqual(candidates.first?.composingCount, .surfaceCount(4))
+    }
 }
