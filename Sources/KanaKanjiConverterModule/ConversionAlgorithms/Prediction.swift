@@ -71,17 +71,23 @@ struct StablePredictionCandidateCacheEntry: Sendable {
             possibleNexts.map { (baseConvertTarget + $0).toKatakana() }
         }
         let currentRuby = currentConvertTarget.toKatakana()
-        return self.candidates.filter { candidate in
+        return self.candidates.compactMap { candidate in
             let candidateRuby = if candidate.data.isEmpty {
                 candidate.text.toKatakana()
             } else {
                 candidate.data.reduce(into: "", { $0 += $1.ruby })
             }
-            return !candidate.text.isEmpty &&
+            guard !candidate.text.isEmpty &&
                 candidateRuby != currentRuby &&
                 compatiblePrefixes.contains(where: { prefix in
                     candidateRuby.hasPrefix(prefix)
-                })
+                }) else {
+                return nil
+            }
+
+            var updatedCandidate = candidate
+            updatedCandidate.composingCount = .surfaceCount(currentConvertTarget.count)
+            return updatedCandidate
         }
     }
 }
