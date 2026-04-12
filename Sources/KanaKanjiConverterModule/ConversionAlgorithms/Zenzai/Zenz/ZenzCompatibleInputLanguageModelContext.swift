@@ -64,6 +64,7 @@ struct NGramContext: ZenzCompatibleInputLanguageModelContext {
     }
 }
 
+#if !ZenzaiCoreML || !canImport(CoreML)
 extension ZenzContext: ZenzCompatibleInputLanguageModelContext {
     func encodeRaw(_ text: String) -> [Int] {
         self.encodeRaw(text, addBOS: false, addEOS: false).map(Int.init)
@@ -107,3 +108,4 @@ extension ZenzContext: ZenzCompatibleInputLanguageModelContext {
         return logitValues
     }
 }
+#endif

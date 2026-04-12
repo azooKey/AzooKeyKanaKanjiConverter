@@ -4,12 +4,19 @@
 import PackageDescription
 import Foundation
 
-let swiftSettings: [SwiftSetting] = [
+var swiftSettings: [SwiftSetting] = [
     .enableUpcomingFeature("ExistentialAny"),
     .enableUpcomingFeature("MemberImportVisibility"),
     .enableUpcomingFeature("InternalImportsByDefault"),
     .interoperabilityMode(.Cxx, .when(traits: ["Zenzai", "ZenzaiCPU"]))
 ]
+
+var coreMLMacOSLinkFlags: [String] = []
+#if os(macOS)
+// CoreML XCFrameworks are built for macOS 15.5+. When the CoreML trait is enabled,
+// apply a platform_version hint at link time to silence version mismatch warnings.
+coreMLMacOSLinkFlags = ["-Xlinker", "-platform_version", "-Xlinker", "macos", "-Xlinker", "15.5", "-Xlinker", "15.5"]
+#endif
 
 var dependencies: [Package.Dependency] = [
     // Dependencies declare other packages that this package depends on.
@@ -17,11 +24,12 @@ var dependencies: [Package.Dependency] = [
     .package(url: "https://github.com/apple/swift-algorithms", from: "1.0.0"),
     .package(url: "https://github.com/apple/swift-collections", from: "1.0.0"),
     .package(url: "https://github.com/apple/swift-argument-parser", .upToNextMajor(from: "1.0.0")),
-    .package(url: "https://github.com/ensan-hcl/swift-tokenizers", from: "0.0.1")
+    .package(url: "https://github.com/Skyline-23/swift-transformers.git", revision: "5dac2238c39bf4cab0d98a0fafacc59a5788f59e")
 ]
 
 var efficientNGramDependencies: [Target.Dependency] = [
-    .product(name: "Transformers", package: "swift-tokenizers")
+    .product(name: "Tokenizers", package: "swift-transformers"),
+    .product(name: "Hub", package: "swift-transformers")
 ]
 
 #if (!os(Linux) || !canImport(Android)) && !os(Windows)
@@ -105,6 +113,20 @@ var targets: [Target] = [
     )
 ]
 
+#if os(macOS) || os(iOS)
+targets.append(
+    .target(
+        name: "ZenzCoreMLBackend",
+        dependencies: [
+            .product(name: "Tokenizers", package: "swift-transformers")
+        ],
+        resources: [],
+        swiftSettings: swiftSettings,
+        linkerSettings: coreMLMacOSLinkFlags.isEmpty ? [] : [.unsafeFlags(coreMLMacOSLinkFlags, .when(traits: ["ZenzaiCoreML"]))]
+    )
+)
+#endif
+
 #if os(Linux) && !canImport(Android)
 func checkObjcAvailability() -> Bool {
     do {
@@ -130,9 +152,9 @@ if checkObjcAvailability() {
     print("Objective-C runtime is available")
     targets = targets.map { target in
         if target.name == "CliTool" || target.name == "KanaKanjiConverterModuleWithDefaultDictionaryTests" {
-        let modifiedTarget = target
-        modifiedTarget.linkerSettings = [.linkedLibrary("objc")]
-        return modifiedTarget
+            let modifiedTarget = target
+            modifiedTarget.linkerSettings = [.linkedLibrary("objc")]
+            return modifiedTarget
         }
         return target
     }
@@ -150,18 +172,40 @@ let llamaCppTarget: Target = .binaryTarget(
 )
 #endif
 targets.append(llamaCppTarget)
+var kanaKanjiDependencies: [Target.Dependency] = [
+    "SwiftUtils",
+    .target(name: "EfficientNGram"),
+    .target(name: "llama.cpp", condition: .when(traits: ["Zenzai", "ZenzaiCPU"])),
+    .product(name: "Collections", package: "swift-collections")
+]
+
+#if os(macOS) || os(iOS)
+kanaKanjiDependencies.append(.target(name: "ZenzCoreMLBackend", condition: .when(traits: ["ZenzaiCoreML"])))
+#endif
+
 targets.append(
     .target(
         name: "KanaKanjiConverterModule",
-        dependencies: [
-            "SwiftUtils",
-            .target(name: "EfficientNGram"),
-            .target(name: "llama.cpp", condition: .when(traits: ["Zenzai", "ZenzaiCPU"])),
-            .product(name: "Collections", package: "swift-collections"),
-        ],
-        swiftSettings: swiftSettings
+        dependencies: kanaKanjiDependencies,
+        swiftSettings: swiftSettings,
+        linkerSettings: coreMLMacOSLinkFlags.isEmpty ? [] : [.unsafeFlags(coreMLMacOSLinkFlags, .when(traits: ["ZenzaiCoreML"]))]
     )
 )
+
+#if os(macOS) || os(iOS)
+let packageTraits: Set<PackageDescription.Trait> = [
+    .trait(name: "Zenzai"),
+    .trait(name: "ZenzaiCPU"),
+    .trait(name: "ZenzaiCoreML"),
+    .default(enabledTraits: [])
+]
+#else
+let packageTraits: Set<PackageDescription.Trait> = [
+    .trait(name: "Zenzai"),
+    .trait(name: "ZenzaiCPU"),
+    .default(enabledTraits: [])
+]
+#endif
 
 let package = Package(
     name: "AzooKeyKanaKanjiConverter",
@@ -183,11 +227,7 @@ let package = Package(
             targets: ["KanaKanjiConverterModule"]
         ),
     ],
-    traits: [
-        .trait(name: "Zenzai"),
-        .trait(name: "ZenzaiCPU"),
-        .default(enabledTraits: [])
-    ],
+    traits: packageTraits,
     dependencies: dependencies,
     targets: targets
 )

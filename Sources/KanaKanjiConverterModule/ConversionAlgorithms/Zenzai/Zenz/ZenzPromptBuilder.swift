@@ -107,4 +107,26 @@ enum ZenzPromptBuilder {
             }
         }
     }
+
+    static func buildPrompt(
+        convertTarget: String,
+        candidate: Candidate,
+        versionDependentConfig: ConvertRequestOptions.ZenzaiVersionDependentMode
+    ) -> String {
+        let userDictionaryPrompt = candidate.data.compactMap { element -> String? in
+            guard element.metadata.contains(.isFromUserDictionary) else { return nil }
+            return "\(element.word)(\(element.ruby.toHiragana()))"
+        }.joined()
+        return self.preprocess(
+            self.candidateEvaluationPrompt(
+                input: convertTarget,
+                userDictionaryPrompt: userDictionaryPrompt,
+                versionDependentConfig: versionDependentConfig
+            )
+        )
+    }
+
+    static func preprocess(_ text: String) -> String {
+        text.replacingOccurrences(of: " ", with: "\u{3000}").replacingOccurrences(of: "\n", with: "")
+    }
 }

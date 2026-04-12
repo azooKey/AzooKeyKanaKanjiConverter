@@ -103,6 +103,17 @@ public struct ConvertRequestOptions: Sendable {
     public var experimentalZenzaiPredictiveInput: Bool
     /// 通常の変換リクエストで classic typo correction をどう扱うかの設定。
     public var typoCorrectionMode: TypoCorrectionMode
+    /// Legacy compatibility shim for CoreML/zenz branches that still gate typo correction with an optional Bool.
+    public var needTypoCorrection: Bool? {
+        switch self.typoCorrectionMode {
+        case .automatic:
+            return nil
+        case .enabled:
+            return true
+        case .disabled:
+            return false
+        }
+    }
     // メタデータ
     public var metadata: Metadata?
 
@@ -197,9 +208,23 @@ public struct ConvertRequestOptions: Sendable {
         public var maxLeftSideContextLength: Int?
     }
 
+    public enum ZenzVersion: Sendable, Equatable, Hashable {
+        case v2
+        case v3
+    }
+
     public enum ZenzaiVersionDependentMode: Sendable, Equatable, Hashable {
         case v2(ZenzaiV2DependentMode)
         case v3(ZenzaiV3DependentMode)
+
+        public var version: ZenzVersion {
+            switch self {
+            case .v2:
+                return .v2
+            case .v3:
+                return .v3
+            }
+        }
     }
 
     public struct ZenzaiMode: Sendable, Equatable {
@@ -226,14 +251,14 @@ public struct ConvertRequestOptions: Sendable {
             versionDependentMode: .v3(.init())
         )
 
-        /// activate *Zenzai* - Neural Kana-Kanji Conversiion Engine
+        /// activate *Zenzai* - Neural Kana-Kanji Conversion Engine
         /// - Parameters:
-        ///    - weight: path for model weight (gguf)
+        ///    - weight: path for model weight (gguf). Note: This parameter is ignored when using ZenzaiCoreML trait (CoreML uses bundled model).
         ///    - inferenceLimit: applying inference count limitation. Smaller limit makes conversion faster but quality will be worse. (Default: 10)
         ///    - requestRichCandidates: when this flag is true, the converter spends more time but generate richer N-Best candidates for candidate list view. Usually this option is not recommended for live conversion.
         ///    - personalizationMode: values for personalization.
         ///    - versionDependentMode: specify zenz model version and its configuration.
-        public static func on(weight: URL, inferenceLimit: Int = 10, requestRichCandidates: Bool = false, personalizationMode: PersonalizationMode?, versionDependentMode: ZenzaiVersionDependentMode = .v3(.init())) -> Self {
+        public static func on(weight: URL, inferenceLimit: Int = 10, requestRichCandidates: Bool = false, personalizationMode: PersonalizationMode? = nil, versionDependentMode: ZenzaiVersionDependentMode = .v3(.init())) -> Self {
             ZenzaiMode(
                 enabled: true,
                 weightURL: weight,
@@ -243,6 +268,27 @@ public struct ConvertRequestOptions: Sendable {
                 versionDependentMode: versionDependentMode
             )
         }
+
+        #if ZenzaiCoreML && canImport(CoreML)
+        /// activate *Zenzai* with CoreML backend - Neural Kana-Kanji Conversion Engine
+        /// CoreML backend uses bundled model, so no weight path is required.
+        /// - Parameters:
+        ///    - inferenceLimit: applying inference count limitation. Smaller limit makes conversion faster but quality will be worse. (Default: 10)
+        ///    - requestRichCandidates: when this flag is true, the converter spends more time but generate richer N-Best candidates for candidate list view. Usually this option is not recommended for live conversion.
+        ///    - personalizationMode: values for personalization.
+        ///    - versionDependentMode: specify zenz model version and its configuration.
+        @available(iOS 18, macOS 15, *)
+        public static func coreML(inferenceLimit: Int = 10, requestRichCandidates: Bool = false, personalizationMode: PersonalizationMode? = nil, versionDependentMode: ZenzaiVersionDependentMode = .v3(.init())) -> Self {
+            ZenzaiMode(
+                enabled: true,
+                weightURL: URL(fileURLWithPath: ""), // Unused for CoreML
+                inferenceLimit: inferenceLimit,
+                requestRichCandidates: requestRichCandidates,
+                personalizationMode: personalizationMode,
+                versionDependentMode: versionDependentMode
+            )
+        }
+        #endif
         var enabled: Bool
         var weightURL: URL
         var inferenceLimit: Int

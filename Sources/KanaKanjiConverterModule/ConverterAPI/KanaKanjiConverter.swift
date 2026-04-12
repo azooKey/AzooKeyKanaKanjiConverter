@@ -13,7 +13,7 @@ import SwiftUtils
 
 /// かな漢字変換の管理を受け持つクラス
 public final class KanaKanjiConverter {
-    private let converter: Kana2Kanji
+    let converter: Kana2Kanji
     private struct ConversionSessionState {
         var previousInputData: ComposingText?
         var lattice: Lattice = .init()
@@ -54,11 +54,25 @@ public final class KanaKanjiConverter {
     private var sessions: [SessionID: ConversionSessionState] = ["default": .init()]
     private var activeSessionID: SessionID = "default"
     private var lastData: DicdataElement?
-    /// Zenzaiのためのzenzモデル
-    private var zenz: Zenz?
     private var zenzaiPersonalization: (mode: ConvertRequestOptions.ZenzaiMode.PersonalizationMode, base: EfficientNGram, personal: EfficientNGram)?
     public private(set) var zenzStatus: String = ""
-    private var dicdataStoreState: DicdataStoreState
+    var dicdataStoreState: DicdataStoreState
+#if Zenzai
+    var zenzaiModel: Zenz?
+#endif
+#if ZenzaiCoreML && canImport(CoreML)
+    var coreMLServiceStorage: Any?
+    var zenzaiCoreMLCache: Kana2Kanji.ZenzaiCache?
+#endif
+
+    /// リセットする関数
+    public func stopComposition() {
+        self.stopZenzBackendComposition()
+        self.zenzaiPersonalization = nil
+        self.sessions = [Self.defaultSessionID: .init()]
+        self.activeSessionID = Self.defaultSessionID
+        self.lastData = nil
+    }
 
     private var currentSessionState: ConversionSessionState {
         self.sessions[self.activeSessionID] ?? .init()
@@ -84,16 +98,7 @@ public final class KanaKanjiConverter {
         return body()
     }
 
-    /// リセットする関数
-    public func stopComposition() {
-        self.zenz?.endSession()
-        self.zenzaiPersonalization = nil
-        self.sessions = [Self.defaultSessionID: .init()]
-        self.activeSessionID = Self.defaultSessionID
-        self.lastData = nil
-    }
-
-    private func getZenzaiPersonalization(mode: ConvertRequestOptions.ZenzaiMode.PersonalizationMode?) -> (mode: ConvertRequestOptions.ZenzaiMode.PersonalizationMode, base: EfficientNGram, personal: EfficientNGram)? {
+    func getZenzaiPersonalization(mode: ConvertRequestOptions.ZenzaiMode.PersonalizationMode?) -> (mode: ConvertRequestOptions.ZenzaiMode.PersonalizationMode, base: EfficientNGram, personal: EfficientNGram)? {
         guard let mode else {
             return nil
         }
@@ -105,6 +110,10 @@ public final class KanaKanjiConverter {
         let personalModel = EfficientNGram(baseFilename: mode.personalNgramLanguageModel, n: mode.n, d: mode.d, tokenizer: tokenizer)
         self.zenzaiPersonalization = (mode, baseModel, personalModel)
         return (mode, baseModel, personalModel)
+    }
+
+    func updateZenzStatus(_ text: String) {
+        self.zenzStatus = text
     }
 
     private func cachedPredictiveInputText(
@@ -197,27 +206,6 @@ public final class KanaKanjiConverter {
         return uniqueStableCandidates + additionalCandidates
     }
 
-    package func getModel(modelURL: URL) -> Zenz? {
-        if let model = self.zenz, model.resourceURL == modelURL {
-            self.zenzStatus = "load \(modelURL.absoluteString)"
-            return model
-        } else {
-            do {
-                self.zenz = try Zenz(resourceURL: modelURL)
-                self.sessions = self.sessions.mapValues { state in
-                    let next = state
-                    next.zenzaiTypoCache.invalidateForModelChange()
-                    return next
-                }
-                self.zenzStatus = "load \(modelURL.absoluteString)"
-                return self.zenz
-            } catch {
-                self.zenzStatus = "load \(modelURL.absoluteString)    " + error.localizedDescription
-                return nil
-            }
-        }
-    }
-
     package func predictNextInputText(
         leftSideContext: String,
         composingText: ComposingText,
@@ -228,16 +216,21 @@ public final class KanaKanjiConverter {
         inputStyle: InputStyle = .direct,
         debugPossibleNexts: Bool = false
     ) -> (predictedText: String, suffixCount: Int) {
-        guard options.zenzaiMode.enabled else {
+        guard options.experimentalZenzaiPredictiveInput, options.zenzaiMode.enabled else {
             self.invalidatePredictiveInputCache()
-            print("zenz mode is disabled")
             return ("", 0)
         }
         guard case .v3 = options.zenzaiMode.versionDependentMode else {
             self.invalidatePredictiveInputCache()
-            print("input prediction requires zenz-v3 models")
             return ("", 0)
         }
+        #if ZenzaiCoreML && canImport(CoreML)
+        guard #available(iOS 18, macOS 15, *) else {
+            return ("", 0)
+        }
+        self.invalidatePredictiveInputCache()
+        return ("", 0)
+        #else
         let cacheContext = PredictiveInputCacheContext(
             leftSideContext: leftSideContext,
             inputStyle: inputStyle,
@@ -253,7 +246,6 @@ public final class KanaKanjiConverter {
         }
         guard let zenz = self.getModel(modelURL: options.zenzaiMode.weightURL) else {
             self.invalidatePredictiveInputCache()
-            print("zenz-v3 model unavailable")
             return ("", 0)
         }
         let source = self.converter.resolvePredictiveInputSource(composingText: composingText, inputStyle: inputStyle)
@@ -282,10 +274,9 @@ public final class KanaKanjiConverter {
             }
         }
         return (predictedText, source.droppedSuffixCount)
+        #endif
     }
 
-    /// LMベース typo correction の候補を返す実験的API。
-    /// - Warning: このAPIは experimental であり、予告なく変更または削除される可能性があります。
     public func experimentalRequestTypoCorrection(
         leftSideContext: String,
         composingText: ComposingText,
@@ -296,12 +287,13 @@ public final class KanaKanjiConverter {
         debug("[Warning] KanaKanjiConverter.experimentalRequestTypoCorrection is experimental and may change without notice.")
         switch config.languageModel {
         case .zenz:
-            guard options.zenzaiMode.enabled else {
-                debug("zenz mode is disabled")
+            #if ZenzaiCoreML && canImport(CoreML)
+            guard #available(iOS 18, macOS 15, *) else {
                 return []
             }
-            guard let zenz = self.getModel(modelURL: options.zenzaiMode.weightURL) else {
-                debug("zenz model unavailable")
+            return []
+            #else
+            guard options.zenzaiMode.enabled, let zenz = self.getModel(modelURL: options.zenzaiMode.weightURL) else {
                 return []
             }
             return zenz.generateTypoCandidates(
@@ -311,6 +303,7 @@ public final class KanaKanjiConverter {
                 experimentalConfig: config,
                 cache: self.currentSessionState.zenzaiTypoCache
             )
+            #endif
         case .ngram:
             guard let context = ZenzaiTypoCandidateGenerator.resolveNGramContext(
                 experimentalConfig: config,
@@ -548,7 +541,7 @@ public final class KanaKanjiConverter {
     ///   - sums: 変換対象のデータ。
     /// - Returns:
     ///   予測変換候補
-    private func getPredictionCandidate(_ bestCandidateDataForPrediction: consuming CandidateData, composingText: ComposingText, options: ConvertRequestOptions) -> [Candidate] {
+    private func getPredictionCandidate(_ bestCandidateDataForPrediction: consuming CandidateData, composingText: ComposingText, options _: ConvertRequestOptions) -> [Candidate] {
         // 予測変換は次の方針で行う。
         // prepart: 前半文節 lastPart: 最終文節とする。
         // まず、lastPartがnilであるところから始める
@@ -575,7 +568,7 @@ public final class KanaKanjiConverter {
                 lastpart = newlastPart
                 // 結果がemptyでなければ
                 if !predictions.isEmpty {
-                    candidates.append(contentsOf: consume predictions)
+                    candidates += predictions
                     count += 1
                 }
             } else {
@@ -586,74 +579,12 @@ public final class KanaKanjiConverter {
                 // 結果がemptyでなければ
                 if !predictions.isEmpty {
                     // 結果に追加
-                    candidates.append(contentsOf: consume predictions)
+                    candidates += predictions
                     count += 1
                 }
             }
         }
-        // 入力全体を使って予測候補を作る
-        if !prepart.isEmpty, let lastpart {
-            var fullClause = prepart.clauses.first!.clause
-            for unit in prepart.clauses.dropFirst() {
-                fullClause.merge(with: unit.clause)
-            }
-            fullClause.merge(with: lastpart.clause)
-            let emptyPrepart = CandidateData(clauses: [], data: [])
-            let predictions = converter.getPredictionCandidates(
-                composingText: composingText,
-                prepart: emptyPrepart,
-                lastClause: fullClause,
-                N_best: 5,
-                dicdataStoreState: self.dicdataStoreState
-            )
-            print(fullClause.text, predictions)
-            candidates.append(contentsOf: consume predictions)
-        }
-        if !candidates.isEmpty {
-            return candidates
-        }
-        guard options.zenzaiMode.enabled, options.experimentalZenzaiPredictiveInput else {
-            return []
-        }
-        let leftSideContext: String = switch options.zenzaiMode.versionDependentMode {
-        case .v2(let mode):
-            mode.leftSideContext ?? ""
-        case .v3(let mode):
-            mode.leftSideContext ?? ""
-        }
-
-        let inputStyle = composingText.input.last?.inputStyle ?? .direct
-        let (predictedText, suffixCount) = self.predictNextInputText(
-            leftSideContext: leftSideContext,
-            composingText: composingText,
-            count: 10,
-            minLength: 1,
-            maxEntropy: 3.0,
-            options: options,
-            inputStyle: inputStyle
-        )
-        guard !predictedText.isEmpty else {
-            return []
-        }
-
-        let insertText = (inputStyle == .roman2kana) ? predictedText.toHiragana() : predictedText
-        var predictedComposingText = composingText
-        if suffixCount > 0 {
-            predictedComposingText.deleteBackwardFromCursorPosition(count: suffixCount)
-        }
-        predictedComposingText.insertAtCursorPosition(insertText, inputStyle: inputStyle)
-
-        var fallbackOptions = options
-        fallbackOptions.requireJapanesePrediction = .disabled
-        fallbackOptions.requireEnglishPrediction = .disabled
-        // 別セッションで変換候補を生成
-        let predictedResult = self.withScratchSession {
-            self.requestCandidates(predictedComposingText, options: fallbackOptions)
-        }
-        guard let firstCandidate = predictedResult.mainResults.first else {
-            return []
-        }
-        return [firstCandidate]
+        return candidates
     }
 
     /// トップレベルに追加する付加的な変換候補を生成する関数
@@ -892,22 +823,13 @@ public final class KanaKanjiConverter {
             // その他のトップレベル変換（先頭に表示されうる変換候補）
             let topLevelAdditionalCandidates = self.getTopLevelAdditionalCandidate(inputData, options: options)
             // best8、foreign_candidates、zeroHintPrediction_candidates、toplevel_additional_candidate、user_shortcuts を混ぜて上位5件を取得する
-            let mixedCandidates = getUniqueCandidate(
+            fullCandidates = getUniqueCandidate(
                 bestFiveSentenceCandidates
                     .chained(consume bestThreePredictionCandidates)
                     .chained(consume foreignCandidates)
                     .chained(consume topLevelAdditionalCandidates)
                     .chained(consume userShortcutsCandidates)
-            )
-            if options.requireJapanesePrediction.shouldMix {
-                fullCandidates = self.mergeStableCandidates(
-                    stableCandidates: stablePredictionCandidates,
-                    otherCandidates: mixedCandidates,
-                    limit: 5
-                )
-            } else {
-                fullCandidates = mixedCandidates.min(count: 5, sortedBy: {$0.value > $1.value})
-            }
+            ).min(count: 5, sortedBy: {$0.value > $1.value})
         }
         // 文節のみ変換するパターン（上位5件）
         let uniqueFirstClauseCandidates = self.getUniqueCandidate((consume clauseResult).lazy.map {(candidateData: CandidateData) -> Candidate in
@@ -974,7 +896,11 @@ public final class KanaKanjiConverter {
             wordCandidates = consume candidates
         }
 
-        self.updateStablePredictionCandidateCache(inputData: inputData, inputStyle: inputStyle, candidates: predictionResults)
+        self.updateStablePredictionCandidateCache(
+            inputData: inputData,
+            inputStyle: inputStyle,
+            candidates: predictionResults
+        )
 
         var result = consume fullCandidates
         // 3番目までに最低でも1つ、（誤り訂正ではなく）入力に完全一致する候補が入るようにする
@@ -1025,23 +951,56 @@ public final class KanaKanjiConverter {
         }
 
         // FIXME: enable cache based zenzai
-        if zenzaiMode.enabled, let model = self.getModel(modelURL: zenzaiMode.weightURL) {
-            let (result, nodes, cache) = self.converter.all_zenzai(
-                inputData,
-                zenz: model,
-                zenzaiCache: self.currentSessionState.zenzaiCache,
-                inferenceLimit: zenzaiMode.inferenceLimit,
-                requestRichCandidates: zenzaiMode.requestRichCandidates,
-                personalizationMode: self.getZenzaiPersonalization(mode: zenzaiMode.personalizationMode),
-                versionDependentConfig: zenzaiMode.versionDependentMode,
-                dicdataStoreState: self.dicdataStoreState
-            )
-            self.updateCurrentSessionState {
-                $0.previousInputData = inputData
-                $0.zenzaiCache = cache
+#if ZenzaiCoreML && canImport(CoreML)
+        if #available(iOS 18, macOS 15, *), zenzaiMode.enabled, !needTypoCorrection {
+            let personalizationHandle = self.getZenzaiPersonalization(mode: zenzaiMode.personalizationMode).map {
+                ZenzPersonalizationHandle(mode: $0.mode, base: $0.base, personal: $0.personal)
             }
-            return (result, nodes)
+            if let zenz = self.blockingAsync({
+                await self.resolvedCoreMLService().getOrLoadModel(modelURL: zenzaiMode.weightURL)
+            }) {
+                let coreMLResult = self.blockingAsync {
+                    await self.converter.all_zenzai(
+                        inputData,
+                        zenz: zenz,
+                        zenzaiCache: self.currentSessionState.zenzaiCache ?? self.zenzaiCoreMLCache,
+                        inferenceLimit: zenzaiMode.inferenceLimit,
+                        requestRichCandidates: zenzaiMode.requestRichCandidates,
+                        personalizationMode: personalizationHandle.map { ($0.mode, $0.base, $0.personal) },
+                        versionDependentConfig: zenzaiMode.versionDependentMode,
+                        dicdataStoreState: self.dicdataStoreState
+                    )
+                }
+                self.zenzaiCoreMLCache = coreMLResult.cache
+                self.updateCurrentSessionState {
+                    $0.zenzaiCache = coreMLResult.cache
+                }
+                return (coreMLResult.result, coreMLResult.lattice)
+            }
         }
+#elseif Zenzai
+        if zenzaiMode.enabled, !needTypoCorrection {
+            let personalizationHandle = self.getZenzaiPersonalization(mode: zenzaiMode.personalizationMode)
+            if let zenz = self.getModel(modelURL: zenzaiMode.weightURL) {
+                let zenzResult = self.blockingAsync {
+                    await self.converter.all_zenzai(
+                        inputData,
+                        zenz: zenz,
+                        zenzaiCache: self.currentSessionState.zenzaiCache,
+                        inferenceLimit: zenzaiMode.inferenceLimit,
+                        requestRichCandidates: zenzaiMode.requestRichCandidates,
+                        personalizationMode: personalizationHandle.map { ($0.mode, $0.base, $0.personal) },
+                        versionDependentConfig: zenzaiMode.versionDependentMode,
+                        dicdataStoreState: self.dicdataStoreState
+                    )
+                }
+                self.updateCurrentSessionState {
+                    $0.zenzaiCache = zenzResult.cache
+                }
+                return (zenzResult.result, zenzResult.lattice)
+            }
+        }
+#endif
 
         guard let previousInputData = self.currentSessionState.previousInputData else {
             debug("\(#function): 新規計算用の関数を呼びますA")
@@ -1061,7 +1020,10 @@ public final class KanaKanjiConverter {
 
         // 完全一致の場合
         if previousInputData == inputData {
-            let result = converter.kana2lattice_no_change(N_best: N_best, previousResult: (inputData: previousInputData, lattice: self.currentSessionState.lattice))
+            let result = converter.kana2lattice_no_change(
+                N_best: N_best,
+                previousResult: (inputData: previousInputData, lattice: self.currentSessionState.lattice)
+            )
             self.updateCurrentSessionState {
                 $0.previousInputData = inputData
             }
@@ -1071,7 +1033,13 @@ public final class KanaKanjiConverter {
         // 文節確定の後の場合
         if let completedData = self.currentSessionState.completedData, previousInputData.inputHasSuffix(inputOf: inputData) {
             debug("\(#function): 文節確定用の関数を呼びます、確定された文節は\(completedData)")
-            let result = converter.kana2lattice_afterComplete(inputData, completedData: completedData, N_best: N_best, previousResult: (inputData: previousInputData, lattice: self.currentSessionState.lattice), needTypoCorrection: needTypoCorrection)
+            let result = converter.kana2lattice_afterComplete(
+                inputData,
+                completedData: completedData,
+                N_best: N_best,
+                previousResult: (inputData: previousInputData, lattice: self.currentSessionState.lattice),
+                needTypoCorrection: needTypoCorrection
+            )
             self.updateCurrentSessionState {
                 $0.previousInputData = inputData
                 $0.completedData = nil
@@ -1096,7 +1064,6 @@ public final class KanaKanjiConverter {
         self.updateCurrentSessionState {
             $0.previousInputData = inputData
         }
-
         return result
     }
 
@@ -1130,7 +1097,11 @@ public final class KanaKanjiConverter {
             self.resetMemory()
         }
         self.dicdataStoreState.updateIfRequired(options: options)
-        let needTypoCorrection = self.isClassicTypoCorrectionEnabled(options)
+        #if os(iOS)
+        let needTypoCorrection = options.needTypoCorrection ?? true
+        #else
+        let needTypoCorrection = options.needTypoCorrection ?? false
+        #endif
 
         guard let result = self.convertToLattice(inputData, N_best: options.N_best, zenzaiMode: options.zenzaiMode, needTypoCorrection: needTypoCorrection) else {
             return ConversionResult(mainResults: [], predictionResults: [], englishPredictionResults: [], firstClauseResults: [])
@@ -1139,18 +1110,13 @@ public final class KanaKanjiConverter {
         return self.processResult(inputData: inputData, result: result, options: options)
     }
 
-    private func isClassicTypoCorrectionEnabled(_ options: ConvertRequestOptions) -> Bool {
-        switch options.typoCorrectionMode {
-        case .enabled:
-            return true
-        case .disabled:
-            return false
-        case .automatic:
-            #if os(iOS)
-            return true
-            #else
-            return false
-            #endif
+    /// 非同期版のリクエスト。内部で同期版をバックグラウンドキューに投げる簡易ラッパー。
+    public func requestCandidatesAsync(_ inputData: ComposingText, options: ConvertRequestOptions) async -> ConversionResult {
+        await withCheckedContinuation { continuation in
+            DispatchQueue.global().async {
+                let result = self.requestCandidates(inputData, options: options)
+                continuation.resume(returning: result)
+            }
         }
     }
 
@@ -1215,3 +1181,6 @@ public final class KanaKanjiConverter {
         return results
     }
 }
+
+// Thin async wrappers capture the converter in detached contexts; mark unchecked for compatibility.
+extension KanaKanjiConverter: @unchecked Sendable {}

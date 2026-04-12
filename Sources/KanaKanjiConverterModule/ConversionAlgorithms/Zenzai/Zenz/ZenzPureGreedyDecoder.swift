@@ -1,3 +1,4 @@
+#if !ZenzaiCoreML || !canImport(CoreML)
 #if Zenzai || ZenzaiCPU
 import llama
 #endif
@@ -36,3 +37,4 @@ struct ZenzPureGreedyDecoder {
         return context.decodeTokens(Array(promptTokens.dropFirst(initialCount)))
     }
 }
+#endif
