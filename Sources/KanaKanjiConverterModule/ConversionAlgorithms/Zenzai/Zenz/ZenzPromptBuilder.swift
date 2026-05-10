@@ -5,6 +5,7 @@ enum ZenzPromptBuilder {
     private static let inputTag = "\u{EE00}"
     private static let outputTag = "\u{EE01}"
     private static let contextTag = "\u{EE02}"
+    private static let rightContextTag = "\u{EE07}"
 
     private static func trimmedContext(_ context: String, maxLength: Int?) -> String {
         guard !context.isEmpty else {
@@ -18,6 +19,13 @@ enum ZenzPromptBuilder {
             return ""
         }
         return String(modeContext.suffix(maxLength ?? 40))
+    }
+
+    private static func trimmedRightContext(_ modeContext: String?, maxLength: Int?) -> String {
+        guard let modeContext else {
+            return ""
+        }
+        return String(modeContext.prefix(maxLength ?? 40))
     }
 
     private static func v3Conditions(_ mode: ConvertRequestOptions.ZenzaiV3DependentMode) -> [String] {
@@ -51,12 +59,16 @@ enum ZenzPromptBuilder {
         }
         let conditions = self.v3Conditions(mode)
         let trimmedLeftContext = self.trimmedContext(leftSideContext, maxLength: mode.maxLeftSideContextLength)
+        let trimmedRightContext = self.trimmedRightContext(mode.rightSideContext, maxLength: mode.maxRightSideContextLength)
         let input = composingText.toKatakana()
-        if trimmedLeftContext.isEmpty {
-            return conditions.joined(separator: "") + inputTag + input
-        } else {
-            return conditions.joined(separator: "") + contextTag + trimmedLeftContext + inputTag + input
+        var prompt = conditions.joined(separator: "")
+        if !trimmedLeftContext.isEmpty {
+            prompt += contextTag + trimmedLeftContext
         }
+        if !trimmedRightContext.isEmpty {
+            prompt += rightContextTag + trimmedRightContext
+        }
+        return prompt + inputTag + input
     }
 
     static func typoCorrectionPromptPrefix(leftSideContext: String) -> String {
@@ -78,6 +90,7 @@ enum ZenzPromptBuilder {
         }
 
         let leftSideContext: String
+        let rightSideContext: String
         switch versionDependentConfig {
         case .v2(let mode):
             if let profile = mode.profile, !profile.isEmpty {
@@ -85,9 +98,11 @@ enum ZenzPromptBuilder {
                 conditions.append("プロフィール:\(pf)")
             }
             leftSideContext = self.trimmedModeContext(mode.leftSideContext, maxLength: mode.maxLeftSideContextLength)
+            rightSideContext = ""
         case .v3(let mode):
             conditions.append(contentsOf: self.v3Conditions(mode))
             leftSideContext = self.trimmedModeContext(mode.leftSideContext, maxLength: mode.maxLeftSideContextLength)
+            rightSideContext = self.trimmedRightContext(mode.rightSideContext, maxLength: mode.maxRightSideContextLength)
         }
 
         switch versionDependentConfig {
@@ -100,11 +115,14 @@ enum ZenzPromptBuilder {
                 return inputTag + input + outputTag
             }
         case .v3:
+            var prompt = conditions.joined(separator: "")
             if !leftSideContext.isEmpty {
-                return conditions.joined(separator: "") + contextTag + leftSideContext + inputTag + input + outputTag
-            } else {
-                return conditions.joined(separator: "") + inputTag + input + outputTag
+                prompt += contextTag + leftSideContext
             }
+            if !rightSideContext.isEmpty {
+                prompt += rightContextTag + rightSideContext
+            }
+            return prompt + inputTag + input + outputTag
         }
     }
 }

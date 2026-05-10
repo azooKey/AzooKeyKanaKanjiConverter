@@ -57,6 +57,7 @@ extension Subcommands {
                         query: item.query,
                         answers: item.answer,
                         left_context: item.left_context,
+                        right_context: item.right_context,
                         outputs: [
                             EvaluateItemOutput(text: result, score: 0.0)
                         ]

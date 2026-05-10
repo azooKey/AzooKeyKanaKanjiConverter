@@ -25,6 +25,7 @@ package struct AncoSession {
         package var executedCommand: AncoSessionRequest
         package var composingText: ComposingText
         package var leftSideContext: String
+        package var rightSideContext: String
         package var candidates: [Candidate]
         package var displayedCandidates: [Candidate]
         package var displayedCandidateStartIndex: Int
@@ -93,6 +94,7 @@ package struct AncoSession {
     package private(set) var lastMainCandidates: [Candidate] = []
     package private(set) var lastPredictionCandidates: [Candidate] = []
     package private(set) var leftSideContext: String = ""
+    package private(set) var rightSideContext: String = ""
     package private(set) var page: Int = 0
     package private(set) var histories: [AncoSessionRequest] = []
 
@@ -115,6 +117,9 @@ package struct AncoSession {
         self.initialInputStyle = inputStyle
         self.initialDisplayTopN = displayTopN
         self.initialView = self.view
+        if case let .v3(mode) = requestOptions.zenzaiMode.versionDependentMode {
+            self.rightSideContext = mode.rightSideContext ?? ""
+        }
 
         if !userDictionaryItems.isEmpty {
             let userDictionary = userDictionaryItems.map {
@@ -245,10 +250,9 @@ package struct AncoSession {
             return self.makeResult(action: .noAction, submittedCommand: submittedCommand, executedCommand: submittedCommand)
 
         case let .moveCursor(count):
-            guard !self.composingText.isEmpty else {
+            guard self.moveCursorAcrossContextBoundary(count: count) else {
                 return self.makeResult(action: .noAction, submittedCommand: submittedCommand, executedCommand: submittedCommand)
             }
-            _ = self.composingText.moveCursorFromCursorPosition(count: count)
             self.didExperienceSegmentEdition = !self.composingText.isAtEndIndex
             return self.updateCandidates(submittedCommand: submittedCommand, executedCommand: submittedCommand)
 
@@ -335,6 +339,7 @@ package struct AncoSession {
         self.lastMainCandidates = []
         self.lastPredictionCandidates = []
         self.leftSideContext = ""
+        self.rightSideContext = ""
         self.page = 0
         self.didExperienceSegmentEdition = false
     }
@@ -408,6 +413,7 @@ package struct AncoSession {
             executedCommand: executedCommand,
             composingText: self.composingText,
             leftSideContext: self.leftSideContext,
+            rightSideContext: self.rightSideContext,
             candidates: self.lastCandidates,
             displayedCandidates: displayedCandidates,
             displayedCandidateStartIndex: startIndex,
@@ -447,6 +453,60 @@ package struct AncoSession {
         self.didExperienceSegmentEdition = true
     }
 
+    private mutating func moveCursorAcrossContextBoundary(count: Int) -> Bool {
+        if self.composingText.isEmpty {
+            if count < 0 {
+                let movedCount = min(-count, self.leftSideContext.count)
+                guard movedCount > 0 else {
+                    return false
+                }
+                let movedContext = String(self.leftSideContext.suffix(movedCount))
+                self.leftSideContext.removeLast(movedCount)
+                self.rightSideContext = movedContext + self.rightSideContext
+                return true
+            } else if count > 0 {
+                let movedCount = min(count, self.rightSideContext.count)
+                guard movedCount > 0 else {
+                    return false
+                }
+                let movedContext = String(self.rightSideContext.prefix(movedCount))
+                self.rightSideContext.removeFirst(movedCount)
+                self.leftSideContext += movedContext
+                return true
+            } else {
+                return false
+            }
+        }
+
+        if count >= 0 {
+            _ = self.composingText.moveCursorFromCursorPosition(count: count)
+            return true
+        }
+
+        let nextCursorPosition = self.composingText.convertTargetCursorPosition + count
+        if nextCursorPosition >= 0 {
+            _ = self.composingText.moveCursorFromCursorPosition(count: count)
+            return true
+        }
+
+        let movedCount = min(-nextCursorPosition, self.leftSideContext.count)
+        guard movedCount > 0 else {
+            return false
+        }
+
+        let movedContext = String(self.leftSideContext.suffix(movedCount))
+        self.leftSideContext.removeLast(movedCount)
+        let prependInput = movedContext.map {
+            ComposingText.InputElement(character: $0, inputStyle: .direct)
+        }
+        self.composingText = ComposingText(
+            convertTargetCursorPosition: 0,
+            input: prependInput + self.composingText.input,
+            convertTarget: movedContext + self.composingText.convertTarget
+        )
+        return true
+    }
+
     private func requestOptions(leftSideContext: String?) -> ConvertRequestOptions {
         var options = self.requestOptionsState
         switch options.zenzaiMode.versionDependentMode {
@@ -463,7 +523,9 @@ package struct AncoSession {
                 style: mode.style,
                 preference: mode.preference,
                 leftSideContext: leftSideContext,
-                maxLeftSideContextLength: mode.maxLeftSideContextLength
+                rightSideContext: self.rightSideContext,
+                maxLeftSideContextLength: mode.maxLeftSideContextLength,
+                maxRightSideContextLength: mode.maxRightSideContextLength
             ))
         }
         return options
@@ -520,7 +582,9 @@ package struct AncoSession {
                     style: mode.style,
                     preference: mode.preference,
                     leftSideContext: mode.leftSideContext,
-                    maxLeftSideContextLength: mode.maxLeftSideContextLength
+                    rightSideContext: mode.rightSideContext,
+                    maxLeftSideContextLength: mode.maxLeftSideContextLength,
+                    maxRightSideContextLength: mode.maxRightSideContextLength
                 ))
             }
 
@@ -535,7 +599,27 @@ package struct AncoSession {
                     style: mode.style,
                     preference: mode.preference,
                     leftSideContext: mode.leftSideContext,
-                    maxLeftSideContextLength: mode.maxLeftSideContextLength
+                    rightSideContext: mode.rightSideContext,
+                    maxLeftSideContextLength: mode.maxLeftSideContextLength,
+                    maxRightSideContextLength: mode.maxRightSideContextLength
+                ))
+            }
+
+        case "zenzai.rightContext":
+            switch self.requestOptionsState.zenzaiMode.versionDependentMode {
+            case .v2:
+                throw SessionError.invalidConfigValue(key: key, value: value)
+            case let .v3(mode):
+                self.rightSideContext = value
+                self.requestOptionsState.zenzaiMode.versionDependentMode = .v3(.init(
+                    profile: mode.profile,
+                    topic: mode.topic,
+                    style: mode.style,
+                    preference: mode.preference,
+                    leftSideContext: mode.leftSideContext,
+                    rightSideContext: value.isEmpty ? nil : value,
+                    maxLeftSideContextLength: mode.maxLeftSideContextLength,
+                    maxRightSideContextLength: mode.maxRightSideContextLength
                 ))
             }
 
@@ -630,6 +714,7 @@ package struct AncoSession {
         case let .v3(mode):
             commands.append(.setConfig(key: "zenzai.profile", value: mode.profile ?? ""))
             commands.append(.setConfig(key: "zenzai.topic", value: mode.topic ?? ""))
+            commands.append(.setConfig(key: "zenzai.rightContext", value: mode.rightSideContext ?? ""))
         }
 
         return commands

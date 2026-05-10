@@ -120,7 +120,7 @@ extension Subcommands {
                 if let predictiveInputTime = result.predictiveInputTime {
                     print("\(bold: "Time (ip):") \(predictiveInputTime)")
                 }
-                print(result.composingText.convertTarget)
+                print(self.contextualInputDisplay(result))
                 self.printCandidates(result.displayedCandidates)
                 if let entropy = result.entropy {
                     print("\(bold: "Entropy:") \(entropy)")
@@ -133,7 +133,20 @@ extension Subcommands {
                 if let message = result.message {
                     print(message)
                 }
+                print(self.contextualInputDisplay(result))
             }
+        }
+
+        private func contextualInputDisplay(_ result: AncoSession.ExecutionResult) -> String {
+            let text = result.composingText.convertTarget
+            let cursorPosition = max(0, min(result.composingText.convertTargetCursorPosition, text.count))
+            let cursorIndex = text.index(text.startIndex, offsetBy: cursorPosition)
+            let leftInput = text[..<cursorIndex]
+            let rightInput = text[cursorIndex...]
+            if leftInput.isEmpty && rightInput.isEmpty {
+                return "\(result.leftSideContext)|\(result.rightSideContext)"
+            }
+            return "\(result.leftSideContext)[\(leftInput)|\(rightInput)]\(result.rightSideContext)"
         }
 
         private func printTypoCorrectionResult(_ result: AncoSession.TypoCorrectionResult) {

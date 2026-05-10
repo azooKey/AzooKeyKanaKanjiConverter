@@ -41,3 +41,4 @@ let options = ConvertRequestOptions(
 * zenz-v1: Zenzaiで用いることのできるかな漢字変換モデル「zenz」の第1世代。`\uEE00<input_katakana>\uEE01<output></s>`というフォーマットでかな漢字変換タスクを行う機能に特化。
 * zenz-v2: Zenzaiで用いることのできるかな漢字変換モデル「zenz」の第2世代。第1世代の機能に加えて`\uEE00<input_katakana>\uEE02<context>\uEE01<output></s>`というフォーマットで、左文脈を読み込む機能を追加。
 * zenz-v3: Zenzaiで用いることのできるかな漢字変換モデル「zenz」の第3世代。第2世代と異なり、`\uEE02<context>\uEE00<input_katakana>\uEE01<output></s>`のようにコンテキストを前置する方式を推奨。また、`\uEE03`に続けて入力されたプロフィール情報を考慮する動作をネイティブに学習済み。このほか、実験的に`\uEE04`+トピック、`\uEE05`+スタイル、`\uEE06`+設定も考慮できるようになっています。
+* zenz-v3.2: zenz-v3の機能に加えて、`\uEE07`に続けて入力された右文脈を考慮できます。右文脈は通常、左文脈の後、入力の前に置きます。

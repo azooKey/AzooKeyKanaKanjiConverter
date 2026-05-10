@@ -84,6 +84,7 @@ final class AncoSessionTests: XCTestCase {
                 ":cfg zenzai.experimentalPredictiveInput=false",
                 ":cfg zenzai.profile=",
                 ":cfg zenzai.topic=",
+                ":cfg zenzai.rightContext=",
                 ":cfg displayTopN=3",
                 ":cfg inputStyle=roman2kana",
                 ":tc 3 beam=8",
@@ -165,6 +166,7 @@ final class AncoSessionTests: XCTestCase {
         _ = try session.execute(.setConfig(key: "zenzai.experimentalPredictiveInput", value: "true"))
         _ = try session.execute(.setConfig(key: "zenzai.profile", value: "developer"))
         _ = try session.execute(.setConfig(key: "zenzai.topic", value: "swift"))
+        _ = try session.execute(.setConfig(key: "zenzai.rightContext", value: "を取る"))
         _ = try session.execute(.dumpHistory(historyURL.path))
         let content = try String(contentsOf: historyURL, encoding: .utf8)
 
@@ -173,6 +175,7 @@ final class AncoSessionTests: XCTestCase {
         XCTAssertTrue(content.contains(":cfg zenzai.experimentalPredictiveInput=true"))
         XCTAssertTrue(content.contains(":cfg zenzai.profile=developer"))
         XCTAssertTrue(content.contains(":cfg zenzai.topic=swift"))
+        XCTAssertTrue(content.contains(":cfg zenzai.rightContext=を取る"))
     }
 
     func testSwitchingToPredictionViewImmediatelyReturnsPredictionCandidates() throws {
@@ -211,6 +214,18 @@ final class AncoSessionTests: XCTestCase {
         XCTAssertEqual(session.leftSideContext, "azooKey")
         XCTAssertEqual(session.composingText.convertTarget, "は")
         XCTAssertEqual(session.composingText.convertTargetCursorPosition, 1)
+    }
+
+    func testMoveCursorCanSplitLeftContextIntoRightContext() throws {
+        var session = self.makeSession()
+
+        _ = try session.execute(.setContext("ご飯を食べるはし"))
+        let result = try session.execute(.moveCursor(-2))
+
+        XCTAssertEqual(result.leftSideContext, "ご飯を食べる")
+        XCTAssertEqual(result.rightSideContext, "はし")
+        XCTAssertEqual(result.composingText.convertTarget, "")
+        XCTAssertEqual(result.composingText.convertTargetCursorPosition, 0)
     }
 
     func testEditSegmentMovesCursorAndRefreshesPrefixCandidates() throws {
