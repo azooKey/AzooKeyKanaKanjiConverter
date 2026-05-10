@@ -23,6 +23,7 @@ struct ZenzCandidateEvaluator {
     static func evaluate(
         context: ZenzContext,
         input: String,
+        inputCursorPosition: Int? = nil,
         candidate: Candidate,
         requestRichCandidates: Bool,
         prefixConstraint: Kana2Kanji.PrefixConstraint,
@@ -36,7 +37,14 @@ struct ZenzCandidateEvaluator {
         }
         let prompt = ZenzPromptBuilder.candidateEvaluationPrompt(
             input: input,
+            inputCursorPosition: inputCursorPosition,
             userDictionaryPrompt: userDictionaryPrompt,
+            versionDependentConfig: versionDependentConfig
+        )
+        let candidateTextForEvaluation = self.candidateTextForEvaluation(
+            candidateText: candidate.text,
+            input: input,
+            inputCursorPosition: inputCursorPosition,
             versionDependentConfig: versionDependentConfig
         )
         let normalizedPrompt = context.normalizeForModel(prompt)
@@ -46,7 +54,7 @@ struct ZenzCandidateEvaluator {
         }
         let prevPrompt = context.previousEvaluationPromptTokens()
 
-        let candidateTokens = context.encode(candidate.text, addBOS: false, addEOS: false)
+        let candidateTokens = context.encode(candidateTextForEvaluation, addBOS: false, addEOS: false)
         let addressedTokens: [llama_token]
         if prevPrompt == promptTokens, !requestRichCandidates {
             var prefix = ""
@@ -70,9 +78,15 @@ struct ZenzCandidateEvaluator {
             return .error
         }
         let n_vocab = Int(context.vocabSize)
-        let isLearnedToken: [(isLearned: Bool, priority: Float)] = Array(repeating: (false, 0), count: promptTokens.count) + candidate.data.flatMap {
+        let candidateLearnedTokens: [(isLearned: Bool, priority: Float)] = candidate.data.flatMap {
             Array(repeating: ($0.metadata.contains(.isLearned), logf(self.learningPriority(data: $0))), count: context.encode($0.word, addBOS: false).count)
         }
+        let candidateTokenMetadata = if candidateLearnedTokens.count >= candidateTokens.count {
+            Array(candidateLearnedTokens.prefix(candidateTokens.count))
+        } else {
+            candidateLearnedTokens + Array(repeating: (false, 0), count: candidateTokens.count - candidateLearnedTokens.count)
+        }
+        let isLearnedToken: [(isLearned: Bool, priority: Float)] = Array(repeating: (false, 0), count: promptTokens.count) + candidateTokenMetadata
 
         var score: Float = 0
 
@@ -175,6 +189,23 @@ struct ZenzCandidateEvaluator {
                 .init(probabilityRatio: $0.probabilityRatioToMaxProb, prefixConstraint: $0.constraint)
             }
         )
+    }
+
+    static func candidateTextForEvaluation(
+        candidateText: String,
+        input: String,
+        inputCursorPosition: Int?,
+        versionDependentConfig: ConvertRequestOptions.ZenzaiVersionDependentMode
+    ) -> String {
+        switch versionDependentConfig {
+        case .v2:
+            return candidateText
+        case .v3:
+            if ZenzPromptBuilder.shouldInsertAlignmentSeparator(input: input, cursorPosition: inputCursorPosition) {
+                return candidateText + ZenzPromptBuilder.alignmentSeparator
+            }
+            return candidateText
+        }
     }
 
     private static func learningPriority(data: DicdataElement) -> Float {

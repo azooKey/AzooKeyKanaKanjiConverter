@@ -6,6 +6,7 @@ enum ZenzPromptBuilder {
     private static let outputTag = "\u{EE01}"
     private static let contextTag = "\u{EE02}"
     private static let rightContextTag = "\u{EE07}"
+    static let alignmentSeparator = "\u{EE08}"
 
     private static func trimmedContext(_ context: String, maxLength: Int?) -> String {
         guard !context.isEmpty else {
@@ -81,6 +82,7 @@ enum ZenzPromptBuilder {
 
     static func candidateEvaluationPrompt(
         input: String,
+        inputCursorPosition: Int? = nil,
         userDictionaryPrompt: String,
         versionDependentConfig: ConvertRequestOptions.ZenzaiVersionDependentMode
     ) -> String {
@@ -122,7 +124,22 @@ enum ZenzPromptBuilder {
             if !rightSideContext.isEmpty {
                 prompt += rightContextTag + rightSideContext
             }
-            return prompt + inputTag + input + outputTag
+            return prompt + inputTag + self.inputWithAlignmentSeparator(input, cursorPosition: inputCursorPosition) + outputTag
         }
+    }
+
+    static func shouldInsertAlignmentSeparator(input: String, cursorPosition: Int?) -> Bool {
+        guard let cursorPosition else {
+            return false
+        }
+        return cursorPosition >= 0 && cursorPosition < input.count
+    }
+
+    private static func inputWithAlignmentSeparator(_ input: String, cursorPosition: Int?) -> String {
+        guard self.shouldInsertAlignmentSeparator(input: input, cursorPosition: cursorPosition), let cursorPosition else {
+            return input
+        }
+        let cursorIndex = input.index(input.startIndex, offsetBy: cursorPosition)
+        return String(input[..<cursorIndex]) + self.alignmentSeparator + String(input[cursorIndex...])
     }
 }

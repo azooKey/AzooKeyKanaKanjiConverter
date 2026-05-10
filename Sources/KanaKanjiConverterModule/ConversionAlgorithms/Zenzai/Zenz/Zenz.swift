@@ -31,6 +31,7 @@ package final class Zenz {
 
     func candidateEvaluate(
         convertTarget: String,
+        convertTargetCursorPosition: Int? = nil,
         candidates: [Candidate],
         requestRichCandidates: Bool,
         prefixConstraint: Kana2Kanji.PrefixConstraint,
@@ -44,6 +45,7 @@ package final class Zenz {
             return ZenzCandidateEvaluator.evaluate(
                 context: zenzContext,
                 input: convertTarget.toKatakana(),
+                inputCursorPosition: convertTargetCursorPosition,
                 candidate: candidate,
                 requestRichCandidates: requestRichCandidates,
                 prefixConstraint: prefixConstraint,
