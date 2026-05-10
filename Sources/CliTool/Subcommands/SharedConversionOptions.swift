@@ -35,6 +35,8 @@ struct SharedConversionOptions: ParsableArguments {
     var configZenzaiProfile: String?
     @Option(name: [.customLong("config_topic")], help: "enable topic prompting for zenz-v3 and later.")
     var configZenzaiTopic: String?
+    @Option(name: [.customLong("config_right_context")], help: "enable right context prompting for zenz-v3.2 and later.")
+    var configZenzaiRightContext: String?
     @Flag(name: [.customLong("zenz_v2")], help: "Use zenz_v2 model.")
     var zenzV2 = false
     @Flag(name: [.customLong("zenz_v3")], help: "Use zenz_v3 model.")
@@ -116,7 +118,7 @@ struct SharedConversionOptions: ParsableArguments {
         return options
     }
 
-    func makeEvaluateRequestOptions(leftSideContext: String?, ignoreLeftContext: Bool) throws -> ConvertRequestOptions {
+    func makeEvaluateRequestOptions(leftSideContext: String?, rightSideContext: String?, ignoreLeftContext: Bool, ignoreRightContext: Bool) throws -> ConvertRequestOptions {
         var options = ConvertRequestOptions(
             N_best: self.configNBest,
             requireJapanesePrediction: .disabled,
@@ -133,7 +135,10 @@ struct SharedConversionOptions: ParsableArguments {
             textReplacer: .withDefaultEmojiDictionary(),
             specialCandidateProviders: KanaKanjiConverter.defaultSpecialCandidateProviders,
             zenzaiMode: try self.makeZenzaiMode(
-                versionDependentMode: .v3(.init(leftSideContext: ignoreLeftContext ? nil : leftSideContext))
+                versionDependentMode: .v3(.init(
+                    leftSideContext: ignoreLeftContext ? nil : leftSideContext,
+                    rightSideContext: ignoreRightContext ? nil : rightSideContext
+                ))
             ),
             experimentalZenzaiPredictiveInput: self.experimentalZenzaiPredictiveInput,
             typoCorrectionMode: try self.makeTypoMode(),
@@ -163,7 +168,11 @@ struct SharedConversionOptions: ParsableArguments {
         if self.zenzV2 {
             return .v2(.init(profile: self.configZenzaiProfile))
         }
-        return .v3(.init(profile: self.configZenzaiProfile, topic: self.configZenzaiTopic))
+        return .v3(.init(
+            profile: self.configZenzaiProfile,
+            topic: self.configZenzaiTopic,
+            rightSideContext: self.configZenzaiRightContext
+        ))
     }
 
     func makeZenzaiMode(

@@ -16,6 +16,8 @@ extension Subcommands {
         var stable: Bool = false
         @Flag(name: [.customLong("config_zenzai_ignore_left_context")], help: "ignore left_context")
         var configZenzaiIgnoreLeftContext: Bool = false
+        @Flag(name: [.customLong("config_zenzai_ignore_right_context")], help: "ignore right_context")
+        var configZenzaiIgnoreRightContext: Bool = false
 
         static let configuration = CommandConfiguration(commandName: "evaluate", abstract: "Evaluate quality of Conversion for input data.")
 
@@ -43,7 +45,9 @@ extension Subcommands {
                 composingText.insertAtCursorPosition(item.query, inputStyle: .direct)
                 let requestOptions = try self.options.makeEvaluateRequestOptions(
                     leftSideContext: item.left_context,
-                    ignoreLeftContext: self.configZenzaiIgnoreLeftContext
+                    rightSideContext: item.right_context,
+                    ignoreLeftContext: self.configZenzaiIgnoreLeftContext,
+                    ignoreRightContext: self.configZenzaiIgnoreRightContext
                 )
                 let result = converter.requestCandidates(composingText, options: requestOptions)
                 let mainResults = result.mainResults.filter {
@@ -54,6 +58,7 @@ extension Subcommands {
                         query: item.query,
                         answers: item.answer,
                         left_context: item.left_context,
+                        right_context: item.right_context,
                         outputs: mainResults.prefix(self.options.configNBest).map {
                             EvaluateItemOutput(text: $0.text, score: Double($0.value))
                         }
@@ -99,6 +104,9 @@ extension Subcommands {
 
         /// 左文脈
         var left_context: String?
+
+        /// 右文脈
+        var right_context: String?
 
         /// ユーザ辞書
         var user_dictionary: [InputUserDictionaryItem]?
@@ -149,10 +157,11 @@ extension Subcommands {
     }
 
     struct EvaluateItem: Codable {
-        init(query: String, answers: [String], left_context: String?, outputs: [Subcommands.EvaluateItemOutput]) {
+        init(query: String, answers: [String], left_context: String?, right_context: String?, outputs: [Subcommands.EvaluateItemOutput]) {
             self.query = query
             self.answers = answers
             self.left_context = left_context ?? ""
+            self.right_context = right_context ?? ""
             self.outputs = outputs
             do {
                 // entropyを示す
@@ -181,6 +190,9 @@ extension Subcommands {
 
         /// 文脈
         var left_context: String
+
+        /// 右文脈
+        var right_context: String
 
         /// エントロピー
         var entropy: Double

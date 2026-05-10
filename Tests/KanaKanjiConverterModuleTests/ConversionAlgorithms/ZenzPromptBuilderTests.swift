@@ -14,7 +14,9 @@ final class ZenzPromptBuilderTests: XCTestCase {
             style: "style",
             preference: "preference",
             leftSideContext: nil,
-            maxLeftSideContextLength: 2
+            rightSideContext: "uvwxyz",
+            maxLeftSideContextLength: 2,
+            maxRightSideContextLength: 3
         )
         let prompt = ZenzPromptBuilder.inputPredictionPrompt(
             leftSideContext: "abcdef",
@@ -24,7 +26,24 @@ final class ZenzPromptBuilderTests: XCTestCase {
 
         XCTAssertEqual(
             prompt,
-            "\u{EE03}profile\u{EE04}topic\u{EE05}style\u{EE06}preference\u{EE02}ef\u{EE00}カンジ"
+            "\u{EE03}profile\u{EE04}topic\u{EE05}style\u{EE06}preference\u{EE02}ef\u{EE07}uvw\u{EE00}カンジ"
+        )
+    }
+
+    func testCandidateEvaluationPromptV3BuildsPromptWithRightContextWithoutLeftContext() {
+        let mode = ConvertRequestOptions.ZenzaiV3DependentMode(
+            rightSideContext: "abcdef",
+            maxRightSideContextLength: 2
+        )
+        let prompt = ZenzPromptBuilder.candidateEvaluationPrompt(
+            input: "ハシ",
+            userDictionaryPrompt: "",
+            versionDependentConfig: .v3(mode)
+        )
+
+        XCTAssertEqual(
+            prompt,
+            "\u{EE07}ab\u{EE00}ハシ\u{EE01}"
         )
     }
 
