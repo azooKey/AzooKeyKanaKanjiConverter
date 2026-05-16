@@ -87,7 +87,9 @@ extension Kana2Kanji {
         versionDependentConfig: ConvertRequestOptions.ZenzaiVersionDependentMode,
         dicdataStoreState: DicdataStoreState
     ) -> (result: LatticeNode, lattice: Lattice, cache: ZenzaiCache) {
-        var constraint = zenzaiCache?.getNewConstraint(for: inputData) ?? PrefixConstraint([])
+        let latticeInputData = Self.zenzaiLatticeInputData(for: inputData)
+        let zenzInputCursorPosition = Self.zenzaiInputCursorPosition(for: inputData)
+        var constraint = zenzaiCache?.getNewConstraint(for: latticeInputData) ?? PrefixConstraint([])
         debug("initial constraint", constraint)
         let eosNode = LatticeNode.EOSNode
         var lattice: Lattice = Lattice()
@@ -106,16 +108,16 @@ extension Kana2Kanji {
                 preprocessedLattice = lattice
             } else {
                 // latticeがまだemptyの場合、zenzaiCache側に存在するキャッシュの活用を試みる
-                preprocessedLattice = zenzaiCache?.getPreprocessedLattice(for: inputData, kanaKanji: self, dicdataStoreState: dicdataStoreState)
+                preprocessedLattice = zenzaiCache?.getPreprocessedLattice(for: latticeInputData, kanaKanji: self, dicdataStoreState: dicdataStoreState)
             }
             let draftResult: (result: LatticeNode, lattice: Lattice)
             if constraint.isEmpty {
                 // 全部を変換する場合はN=2の変換を行う
                 // 実験の結果、ここは2-bestを取ると平均的な速度が最良になることがわかったので、そうしている。
-                draftResult = self.kana2lattice_all(inputData, N_best: 2, needTypoCorrection: false, preprocessedLattice: preprocessedLattice, dicdataStoreState: dicdataStoreState)
+                draftResult = self.kana2lattice_all(latticeInputData, N_best: 2, needTypoCorrection: false, preprocessedLattice: preprocessedLattice, dicdataStoreState: dicdataStoreState)
             } else {
                 // 制約がついている場合は高速になるので、N=3としている
-                draftResult = self.kana2lattice_all_with_prefix_constraint(inputData, N_best: 3, constraint: constraint, preprocessedLattice: preprocessedLattice, dicdataStoreState: dicdataStoreState)
+                draftResult = self.kana2lattice_all_with_prefix_constraint(latticeInputData, N_best: 3, constraint: constraint, preprocessedLattice: preprocessedLattice, dicdataStoreState: dicdataStoreState)
             }
             if lattice.isEmpty {
                 // 初回のみ
@@ -135,7 +137,7 @@ extension Kana2Kanji {
                 debug("best was not found!")
                 // Emptyの場合
                 // 制約が満たせない場合は無視する
-                return (eosNode, lattice, ZenzaiCache(inputData, constraint: PrefixConstraint([]), satisfyingCandidate: nil, lattice: lattice))
+                return (eosNode, lattice, ZenzaiCache(latticeInputData, constraint: PrefixConstraint([]), satisfyingCandidate: nil, lattice: lattice))
             }
 
             debug("Constrained draft modeling", -start.timeIntervalSinceNow)
@@ -146,10 +148,11 @@ extension Kana2Kanji {
                 if inferenceLimit == 0 {
                     debug("inference limit! \(candidate.text) is used for excuse")
                     // When inference occurs more than maximum times, then just return result at this point
-                    return (eosNode, lattice, ZenzaiCache(inputData, constraint: constraint, satisfyingCandidate: candidate, lattice: lattice))
+                    return (eosNode, lattice, ZenzaiCache(latticeInputData, constraint: constraint, satisfyingCandidate: candidate, lattice: lattice))
                 }
                 let reviewResult = zenz.candidateEvaluate(
                     convertTarget: inputData.convertTarget,
+                    convertTargetCursorPosition: zenzInputCursorPosition,
                     candidates: [candidate],
                     requestRichCandidates: requestRichCandidates,
                     prefixConstraint: constraint,
@@ -168,9 +171,14 @@ extension Kana2Kanji {
                     if requestRichCandidates {
                         // alternativeConstraintsに従い、insertedCandidatesにデータを追加する
                         for alternativeConstraint in alternativeConstraints.reversed() where alternativeConstraint.probabilityRatio > 0.25 {
+                            let normalizedAlternativeConstraint = Self.normalizedZenzConstraint(
+                                alternativeConstraint.prefixConstraint,
+                                defaultHasEOS: false,
+                                ignoreMemoryAndUserDictionary: false
+                            )
                             // constructed candidatesのうちalternativeConstraint.prefixConstraintを満たすものを列挙する
                             let mostLiklyCandidate = constructedCandidates.filter {
-                                $0.1.text.utf8.hasPrefix(alternativeConstraint.prefixConstraint)
+                                self.candidate($0.1, satisfies: normalizedAlternativeConstraint)
                             }.max {
                                 $0.1.value < $1.1.value
                             }
@@ -180,7 +188,7 @@ extension Kana2Kanji {
                             } else if alternativeConstraint.probabilityRatio > 0.5 {
                                 // 十分に高い確率の場合、変換器を実際に呼び出して候補を作ってもらう
                                 lattice.resetNodeStates()
-                                let draftResult = self.kana2lattice_all_with_prefix_constraint(inputData, N_best: 3, constraint: PrefixConstraint(alternativeConstraint.prefixConstraint), preprocessedLattice: lattice, dicdataStoreState: dicdataStoreState)
+                                let draftResult = self.kana2lattice_all_with_prefix_constraint(latticeInputData, N_best: 3, constraint: normalizedAlternativeConstraint, preprocessedLattice: lattice, dicdataStoreState: dicdataStoreState)
                                 let candidates = draftResult.result.getCandidateData().map(self.processClauseCandidate)
                                 let best: (Int, Candidate)? = candidates.enumerated().reduce(into: (Int, Candidate)?.none) { best, pair in
                                     if let (_, c) = best, pair.1.value > c.value {
@@ -196,9 +204,9 @@ extension Kana2Kanji {
                         }
                     }
                     if satisfied {
-                        return (eosNode, lattice, ZenzaiCache(inputData, constraint: constraint, satisfyingCandidate: candidate, lattice: lattice))
+                        return (eosNode, lattice, ZenzaiCache(latticeInputData, constraint: constraint, satisfyingCandidate: candidate, lattice: lattice))
                     } else {
-                        return (eosNode, lattice, ZenzaiCache(inputData, constraint: constraint, satisfyingCandidate: nil, lattice: lattice))
+                        return (eosNode, lattice, ZenzaiCache(latticeInputData, constraint: constraint, satisfyingCandidate: nil, lattice: lattice))
                     }
                 case .continue:
                     break reviewLoop
@@ -214,6 +222,14 @@ extension Kana2Kanji {
         case `return`(constraint: PrefixConstraint, alternativeConstraints: [CandidateEvaluationResult.AlternativeConstraint], satisfied: Bool)
         case `continue`
         case `retry`(candidateIndex: Int)
+    }
+
+    static func zenzaiLatticeInputData(for inputData: ComposingText) -> ComposingText {
+        inputData.isAtEndIndex ? inputData : inputData.prefixToCursorPosition()
+    }
+
+    static func zenzaiInputCursorPosition(for inputData: ComposingText) -> Int? {
+        inputData.isAtEndIndex ? nil : inputData.convertTargetCursorPosition
     }
 
     private func review(
@@ -232,13 +248,18 @@ extension Kana2Kanji {
             debug("passed:", score)
             return .return(constraint: constraint, alternativeConstraints: alternativeConstraints, satisfied: true)
         case .fixRequired(let prefixConstraint):
-            if constraint.constraint == prefixConstraint {
+            let newConstraint = Self.normalizedZenzConstraint(
+                prefixConstraint,
+                defaultHasEOS: false,
+                ignoreMemoryAndUserDictionary: constraint.ignoreMemoryAndUserDictionary
+            )
+            if constraint == newConstraint {
                 if !constraint.ignoreMemoryAndUserDictionary, candidates[candidateIndex].data.contains(where: { !$0.metadata.isDisjoint(with: [.isLearned, .isFromUserDictionary])}) {
                     // `ignoreMemoryAndUserDictionary`でない場合、学習候補がモデルにリジェクトされた可能性を検討する
-                    debug("same constraint (fixRequired), but retry without memory and user dictionary:", prefixConstraint)
+                    debug("same constraint (fixRequired), but retry without memory and user dictionary:", newConstraint)
                     constraint.ignoreMemoryAndUserDictionary = true
                     for (i, candidate) in candidates.indexed() where i != candidateIndex {
-                        if candidate.text.utf8.hasPrefix(prefixConstraint) && self.heuristicRetryValidation(candidate.text) {
+                        if self.candidate(candidate, satisfies: newConstraint) && self.heuristicRetryValidation(candidate.text) {
                             debug("found \(candidate.text) as another retry")
                             return .retry(candidateIndex: i)
                         }
@@ -246,20 +267,20 @@ extension Kana2Kanji {
                     return .continue
                 } else {
                     // それ以外の場合で同じ制約が2回連続で出てきたら諦める
-                    debug("same constraint (fixRequired):", prefixConstraint)
+                    debug("same constraint (fixRequired):", newConstraint)
                     return .return(constraint: PrefixConstraint([]), alternativeConstraints: [], satisfied: false)
                 }
             }
             // 制約が得られたので、更新する
-            let isIncrementalUpdate = prefixConstraint.hasPrefix(constraint.constraint)
-            constraint = PrefixConstraint(prefixConstraint, ignoreMemoryAndUserDictionary: constraint.ignoreMemoryAndUserDictionary)
+            let isIncrementalUpdate = newConstraint.constraint.hasPrefix(constraint.constraint)
+            constraint = newConstraint
             debug("update constraint:", constraint)
             if isIncrementalUpdate {
                 // もし制約を満たす候補があるならそれを使って再レビューチャレンジを戦うことで、推論を減らせる
                 // この処理の正当性は、prefix constraintが漸進的に更新され、candidatesの構築時に可能な候補がすべて確認されたことに由来する
                 // このため、学習候補などが最終ドラフトとして採択され、prefix constraintが漸進的更新になっていない場合（!isIncrementalUpdate）この処理は行わない
                 for (i, candidate) in candidates.indexed() where i != candidateIndex {
-                    if candidate.text.utf8.hasPrefix(prefixConstraint) && self.heuristicRetryValidation(candidate.text) {
+                    if self.candidate(candidate, satisfies: newConstraint) && self.heuristicRetryValidation(candidate.text) {
                         debug("found \(candidate.text) as another retry")
                         return .retry(candidateIndex: i)
                     }
@@ -267,7 +288,11 @@ extension Kana2Kanji {
             }
             return .continue
         case .wholeResult(let wholeConstraint):
-            let newConstraint = PrefixConstraint(Array(wholeConstraint.utf8), hasEOS: true, ignoreMemoryAndUserDictionary: constraint.ignoreMemoryAndUserDictionary)
+            let newConstraint = Self.normalizedZenzConstraint(
+                Array(wholeConstraint.utf8),
+                defaultHasEOS: true,
+                ignoreMemoryAndUserDictionary: constraint.ignoreMemoryAndUserDictionary
+            )
             // 同じ制約が2回連続で出てきたら諦める
             if constraint == newConstraint {
                 if !constraint.ignoreMemoryAndUserDictionary, candidates[candidateIndex].data.contains(where: { !$0.metadata.isDisjoint(with: [.isLearned, .isFromUserDictionary])}) {
@@ -275,7 +300,7 @@ extension Kana2Kanji {
                     debug("same constraint (wholeResult), but retry without memory and user dictionary:", constraint)
                     constraint.ignoreMemoryAndUserDictionary = true
                     for (i, candidate) in candidates.indexed() where i != candidateIndex {
-                        if candidate.text.utf8.elementsEqual(wholeConstraint.utf8) && self.heuristicRetryValidation(candidate.text) {
+                        if self.candidate(candidate, satisfies: newConstraint) && self.heuristicRetryValidation(candidate.text) {
                             debug("found \(candidate.text) as another retry")
                             return .retry(candidateIndex: i)
                         }
@@ -289,19 +314,51 @@ extension Kana2Kanji {
             }
             // 制約が得られたので、更新する
             debug("update whole constraint:", wholeConstraint)
-            let isIncrementalUpdate = wholeConstraint.utf8.hasPrefix(constraint.constraint)
-            constraint = PrefixConstraint(Array(wholeConstraint.utf8), hasEOS: true)
+            let isIncrementalUpdate = newConstraint.constraint.hasPrefix(constraint.constraint)
+            constraint = newConstraint
             if isIncrementalUpdate {
                 // もし制約を満たす候補があるならそれを使って再レビューチャレンジを戦うことで、推論を減らせる
                 // 上記と同様に、prefix constraintが漸進的更新になっていない場合（!isIncrementalUpdate）この処理は行わない
                 for (i, candidate) in candidates.indexed() where i != candidateIndex {
-                    if candidate.text == wholeConstraint && self.heuristicRetryValidation(candidate.text) {
+                    if self.candidate(candidate, satisfies: newConstraint) && self.heuristicRetryValidation(candidate.text) {
                         debug("found \(candidate.text) as another retry")
                         return .retry(candidateIndex: i)
                     }
                 }
             }
             return .continue
+        }
+    }
+
+    static func normalizedZenzConstraint(
+        _ constraintBytes: [UInt8],
+        defaultHasEOS: Bool,
+        ignoreMemoryAndUserDictionary: Bool
+    ) -> PrefixConstraint {
+        if let prefix = self.prefixBeforeAlignmentSeparator(in: constraintBytes) {
+            return PrefixConstraint(prefix, hasEOS: true, ignoreMemoryAndUserDictionary: ignoreMemoryAndUserDictionary)
+        }
+        return PrefixConstraint(constraintBytes, hasEOS: defaultHasEOS, ignoreMemoryAndUserDictionary: ignoreMemoryAndUserDictionary)
+    }
+
+    private static func prefixBeforeAlignmentSeparator(in bytes: [UInt8]) -> [UInt8]? {
+        let separator = Array(ZenzPromptBuilder.alignmentSeparator.utf8)
+        guard bytes.count >= separator.count else {
+            return nil
+        }
+        for index in 0 ... (bytes.count - separator.count) {
+            if bytes[index ..< index + separator.count].elementsEqual(separator) {
+                return Array(bytes[..<index])
+            }
+        }
+        return nil
+    }
+
+    private func candidate(_ candidate: Candidate, satisfies constraint: PrefixConstraint) -> Bool {
+        if constraint.hasEOS {
+            return candidate.text.utf8.elementsEqual(constraint.constraint)
+        } else {
+            return candidate.text.utf8.hasPrefix(constraint.constraint)
         }
     }
 

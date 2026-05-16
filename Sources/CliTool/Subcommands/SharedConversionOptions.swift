@@ -37,6 +37,8 @@ struct SharedConversionOptions: ParsableArguments {
     var configZenzaiTopic: String?
     @Option(name: [.customLong("config_right_context")], help: "enable right context prompting for zenz-v3.2 and later.")
     var configZenzaiRightContext: String?
+    @Flag(name: [.customLong("config_alignment_separator")], help: "enable alignment separator prompting for zenz-v3.")
+    var configZenzaiAlignmentSeparator = false
     @Flag(name: [.customLong("zenz_v2")], help: "Use zenz_v2 model.")
     var zenzV2 = false
     @Flag(name: [.customLong("zenz_v3")], help: "Use zenz_v3 model.")
@@ -137,7 +139,8 @@ struct SharedConversionOptions: ParsableArguments {
             zenzaiMode: try self.makeZenzaiMode(
                 versionDependentMode: .v3(.init(
                     leftSideContext: ignoreLeftContext ? nil : leftSideContext,
-                    rightSideContext: ignoreRightContext ? nil : rightSideContext
+                    rightSideContext: ignoreRightContext ? nil : rightSideContext,
+                    enableAlignmentSeparator: self.configZenzaiAlignmentSeparator
                 ))
             ),
             experimentalZenzaiPredictiveInput: self.experimentalZenzaiPredictiveInput,
@@ -171,7 +174,8 @@ struct SharedConversionOptions: ParsableArguments {
         return .v3(.init(
             profile: self.configZenzaiProfile,
             topic: self.configZenzaiTopic,
-            rightSideContext: self.configZenzaiRightContext
+            rightSideContext: self.configZenzaiRightContext,
+            enableAlignmentSeparator: self.configZenzaiAlignmentSeparator
         ))
     }
 

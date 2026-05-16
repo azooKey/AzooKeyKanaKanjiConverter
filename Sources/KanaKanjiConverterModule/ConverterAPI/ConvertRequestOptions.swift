@@ -175,7 +175,8 @@ public struct ConvertRequestOptions: Sendable {
             leftSideContext: String? = nil,
             rightSideContext: String? = nil,
             maxLeftSideContextLength: Int? = nil,
-            maxRightSideContextLength: Int? = nil
+            maxRightSideContextLength: Int? = nil,
+            enableAlignmentSeparator: Bool = false
         ) {
             self.profile = profile
             self.topic = topic
@@ -185,6 +186,7 @@ public struct ConvertRequestOptions: Sendable {
             self.rightSideContext = rightSideContext
             self.maxLeftSideContextLength = maxLeftSideContextLength
             self.maxRightSideContextLength = maxRightSideContextLength
+            self.enableAlignmentSeparator = enableAlignmentSeparator
         }
 
         /// プロフィールコンテクストを設定した場合、プロフィールを反映したプロンプトが自動的に付与されます。プロフィールは10〜20文字程度の長さにとどめることを推奨します。
@@ -203,6 +205,8 @@ public struct ConvertRequestOptions: Sendable {
         public var maxLeftSideContextLength: Int?
         /// 右文脈の最大長を制約します
         public var maxRightSideContextLength: Int?
+        /// カーソル位置に応じたalignment separatorをプロンプトと候補に挿入します。
+        public var enableAlignmentSeparator: Bool
     }
 
     public enum ZenzaiVersionDependentMode: Sendable, Equatable, Hashable {

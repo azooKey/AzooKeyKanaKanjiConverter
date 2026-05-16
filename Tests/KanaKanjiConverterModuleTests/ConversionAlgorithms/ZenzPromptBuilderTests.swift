@@ -47,6 +47,48 @@ final class ZenzPromptBuilderTests: XCTestCase {
         )
     }
 
+    func testCandidateEvaluationPromptV3DoesNotInsertAlignmentSeparatorByDefault() {
+        let prompt = ZenzPromptBuilder.candidateEvaluationPrompt(
+            input: "ハシ",
+            inputCursorPosition: 1,
+            userDictionaryPrompt: "",
+            versionDependentConfig: .v3(.init())
+        )
+
+        XCTAssertEqual(
+            prompt,
+            "\u{EE00}ハシ\u{EE01}"
+        )
+    }
+
+    func testCandidateEvaluationPromptV3InsertsAlignmentSeparatorAtCursorWhenEnabled() {
+        let prompt = ZenzPromptBuilder.candidateEvaluationPrompt(
+            input: "ハシ",
+            inputCursorPosition: 1,
+            userDictionaryPrompt: "",
+            versionDependentConfig: .v3(.init(enableAlignmentSeparator: true))
+        )
+
+        XCTAssertEqual(
+            prompt,
+            "\u{EE00}ハ\u{EE08}シ\u{EE01}"
+        )
+    }
+
+    func testCandidateEvaluationPromptV2IgnoresAlignmentCursor() {
+        let prompt = ZenzPromptBuilder.candidateEvaluationPrompt(
+            input: "ハシ",
+            inputCursorPosition: 1,
+            userDictionaryPrompt: "",
+            versionDependentConfig: .v2(.init())
+        )
+
+        XCTAssertEqual(
+            prompt,
+            "\u{EE00}ハシ\u{EE01}"
+        )
+    }
+
     func testCandidateEvaluationPromptV2BuildsPromptWithDictionaryAndProfile() {
         let mode = ConvertRequestOptions.ZenzaiV2DependentMode(
             profile: "profile",
@@ -63,5 +105,54 @@ final class ZenzPromptBuilderTests: XCTestCase {
             prompt,
             "\u{EE00}ヘンカン\u{EE02}辞書:単語(たんご)・プロフィール:profile・発言:def\u{EE01}"
         )
+    }
+
+    func testCandidateTextForEvaluationV3DoesNotAppendAlignmentSeparatorByDefault() {
+        let text = ZenzCandidateEvaluator.candidateTextForEvaluation(
+            candidateText: "葉",
+            input: "ハシ",
+            inputCursorPosition: 1,
+            versionDependentConfig: .v3(.init())
+        )
+
+        XCTAssertEqual(text, "葉")
+    }
+
+    func testCandidateTextForEvaluationV3AppendsAlignmentSeparatorWhenEnabled() {
+        let text = ZenzCandidateEvaluator.candidateTextForEvaluation(
+            candidateText: "葉",
+            input: "ハシ",
+            inputCursorPosition: 1,
+            versionDependentConfig: .v3(.init(enableAlignmentSeparator: true))
+        )
+
+        XCTAssertEqual(text, "葉\u{EE08}")
+    }
+
+    func testZenzaiLatticeInputDataUsesPrefixForNonEndCursor() {
+        let input = ComposingText(
+            convertTargetCursorPosition: 1,
+            input: [
+                .init(character: "は", inputStyle: .direct),
+                .init(character: "し", inputStyle: .direct)
+            ],
+            convertTarget: "はし"
+        )
+
+        let latticeInput = Kana2Kanji.zenzaiLatticeInputData(for: input)
+
+        XCTAssertEqual(latticeInput.convertTarget, "は")
+        XCTAssertEqual(latticeInput.convertTargetCursorPosition, 1)
+        XCTAssertEqual(Kana2Kanji.zenzaiInputCursorPosition(for: input), 1)
+    }
+
+    func testZenzConstraintWithAlignmentSeparatorBecomesEOSPrefixConstraint() {
+        let constraint = Kana2Kanji.normalizedZenzConstraint(
+            Array("橋\u{EE08}".utf8),
+            defaultHasEOS: false,
+            ignoreMemoryAndUserDictionary: true
+        )
+
+        XCTAssertEqual(constraint, Kana2Kanji.PrefixConstraint(Array("橋".utf8), hasEOS: true, ignoreMemoryAndUserDictionary: true))
     }
 }

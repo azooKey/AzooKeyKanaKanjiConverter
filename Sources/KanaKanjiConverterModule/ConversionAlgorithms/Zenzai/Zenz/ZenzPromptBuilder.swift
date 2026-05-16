@@ -6,6 +6,7 @@ enum ZenzPromptBuilder {
     private static let outputTag = "\u{EE01}"
     private static let contextTag = "\u{EE02}"
     private static let rightContextTag = "\u{EE07}"
+    static let alignmentSeparator = "\u{EE08}"
 
     private static func trimmedContext(_ context: String, maxLength: Int?) -> String {
         guard !context.isEmpty else {
@@ -81,6 +82,7 @@ enum ZenzPromptBuilder {
 
     static func candidateEvaluationPrompt(
         input: String,
+        inputCursorPosition: Int? = nil,
         userDictionaryPrompt: String,
         versionDependentConfig: ConvertRequestOptions.ZenzaiVersionDependentMode
     ) -> String {
@@ -91,6 +93,7 @@ enum ZenzPromptBuilder {
 
         let leftSideContext: String
         let rightSideContext: String
+        let enableAlignmentSeparator: Bool
         switch versionDependentConfig {
         case .v2(let mode):
             if let profile = mode.profile, !profile.isEmpty {
@@ -99,10 +102,12 @@ enum ZenzPromptBuilder {
             }
             leftSideContext = self.trimmedModeContext(mode.leftSideContext, maxLength: mode.maxLeftSideContextLength)
             rightSideContext = ""
+            enableAlignmentSeparator = false
         case .v3(let mode):
             conditions.append(contentsOf: self.v3Conditions(mode))
             leftSideContext = self.trimmedModeContext(mode.leftSideContext, maxLength: mode.maxLeftSideContextLength)
             rightSideContext = self.trimmedRightContext(mode.rightSideContext, maxLength: mode.maxRightSideContextLength)
+            enableAlignmentSeparator = mode.enableAlignmentSeparator
         }
 
         switch versionDependentConfig {
@@ -122,7 +127,25 @@ enum ZenzPromptBuilder {
             if !rightSideContext.isEmpty {
                 prompt += rightContextTag + rightSideContext
             }
-            return prompt + inputTag + input + outputTag
+            let promptInput = enableAlignmentSeparator
+                ? self.inputWithAlignmentSeparator(input, cursorPosition: inputCursorPosition)
+                : input
+            return prompt + inputTag + promptInput + outputTag
         }
+    }
+
+    static func shouldInsertAlignmentSeparator(input: String, cursorPosition: Int?) -> Bool {
+        guard let cursorPosition else {
+            return false
+        }
+        return cursorPosition >= 0 && cursorPosition < input.count
+    }
+
+    private static func inputWithAlignmentSeparator(_ input: String, cursorPosition: Int?) -> String {
+        guard self.shouldInsertAlignmentSeparator(input: input, cursorPosition: cursorPosition), let cursorPosition else {
+            return input
+        }
+        let cursorIndex = input.index(input.startIndex, offsetBy: cursorPosition)
+        return String(input[..<cursorIndex]) + self.alignmentSeparator + String(input[cursorIndex...])
     }
 }
