@@ -85,6 +85,7 @@ final class AncoSessionTests: XCTestCase {
                 ":cfg zenzai.profile=",
                 ":cfg zenzai.topic=",
                 ":cfg zenzai.rightContext=",
+                ":cfg zenzai.alignmentSeparator=false",
                 ":cfg displayTopN=3",
                 ":cfg inputStyle=roman2kana",
                 ":tc 3 beam=8",
