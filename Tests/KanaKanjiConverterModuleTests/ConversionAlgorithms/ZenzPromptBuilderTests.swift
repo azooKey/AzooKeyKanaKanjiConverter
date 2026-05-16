@@ -47,12 +47,26 @@ final class ZenzPromptBuilderTests: XCTestCase {
         )
     }
 
-    func testCandidateEvaluationPromptV3InsertsAlignmentSeparatorAtCursor() {
+    func testCandidateEvaluationPromptV3DoesNotInsertAlignmentSeparatorByDefault() {
         let prompt = ZenzPromptBuilder.candidateEvaluationPrompt(
             input: "ハシ",
             inputCursorPosition: 1,
             userDictionaryPrompt: "",
             versionDependentConfig: .v3(.init())
+        )
+
+        XCTAssertEqual(
+            prompt,
+            "\u{EE00}ハシ\u{EE01}"
+        )
+    }
+
+    func testCandidateEvaluationPromptV3InsertsAlignmentSeparatorAtCursorWhenEnabled() {
+        let prompt = ZenzPromptBuilder.candidateEvaluationPrompt(
+            input: "ハシ",
+            inputCursorPosition: 1,
+            userDictionaryPrompt: "",
+            versionDependentConfig: .v3(.init(enableAlignmentSeparator: true))
         )
 
         XCTAssertEqual(
@@ -93,12 +107,23 @@ final class ZenzPromptBuilderTests: XCTestCase {
         )
     }
 
-    func testCandidateTextForEvaluationV3AppendsAlignmentSeparator() {
+    func testCandidateTextForEvaluationV3DoesNotAppendAlignmentSeparatorByDefault() {
         let text = ZenzCandidateEvaluator.candidateTextForEvaluation(
             candidateText: "葉",
             input: "ハシ",
             inputCursorPosition: 1,
             versionDependentConfig: .v3(.init())
+        )
+
+        XCTAssertEqual(text, "葉")
+    }
+
+    func testCandidateTextForEvaluationV3AppendsAlignmentSeparatorWhenEnabled() {
+        let text = ZenzCandidateEvaluator.candidateTextForEvaluation(
+            candidateText: "葉",
+            input: "ハシ",
+            inputCursorPosition: 1,
+            versionDependentConfig: .v3(.init(enableAlignmentSeparator: true))
         )
 
         XCTAssertEqual(text, "葉\u{EE08}")

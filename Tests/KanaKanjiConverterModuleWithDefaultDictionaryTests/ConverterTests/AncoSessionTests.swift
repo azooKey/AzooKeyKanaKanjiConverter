@@ -167,6 +167,7 @@ final class AncoSessionTests: XCTestCase {
         _ = try session.execute(.setConfig(key: "zenzai.profile", value: "developer"))
         _ = try session.execute(.setConfig(key: "zenzai.topic", value: "swift"))
         _ = try session.execute(.setConfig(key: "zenzai.rightContext", value: "を取る"))
+        _ = try session.execute(.setConfig(key: "zenzai.alignmentSeparator", value: "true"))
         _ = try session.execute(.dumpHistory(historyURL.path))
         let content = try String(contentsOf: historyURL, encoding: .utf8)
 
@@ -176,6 +177,7 @@ final class AncoSessionTests: XCTestCase {
         XCTAssertTrue(content.contains(":cfg zenzai.profile=developer"))
         XCTAssertTrue(content.contains(":cfg zenzai.topic=swift"))
         XCTAssertTrue(content.contains(":cfg zenzai.rightContext=を取る"))
+        XCTAssertTrue(content.contains(":cfg zenzai.alignmentSeparator=true"))
     }
 
     func testSwitchingToPredictionViewImmediatelyReturnsPredictionCandidates() throws {

@@ -200,8 +200,9 @@ struct ZenzCandidateEvaluator {
         switch versionDependentConfig {
         case .v2:
             return candidateText
-        case .v3:
-            if ZenzPromptBuilder.shouldInsertAlignmentSeparator(input: input, cursorPosition: inputCursorPosition) {
+        case .v3(let mode):
+            if mode.enableAlignmentSeparator,
+               ZenzPromptBuilder.shouldInsertAlignmentSeparator(input: input, cursorPosition: inputCursorPosition) {
                 return candidateText + ZenzPromptBuilder.alignmentSeparator
             }
             return candidateText

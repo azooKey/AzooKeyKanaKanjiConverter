@@ -525,7 +525,8 @@ package struct AncoSession {
                 leftSideContext: leftSideContext,
                 rightSideContext: self.rightSideContext,
                 maxLeftSideContextLength: mode.maxLeftSideContextLength,
-                maxRightSideContextLength: mode.maxRightSideContextLength
+                maxRightSideContextLength: mode.maxRightSideContextLength,
+                enableAlignmentSeparator: mode.enableAlignmentSeparator
             ))
         }
         return options
@@ -584,7 +585,8 @@ package struct AncoSession {
                     leftSideContext: mode.leftSideContext,
                     rightSideContext: mode.rightSideContext,
                     maxLeftSideContextLength: mode.maxLeftSideContextLength,
-                    maxRightSideContextLength: mode.maxRightSideContextLength
+                    maxRightSideContextLength: mode.maxRightSideContextLength,
+                    enableAlignmentSeparator: mode.enableAlignmentSeparator
                 ))
             }
 
@@ -601,7 +603,8 @@ package struct AncoSession {
                     leftSideContext: mode.leftSideContext,
                     rightSideContext: mode.rightSideContext,
                     maxLeftSideContextLength: mode.maxLeftSideContextLength,
-                    maxRightSideContextLength: mode.maxRightSideContextLength
+                    maxRightSideContextLength: mode.maxRightSideContextLength,
+                    enableAlignmentSeparator: mode.enableAlignmentSeparator
                 ))
             }
 
@@ -619,7 +622,29 @@ package struct AncoSession {
                     leftSideContext: mode.leftSideContext,
                     rightSideContext: value.isEmpty ? nil : value,
                     maxLeftSideContextLength: mode.maxLeftSideContextLength,
-                    maxRightSideContextLength: mode.maxRightSideContextLength
+                    maxRightSideContextLength: mode.maxRightSideContextLength,
+                    enableAlignmentSeparator: mode.enableAlignmentSeparator
+                ))
+            }
+
+        case "zenzai.alignmentSeparator":
+            guard let parsed = Self.parseBool(value) else {
+                throw SessionError.invalidConfigValue(key: key, value: value)
+            }
+            switch self.requestOptionsState.zenzaiMode.versionDependentMode {
+            case .v2:
+                throw SessionError.invalidConfigValue(key: key, value: value)
+            case let .v3(mode):
+                self.requestOptionsState.zenzaiMode.versionDependentMode = .v3(.init(
+                    profile: mode.profile,
+                    topic: mode.topic,
+                    style: mode.style,
+                    preference: mode.preference,
+                    leftSideContext: mode.leftSideContext,
+                    rightSideContext: mode.rightSideContext,
+                    maxLeftSideContextLength: mode.maxLeftSideContextLength,
+                    maxRightSideContextLength: mode.maxRightSideContextLength,
+                    enableAlignmentSeparator: parsed
                 ))
             }
 
@@ -715,6 +740,12 @@ package struct AncoSession {
             commands.append(.setConfig(key: "zenzai.profile", value: mode.profile ?? ""))
             commands.append(.setConfig(key: "zenzai.topic", value: mode.topic ?? ""))
             commands.append(.setConfig(key: "zenzai.rightContext", value: mode.rightSideContext ?? ""))
+            commands.append(
+                .setConfig(
+                    key: "zenzai.alignmentSeparator",
+                    value: mode.enableAlignmentSeparator ? "true" : "false"
+                )
+            )
         }
 
         return commands

@@ -93,6 +93,7 @@ enum ZenzPromptBuilder {
 
         let leftSideContext: String
         let rightSideContext: String
+        let enableAlignmentSeparator: Bool
         switch versionDependentConfig {
         case .v2(let mode):
             if let profile = mode.profile, !profile.isEmpty {
@@ -101,10 +102,12 @@ enum ZenzPromptBuilder {
             }
             leftSideContext = self.trimmedModeContext(mode.leftSideContext, maxLength: mode.maxLeftSideContextLength)
             rightSideContext = ""
+            enableAlignmentSeparator = false
         case .v3(let mode):
             conditions.append(contentsOf: self.v3Conditions(mode))
             leftSideContext = self.trimmedModeContext(mode.leftSideContext, maxLength: mode.maxLeftSideContextLength)
             rightSideContext = self.trimmedRightContext(mode.rightSideContext, maxLength: mode.maxRightSideContextLength)
+            enableAlignmentSeparator = mode.enableAlignmentSeparator
         }
 
         switch versionDependentConfig {
@@ -124,7 +127,10 @@ enum ZenzPromptBuilder {
             if !rightSideContext.isEmpty {
                 prompt += rightContextTag + rightSideContext
             }
-            return prompt + inputTag + self.inputWithAlignmentSeparator(input, cursorPosition: inputCursorPosition) + outputTag
+            let promptInput = enableAlignmentSeparator
+                ? self.inputWithAlignmentSeparator(input, cursorPosition: inputCursorPosition)
+                : input
+            return prompt + inputTag + promptInput + outputTag
         }
     }
 
