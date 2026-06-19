@@ -19,7 +19,7 @@ jobs:
       - uses: swift-actions/setup-swift@v3
         with:
           swift-version: ${{ matrix.swift-version }}
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           submodules: true
       - name: Build
@@ -38,7 +38,7 @@ jobs:
         with:
           branch: swift-${{ matrix.swift-version }}-release
           tag: ${{ matrix.swift-version }}-RELEASE
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           submodules: true
       - name: Download pre-built llama.cpp binaries
@@ -69,7 +69,7 @@ jobs:
         with:
           branch: ${{ matrix.swift-version.branch }}
           tag: ${{ matrix.swift-version.tag }}
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           submodules: true
       - name: Download pre-built llama.cpp binaries
@@ -122,7 +122,7 @@ jobs:
           env -u ANDROID_NDK_ROOT ${TOOLCHAIN}/bin/swift sdk install https://github.com/finagolfin/swift-android-sdk/releases/download/${{ matrix.swift-version.version }}/swift-${{ matrix.swift-version.version }}-RELEASE-android-${{ matrix.swift-version.android }}-0.1.artifactbundle.tar.gz --checksum ${{ matrix.swift-version.checksum }}
           ${TOOLCHAIN}/bin/swift sdk list
 
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           path: AzooKeyKanaKanjiConverter
           submodules: true
