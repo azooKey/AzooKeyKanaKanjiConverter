@@ -12,7 +12,9 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os: [macos-latest]
+        # Swift 6.1.3 cannot import the Xcode 26 SDK currently selected by macos-latest.
+        # macos-15 uses Xcode 16.4, whose SDK is compatible with this toolchain.
+        os: [macos-15]
         # setup-swift on macOS currently rejects a 6.1 request when the runner resolves to 6.1.3.
         swift-version: ["6.1.3"]
     steps:
