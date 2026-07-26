@@ -1,15 +1,27 @@
 import Foundation
 
-/// `indirect enum`を用いて再帰的なノード構造を実現
+/// N-bestの複数経路で共通する辞書データと入力範囲を1回だけ保持する。
+final class RegisteredNodePayload {
+    init(data: consuming DicdataElement, range: Lattice.LatticeRange) {
+        self.data = data
+        self.range = range
+    }
+
+    let data: DicdataElement
+    let range: Lattice.LatticeRange
+}
+
+/// `indirect enum`を用いて再帰的なノード構造を実現する。
+/// 辞書データと入力範囲は、同じLatticeNodeから派生したN-best経路間で共有する。
 indirect enum RegisteredNode {
-    case node(data: DicdataElement, prev: RegisteredNode?, totalValue: PValue, range: Lattice.LatticeRange)
+    case node(payload: RegisteredNodePayload, prev: RegisteredNode?, totalValue: PValue)
 
     /// このノードが保持する辞書データ
     var data: DicdataElement {
         _read {
             switch self {
-            case .node(let data, _, _, _):
-                yield data
+            case .node(let payload, _, _):
+                yield payload.data
             }
         }
     }
@@ -18,7 +30,7 @@ indirect enum RegisteredNode {
     var prev: RegisteredNode? {
         _read {
             switch self {
-            case .node(_, let prev, _, _):
+            case .node(_, let prev, _):
                 yield prev
             }
         }
@@ -27,7 +39,7 @@ indirect enum RegisteredNode {
     /// 始点からこのノードまでのコスト
     var totalValue: PValue {
         switch self {
-        case .node(_, _, let totalValue, _):
+        case .node(_, _, let totalValue):
             return totalValue
         }
     }
@@ -35,13 +47,21 @@ indirect enum RegisteredNode {
     /// `composingText`の`input`で対応する範囲
     var range: Lattice.LatticeRange {
         switch self {
-        case .node(_, _, _, let range):
-            return range
+        case .node(let payload, _, _):
+            return payload.range
         }
     }
 
     init(data: DicdataElement, registered: RegisteredNode?, totalValue: PValue, range: Lattice.LatticeRange) {
-        self = .node(data: data, prev: registered, totalValue: totalValue, range: range)
+        self = .node(
+            payload: RegisteredNodePayload(data: data, range: range),
+            prev: registered,
+            totalValue: totalValue
+        )
+    }
+
+    init(payload: RegisteredNodePayload, registered: RegisteredNode?, totalValue: PValue) {
+        self = .node(payload: payload, prev: registered, totalValue: totalValue)
     }
 
     /// 始点ノードを生成する関数

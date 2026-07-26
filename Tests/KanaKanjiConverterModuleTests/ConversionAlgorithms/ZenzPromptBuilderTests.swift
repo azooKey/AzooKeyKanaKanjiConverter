@@ -155,4 +155,59 @@ final class ZenzPromptBuilderTests: XCTestCase {
 
         XCTAssertEqual(constraint, Kana2Kanji.PrefixConstraint(Array("橋".utf8), hasEOS: true, ignoreMemoryAndUserDictionary: true))
     }
+
+    func testZenzEvaluationCacheEvictsLeastRecentlyUsedEntry() {
+        let cache = ZenzEvaluationCache(capacity: 2)
+        func key(_ prompt: String) -> ZenzEvaluationCacheKey {
+            ZenzEvaluationCacheKey(
+                prompt: prompt,
+                candidateTextForEvaluation: "候補",
+                originalCandidateText: "候補",
+                prefixConstraint: .init([]),
+                requestRichCandidates: false,
+                reusesAddressedPrefix: false,
+                candidateSegments: [.init(word: "候補", ruby: "コウホ", isLearned: false)]
+            )
+        }
+        let first = key("first")
+        let second = key("second")
+        let third = key("third")
+
+        cache.insert(.wholeResult("first"), for: first)
+        cache.insert(.wholeResult("second"), for: second)
+        XCTAssertEqual(cache.value(for: first), .wholeResult("first"))
+
+        cache.insert(.wholeResult("third"), for: third)
+
+        XCTAssertNil(cache.value(for: second))
+        XCTAssertEqual(cache.value(for: first), .wholeResult("first"))
+        XCTAssertEqual(cache.value(for: third), .wholeResult("third"))
+    }
+
+    func testZenzInferenceThreadCountUsesPerformanceClusterOnDarwin() {
+        XCTAssertEqual(
+            ZenzContext.selectInferenceThreadCount(
+                activeProcessorCount: 10,
+                performanceCoreCount: 6
+            ),
+            6
+        )
+    }
+
+    func testZenzInferenceThreadCountFallsBackWhenPerformanceClusterIsUnavailable() {
+        XCTAssertEqual(
+            ZenzContext.selectInferenceThreadCount(
+                activeProcessorCount: 8,
+                performanceCoreCount: nil
+            ),
+            6
+        )
+        XCTAssertEqual(
+            ZenzContext.selectInferenceThreadCount(
+                activeProcessorCount: 2,
+                performanceCoreCount: nil
+            ),
+            2
+        )
+    }
 }

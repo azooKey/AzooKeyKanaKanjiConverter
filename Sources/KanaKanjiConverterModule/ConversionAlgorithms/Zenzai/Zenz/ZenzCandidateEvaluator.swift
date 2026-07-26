@@ -19,6 +19,64 @@ enum CandidateEvaluationResult: Sendable, Equatable, Hashable {
     }
 }
 
+struct ZenzEvaluationCacheKey: Sendable, Equatable, Hashable {
+    struct CandidateSegment: Sendable, Equatable, Hashable {
+        var word: String
+        var ruby: String
+        var isLearned: Bool
+    }
+
+    var prompt: String
+    var candidateTextForEvaluation: String
+    var originalCandidateText: String
+    var prefixConstraint: Kana2Kanji.PrefixConstraint
+    var requestRichCandidates: Bool
+    var reusesAddressedPrefix: Bool
+    var candidateSegments: [CandidateSegment]
+}
+
+/// モデル評価結果を少量だけ保持する、スレッドセーフなLRUキャッシュ。
+final class ZenzEvaluationCache: @unchecked Sendable {
+    private struct Entry {
+        var result: CandidateEvaluationResult
+        var accessIndex: UInt64
+    }
+
+    init(capacity: Int) {
+        self.capacity = max(1, capacity)
+    }
+
+    func value(for key: ZenzEvaluationCacheKey) -> CandidateEvaluationResult? {
+        self.lock.withLock {
+            guard var entry = self.entries[key] else {
+                return nil
+            }
+            self.accessIndex &+= 1
+            entry.accessIndex = self.accessIndex
+            self.entries[key] = entry
+            return entry.result
+        }
+    }
+
+    func insert(_ result: CandidateEvaluationResult, for key: ZenzEvaluationCacheKey) {
+        self.lock.withLock {
+            self.accessIndex &+= 1
+            if self.entries[key] == nil, self.entries.count >= self.capacity,
+               let leastRecentlyUsedKey = self.entries.min(by: {
+                   $0.value.accessIndex < $1.value.accessIndex
+               })?.key {
+                self.entries[leastRecentlyUsedKey] = nil
+            }
+            self.entries[key] = Entry(result: result, accessIndex: self.accessIndex)
+        }
+    }
+
+    private let capacity: Int
+    private var entries: [ZenzEvaluationCacheKey: Entry] = [:]
+    private var accessIndex: UInt64 = 0
+    private let lock = NSLock()
+}
+
 struct ZenzCandidateEvaluator {
     static func evaluate(
         context: ZenzContext,
@@ -48,15 +106,46 @@ struct ZenzCandidateEvaluator {
             versionDependentConfig: versionDependentConfig
         )
         let normalizedPrompt = context.normalizeForModel(prompt)
-        let promptTokens = context.encode(prompt, addBOS: true, addEOS: false)
+        let prevPrompt = context.previousEvaluationPrompt()
+        let reusesAddressedPrefix = prevPrompt == normalizedPrompt && !requestRichCandidates
+        // A cache hit must produce the same subsequent incremental-evaluation state
+        // as a model evaluation.
         defer {
-            context.setPreviousEvaluationPromptTokens(promptTokens)
+            context.setPreviousEvaluationPrompt(normalizedPrompt)
         }
-        let prevPrompt = context.previousEvaluationPromptTokens()
+        let cacheKey: ZenzEvaluationCacheKey? = if personalizationMode == nil {
+            ZenzEvaluationCacheKey(
+                prompt: prompt,
+                candidateTextForEvaluation: candidateTextForEvaluation,
+                originalCandidateText: candidate.text,
+                prefixConstraint: prefixConstraint,
+                requestRichCandidates: requestRichCandidates,
+                reusesAddressedPrefix: reusesAddressedPrefix,
+                candidateSegments: candidate.data.map {
+                    .init(
+                        word: $0.word,
+                        ruby: $0.ruby,
+                        isLearned: $0.metadata.contains(.isLearned)
+                    )
+                }
+            )
+        } else {
+            nil
+        }
+        if let cacheKey, let cached = context.cachedEvaluation(for: cacheKey) {
+            return cached
+        }
+        func finish(_ result: CandidateEvaluationResult) -> CandidateEvaluationResult {
+            if let cacheKey, result != .error {
+                context.cacheEvaluation(result, for: cacheKey)
+            }
+            return result
+        }
 
+        let promptTokens = context.encodeEvaluationPrompt(prompt)
         let candidateTokens = context.encode(candidateTextForEvaluation, addBOS: false, addEOS: false)
         let addressedTokens: [llama_token]
-        if prevPrompt == promptTokens, !requestRichCandidates {
+        if reusesAddressedPrefix {
             var prefix = ""
             for character in candidate.text {
                 let newPrefix = prefix + String(character)
@@ -154,7 +243,7 @@ struct ZenzCandidateEvaluator {
                     let data = Data(cchars.map { UInt8(bitPattern: $0) })
                     let string = String(data: data, encoding: .utf8) ?? ""
                     let wholeResult = String(string.dropFirst(normalizedPrompt.count))
-                    return .wholeResult(wholeResult)
+                    return finish(.wholeResult(wholeResult))
                 } else {
                     let actualLogp = logits[startIndex + Int(tokenID)] - logsumexp
                     let preferLearnedToken = isLearnedToken[i].isLearned && actualLogp + isLearnedToken[i].priority > maxItem.logprob
@@ -162,7 +251,11 @@ struct ZenzCandidateEvaluator {
                         let cchars = tokens[..<i].reduce(into: []) {
                             $0.append(contentsOf: context.tokenToPiece(token: $1))
                         } + context.tokenToPiece(token: maxItem.token)
-                        return .fixRequired(prefixConstraint: cchars.dropFirst(normalizedPrompt.utf8.count).map(UInt8.init))
+                        return finish(
+                            .fixRequired(
+                                prefixConstraint: cchars.dropFirst(normalizedPrompt.utf8.count).map(UInt8.init)
+                            )
+                        )
                     }
                 }
             } else if !tokenHeap.isEmpty {
@@ -183,11 +276,13 @@ struct ZenzCandidateEvaluator {
             }
             score += maxItem.logprob
         }
-        return .pass(
-            score: score,
-            alternativeConstraints: altTokens.unordered.sorted(by: >).map {
-                .init(probabilityRatio: $0.probabilityRatioToMaxProb, prefixConstraint: $0.constraint)
-            }
+        return finish(
+            .pass(
+                score: score,
+                alternativeConstraints: altTokens.unordered.sorted(by: >).map {
+                    .init(probabilityRatio: $0.probabilityRatioToMaxProb, prefixConstraint: $0.constraint)
+                }
+            )
         )
     }
 

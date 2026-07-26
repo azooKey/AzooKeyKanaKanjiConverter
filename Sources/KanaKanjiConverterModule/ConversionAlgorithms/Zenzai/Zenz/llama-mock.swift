@@ -14,6 +14,7 @@ package struct llama_context_params {
     package var n_threads: Int32
     package var n_threads_batch: Int32
     package var n_batch: Int
+    package var flash_attn: Bool
 }
 package func llama_context_default_params() -> llama_context_params { unimplemented() }
 

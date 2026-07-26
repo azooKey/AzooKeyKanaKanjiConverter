@@ -4,6 +4,37 @@ import XCTest
 
 #if Zenzai || ZenzaiCPU
 final class ZenzaiTests: XCTestCase {
+    private func measuredRequestCandidates(
+        _ converter: KanaKanjiConverter,
+        composingText: ComposingText,
+        options: ConvertRequestOptions,
+        latencies: inout [Double]?
+    ) -> ConversionResult {
+        guard latencies != nil else {
+            return converter.requestCandidates(composingText, options: options)
+        }
+        let start = ProcessInfo.processInfo.systemUptime
+        let result = converter.requestCandidates(composingText, options: options)
+        latencies?.append((ProcessInfo.processInfo.systemUptime - start) * 1_000)
+        return result
+    }
+
+    private func reportLatencies(_ latencies: [Double]?, label: String) {
+        guard let latencies, !latencies.isEmpty else {
+            return
+        }
+        let sorted = latencies.sorted()
+        let average = sorted.reduce(0, +) / Double(sorted.count)
+        let p90Index = min(sorted.count - 1, Int(ceil(Double(sorted.count) * 0.9)) - 1)
+        print(
+            "[ZenzaiLatency] \(label)"
+                + " count=\(sorted.count)"
+                + " averageMs=\(average)"
+                + " p90Ms=\(sorted[p90Index])"
+                + " maxMs=\(sorted[sorted.count - 1])"
+        )
+    }
+
     func sequentialInput(_ composingText: inout ComposingText, sequence: String, inputStyle: KanaKanjiConverterModule.InputStyle) {
         for char in sequence {
             composingText.insertAtCursorPosition(String(char), inputStyle: inputStyle)
@@ -14,7 +45,6 @@ final class ZenzaiTests: XCTestCase {
         inferenceLimit: Int = Int.max,
         leftSideContext: String? = nil
     ) -> ConvertRequestOptions {
-        print("You need to install azooKeyMac.app to run this test.")
         return .init(
             N_best: 10,
             requireJapanesePrediction: .disabled,
@@ -83,13 +113,22 @@ final class ZenzaiTests: XCTestCase {
     func testGradualConversion() throws {
         // 辞書は先に読み込んでおく（純粋な比較のため）
         let dicdataStore = DicdataStore.withDefaultDictionary(preloadDictionary: true)
+        var latencies: [Double]? = ProcessInfo.processInfo.environment["ZENZAI_PROFILE_LATENCY"] == "1" ? [] : nil
+        defer {
+            self.reportLatencies(latencies, label: "Direct")
+        }
         for inferenceLimit in [1, 2, 3, 5, .max] {
             let converter = KanaKanjiConverter(dicdataStore: dicdataStore)
             var c = ComposingText()
             let text = "このぶんしょうはかんじへんかんがせいかくということでわだいのにほんごにゅうりょくしすてむをつかってうちこんでいます"
             for char in text {
                 c.insertAtCursorPosition(String(char), inputStyle: .direct)
-                let results = converter.requestCandidates(c, options: requestOptions(inferenceLimit: inferenceLimit))
+                let results = self.measuredRequestCandidates(
+                    converter,
+                    composingText: c,
+                    options: requestOptions(inferenceLimit: inferenceLimit),
+                    latencies: &latencies
+                )
                 if c.input.count == text.count {
                     XCTAssertEqual(results.mainResults.first?.text, "この文章は漢字変換が正確ということで話題の日本語入力システムを使って打ち込んでいます")
                 }
@@ -101,13 +140,22 @@ final class ZenzaiTests: XCTestCase {
     func testGradualConversion_Roman2Kana() throws {
         // 辞書は先に読み込んでおく（純粋な比較のため）
         let dicdataStore = DicdataStore.withDefaultDictionary(preloadDictionary: true)
+        var latencies: [Double]? = ProcessInfo.processInfo.environment["ZENZAI_PROFILE_LATENCY"] == "1" ? [] : nil
+        defer {
+            self.reportLatencies(latencies, label: "Roman2Kana")
+        }
         for inferenceLimit in [1, 2, 3, 5, .max] {
             let converter = KanaKanjiConverter(dicdataStore: dicdataStore)
             var c = ComposingText()
             let text = "konobunshouhakanjihenkangaseikakutoiukotodewadainonihongonyuuryokusisutemuwotukatteutikondeimasu"
             for char in text {
                 c.insertAtCursorPosition(String(char), inputStyle: .roman2kana)
-                let results = converter.requestCandidates(c, options: requestOptions(inferenceLimit: inferenceLimit))
+                let results = self.measuredRequestCandidates(
+                    converter,
+                    composingText: c,
+                    options: requestOptions(inferenceLimit: inferenceLimit),
+                    latencies: &latencies
+                )
                 if c.input.count == text.count {
                     XCTAssertEqual(results.mainResults.first?.text, "この文章は漢字変換が正確ということで話題の日本語入力システムを使って打ち込んでいます")
                 }
@@ -119,13 +167,22 @@ final class ZenzaiTests: XCTestCase {
     func testGradualConversion_AZIK() throws {
         // 辞書は先に読み込んでおく（純粋な比較のため）
         let dicdataStore = DicdataStore.withDefaultDictionary(preloadDictionary: true)
+        var latencies: [Double]? = ProcessInfo.processInfo.environment["ZENZAI_PROFILE_LATENCY"] == "1" ? [] : nil
+        defer {
+            self.reportLatencies(latencies, label: "AZIK")
+        }
         for inferenceLimit in [1, 2, 3, 5, .max] {
             let converter = KanaKanjiConverter(dicdataStore: dicdataStore)
             var c = ComposingText()
             let text = "konobjxphakzzihdkzgasskakutoiuktdewadqnonihlgonyhryokusisutemuwotuka；teutikldwms"
             for char in text {
                 c.insertAtCursorPosition(String(char), inputStyle: .mapped(id: .defaultAZIK))
-                let results = converter.requestCandidates(c, options: requestOptions(inferenceLimit: inferenceLimit))
+                let results = self.measuredRequestCandidates(
+                    converter,
+                    composingText: c,
+                    options: requestOptions(inferenceLimit: inferenceLimit),
+                    latencies: &latencies
+                )
                 if c.input.count == text.count {
                     XCTAssertEqual(results.mainResults.first?.text, "この文章は漢字変換が正確ということで話題の日本語入力システムを使って打ち込んでいます")
                 }

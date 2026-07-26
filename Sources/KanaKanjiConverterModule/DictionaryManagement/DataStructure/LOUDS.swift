@@ -16,10 +16,11 @@ package struct LOUDS: Sendable {
 
     private let bits: [Unit]
     /// indexを並べてflattenしたArray。
+    /// LOUDS形式が4GB未満を前提としているため、64-bit環境でも`UInt32`で表現できる。
     ///  - seealso: flatChar2nodeIndicesIndex
-    private let flatChar2nodeIndices: [Int]
+    private let flatChar2nodeIndices: [UInt32]
     /// 256個の値を入れるArray。`flatChar2nodeIndices[flatChar2nodeIndicesIndex[char - 1] ..< flatChar2nodeIndicesIndex[char]]`が`nodeIndices`になる
-    private let flatChar2nodeIndicesIndex: [Int]
+    private let flatChar2nodeIndicesIndex: [UInt32]
     /// 0の数（1の数ではない）
     ///
     /// LOUDSのサイズが4GBまでは`UInt32`で十分
@@ -43,18 +44,18 @@ package struct LOUDS: Sendable {
         // すでに開始位置はflatChar2nodeIndicesIndexで分かるので、もう一度countsを構築しながら適切な場所にindexを入れていく
         var counts = [Int](repeating: 0, count: 256)
         self.flatChar2nodeIndices = counts.withUnsafeMutableBufferPointer { countsBuffer in
-            var flatChar2nodeIndices = [Int](repeating: 0, count: nodeIndex2ID.count)
+            var flatChar2nodeIndices = [UInt32](repeating: 0, count: nodeIndex2ID.count)
             for (i, value) in zip(nodeIndex2ID.indices, nodeIndex2ID) {
                 if value == .zero {
-                    flatChar2nodeIndices[countsBuffer[Int(value)]] = i
+                    flatChar2nodeIndices[countsBuffer[Int(value)]] = UInt32(i)
                 } else {
-                    flatChar2nodeIndices[flatChar2nodeIndicesIndex[Int(value) - 1] + countsBuffer[Int(value)]] = i
+                    flatChar2nodeIndices[flatChar2nodeIndicesIndex[Int(value) - 1] + countsBuffer[Int(value)]] = UInt32(i)
                 }
                 countsBuffer[Int(value)] += 1
             }
             return flatChar2nodeIndices
         }
-        self.flatChar2nodeIndicesIndex = flatChar2nodeIndicesIndex
+        self.flatChar2nodeIndicesIndex = flatChar2nodeIndicesIndex.map(UInt32.init)
 
         var rankLarge: [UInt32] = .init(repeating: 0, count: bytes.count + 1)
         rankLarge.withUnsafeMutableBufferPointer { buffer in
@@ -127,24 +128,28 @@ package struct LOUDS: Sendable {
     @inlinable func searchCharNodeIndex(from parentNodeIndex: Int, char: UInt8) -> Int? {
         // char2nodeIndicesには単調増加性があるので二分探索が成立する
         let childNodeIndices = self.childNodeIndices(from: parentNodeIndex)
-        let nodeIndices: ArraySlice<Int> = if char == .zero {
-            self.flatChar2nodeIndices[0 ..< self.flatChar2nodeIndicesIndex[Int(char)]]
+        let nodeIndices: ArraySlice<UInt32> = if char == .zero {
+            self.flatChar2nodeIndices[0 ..< Int(self.flatChar2nodeIndicesIndex[Int(char)])]
         } else {
-            self.flatChar2nodeIndices[self.flatChar2nodeIndicesIndex[Int(char - 1)] ..< self.flatChar2nodeIndicesIndex[Int(char)]]
+            self.flatChar2nodeIndices[
+                Int(self.flatChar2nodeIndicesIndex[Int(char - 1)]) ..< Int(self.flatChar2nodeIndicesIndex[Int(char)])
+            ]
         }
+        let childStart = UInt32(childNodeIndices.startIndex)
+        let childEnd = UInt32(childNodeIndices.endIndex)
 
         var left = nodeIndices.startIndex
         var right = nodeIndices.endIndex
         while left < right {
             let mid = (left + right) >> 1
-            if childNodeIndices.startIndex <= nodeIndices[mid] {
+            if childStart <= nodeIndices[mid] {
                 right = mid
             } else {
                 left = mid + 1
             }
         }
-        if left < nodeIndices.endIndex && childNodeIndices.contains(nodeIndices[left]) {
-            return nodeIndices[left]
+        if left < nodeIndices.endIndex && childStart <= nodeIndices[left] && nodeIndices[left] < childEnd {
+            return Int(nodeIndices[left])
         } else {
             return nil
         }
