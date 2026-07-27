@@ -175,12 +175,6 @@ extension Kana2Kanji {
             )
         }
         var constraint = zenzaiCache?.getNewConstraint(for: latticeInputData) ?? PrefixConstraint([])
-        let incrementalPrefixConstraint: PrefixConstraint? = if zenzaiCache != nil,
-                                                                inputData.input.last?.inputStyle == .direct {
-            constraint
-        } else {
-            nil
-        }
         debug("initial constraint", constraint)
         let eosNode = LatticeNode.EOSNode
         var lattice: Lattice = Lattice()
@@ -276,7 +270,6 @@ extension Kana2Kanji {
                     candidates: [candidate],
                     requestRichCandidates: requestRichCandidates,
                     prefixConstraint: constraint,
-                    incrementalPrefixConstraint: incrementalPrefixConstraint,
                     personalizationMode: personalizationMode,
                     versionDependentConfig: versionDependentConfig
                 )

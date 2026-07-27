@@ -83,7 +83,6 @@ package final class Zenz {
         candidates: [Candidate],
         requestRichCandidates: Bool,
         prefixConstraint: Kana2Kanji.PrefixConstraint,
-        incrementalPrefixConstraint: Kana2Kanji.PrefixConstraint?,
         personalizationMode: (mode: ConvertRequestOptions.ZenzaiMode.PersonalizationMode, base: EfficientNGram, personal: EfficientNGram)?,
         versionDependentConfig: ConvertRequestOptions.ZenzaiVersionDependentMode
     ) -> CandidateEvaluationResult {
@@ -99,7 +98,6 @@ package final class Zenz {
                     candidate: candidate,
                     requestRichCandidates: requestRichCandidates,
                     prefixConstraint: prefixConstraint,
-                    incrementalPrefixConstraint: incrementalPrefixConstraint,
                     personalizationMode: personalizationMode,
                     versionDependentConfig: versionDependentConfig
                 )

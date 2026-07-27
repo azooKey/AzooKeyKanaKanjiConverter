@@ -78,14 +78,6 @@ final class ZenzEvaluationCache: @unchecked Sendable {
 }
 
 struct ZenzCandidateEvaluator {
-    private struct IncrementalEvaluationProjection {
-        var stableCandidatePrefix: String
-        var input: String
-        var candidateText: String
-        var remainingConstraint: [UInt8]
-        var versionDependentConfig: ConvertRequestOptions.ZenzaiVersionDependentMode
-    }
-
     static func evaluate(
         context: ZenzContext,
         input: String,
@@ -93,36 +85,25 @@ struct ZenzCandidateEvaluator {
         candidate: Candidate,
         requestRichCandidates: Bool,
         prefixConstraint: Kana2Kanji.PrefixConstraint,
-        incrementalPrefixConstraint: Kana2Kanji.PrefixConstraint?,
         personalizationMode: (mode: ConvertRequestOptions.ZenzaiMode.PersonalizationMode, base: EfficientNGram, personal: EfficientNGram)?,
         versionDependentConfig: ConvertRequestOptions.ZenzaiVersionDependentMode
     ) -> CandidateEvaluationResult {
         debug("Evaluate", candidate)
-        let projection = self.incrementalEvaluationProjection(
-            input: input,
-            inputCursorPosition: inputCursorPosition,
-            candidate: candidate,
-            requestRichCandidates: requestRichCandidates,
-            prefixConstraint: prefixConstraint,
-            incrementalPrefixConstraint: incrementalPrefixConstraint,
-            personalizationMode: personalizationMode,
-            versionDependentConfig: versionDependentConfig
-        )
         var userDictionaryPrompt = ""
         for item in candidate.data where item.metadata.contains(.isFromUserDictionary) {
             userDictionaryPrompt += "\(item.word)(\(item.ruby.toHiragana()))"
         }
         let prompt = ZenzPromptBuilder.candidateEvaluationPrompt(
-            input: projection.input,
+            input: input,
             inputCursorPosition: inputCursorPosition,
             userDictionaryPrompt: userDictionaryPrompt,
-            versionDependentConfig: projection.versionDependentConfig
+            versionDependentConfig: versionDependentConfig
         )
         let candidateTextForEvaluation = self.candidateTextForEvaluation(
-            candidateText: projection.candidateText,
-            input: projection.input,
+            candidateText: candidate.text,
+            input: input,
             inputCursorPosition: inputCursorPosition,
-            versionDependentConfig: projection.versionDependentConfig
+            versionDependentConfig: versionDependentConfig
         )
         let normalizedPrompt = context.normalizeForModel(prompt)
         let prevPrompt = context.previousEvaluationPrompt()
@@ -166,9 +147,9 @@ struct ZenzCandidateEvaluator {
         let addressedTokens: [llama_token]
         if reusesAddressedPrefix {
             var prefix = ""
-            for character in projection.candidateText {
+            for character in candidate.text {
                 let newPrefix = prefix + String(character)
-                if projection.remainingConstraint.hasPrefix(newPrefix.utf8) {
+                if prefixConstraint.constraint.hasPrefix(newPrefix.utf8) {
                     prefix = newPrefix
                 } else {
                     break
@@ -319,8 +300,7 @@ struct ZenzCandidateEvaluator {
                         }
                         let data = Data(cchars.map { UInt8(bitPattern: $0) })
                         let string = String(data: data, encoding: .utf8) ?? ""
-                        let wholeResult = projection.stableCandidatePrefix
-                            + String(string.dropFirst(normalizedPrompt.count))
+                        let wholeResult = String(string.dropFirst(normalizedPrompt.count))
                         return finish(.wholeResult(wholeResult))
                     } else {
                         let candidateTokenIndex = i - promptTokens.count
@@ -336,8 +316,7 @@ struct ZenzCandidateEvaluator {
                             } + context.tokenToPiece(token: maxItem.token)
                             return finish(
                                 .fixRequired(
-                                    prefixConstraint: projection.stableCandidatePrefix.utf8
-                                        + cchars.dropFirst(normalizedPrompt.utf8.count).map(UInt8.init)
+                                    prefixConstraint: cchars.dropFirst(normalizedPrompt.utf8.count).map(UInt8.init)
                                 )
                             )
                         }
@@ -352,8 +331,7 @@ struct ZenzCandidateEvaluator {
                         altTokens.insertIfPossible(
                             AlternativeHighProbToken(
                                 token: item.token,
-                                constraint: projection.stableCandidatePrefix.utf8
-                                    + prefix.map(UInt8.init)
+                                constraint: prefix.map(UInt8.init)
                                     + context.tokenToPiece(token: item.token).map(UInt8.init),
                                 probabilityRatioToMaxProb: expf(item.logit - maxItem.logit)
                             )
@@ -414,92 +392,6 @@ struct ZenzCandidateEvaluator {
                     .init(probabilityRatio: $0.probabilityRatioToMaxProb, prefixConstraint: $0.constraint)
                 }
             )
-        )
-    }
-
-    /// 直前のリクエストまでにモデルが受理した文節を左文脈へ移し、
-    /// 今回追加された範囲だけを評価する。
-    ///
-    /// 同一リクエスト内で新しく得た制約には適用せず、一括変換の探索は従来どおり。
-    /// 学習・ユーザ辞書・リッチ候補・カーソル途中入力でも、評価範囲の変更が
-    /// 各機能の意味を変えうるため全文を評価する。
-    private static func incrementalEvaluationProjection(
-        input: String,
-        inputCursorPosition: Int?,
-        candidate: Candidate,
-        requestRichCandidates: Bool,
-        prefixConstraint: Kana2Kanji.PrefixConstraint,
-        incrementalPrefixConstraint: Kana2Kanji.PrefixConstraint?,
-        personalizationMode: (mode: ConvertRequestOptions.ZenzaiMode.PersonalizationMode, base: EfficientNGram, personal: EfficientNGram)?,
-        versionDependentConfig: ConvertRequestOptions.ZenzaiVersionDependentMode
-    ) -> IncrementalEvaluationProjection {
-        let unchanged = IncrementalEvaluationProjection(
-            stableCandidatePrefix: "",
-            input: input,
-            candidateText: candidate.text,
-            remainingConstraint: prefixConstraint.constraint,
-            versionDependentConfig: versionDependentConfig
-        )
-        guard inputCursorPosition == nil,
-              !requestRichCandidates,
-              personalizationMode == nil,
-              let incrementalPrefixConstraint,
-              !incrementalPrefixConstraint.constraint.isEmpty,
-              candidate.data.allSatisfy({
-                  $0.metadata.isDisjoint(with: [.isLearned, .isFromUserDictionary])
-              }) else {
-            return unchanged
-        }
-
-        var remainingInput = input[...]
-        var remainingConstraint = incrementalPrefixConstraint.constraint[...]
-        var matchedSegments: [(word: String, ruby: String)] = []
-        for data in candidate.data where !data.word.isEmpty {
-            let ruby = data.ruby.toKatakana()
-            let wordBytes = Array(data.word.utf8)
-            guard remainingInput.hasPrefix(ruby),
-                  remainingConstraint.hasPrefix(wordBytes) else {
-                break
-            }
-            matchedSegments.append((data.word, ruby))
-            remainingInput = remainingInput.dropFirst(ruby.count)
-            remainingConstraint = remainingConstraint.dropFirst(wordBytes.count)
-        }
-
-        // 直近の一致文節は、新しい入力によって再解釈できるよう評価対象に残す。
-        guard matchedSegments.count >= 2 else {
-            return unchanged
-        }
-        let stableSegments = matchedSegments.dropLast()
-        let stableCandidatePrefix = stableSegments.reduce(into: "") { $0 += $1.word }
-        let stableRubyPrefix = stableSegments.reduce(into: "") { $0 += $1.ruby }
-        guard candidate.text.hasPrefix(stableCandidatePrefix),
-              input.hasPrefix(stableRubyPrefix),
-              incrementalPrefixConstraint.constraint.hasPrefix(stableCandidatePrefix.utf8),
-              prefixConstraint.constraint.hasPrefix(stableCandidatePrefix.utf8) else {
-            return unchanged
-        }
-
-        let projectedInput = String(input.dropFirst(stableRubyPrefix.count))
-        let projectedCandidate = String(candidate.text.dropFirst(stableCandidatePrefix.count))
-        let projectedConstraint = Array(
-            prefixConstraint.constraint.dropFirst(stableCandidatePrefix.utf8.count)
-        )
-        let projectedConfig: ConvertRequestOptions.ZenzaiVersionDependentMode
-        switch versionDependentConfig {
-        case .v2(var mode):
-            mode.leftSideContext = (mode.leftSideContext ?? "") + stableCandidatePrefix
-            projectedConfig = .v2(mode)
-        case .v3(var mode):
-            mode.leftSideContext = (mode.leftSideContext ?? "") + stableCandidatePrefix
-            projectedConfig = .v3(mode)
-        }
-        return IncrementalEvaluationProjection(
-            stableCandidatePrefix: stableCandidatePrefix,
-            input: projectedInput,
-            candidateText: projectedCandidate,
-            remainingConstraint: projectedConstraint,
-            versionDependentConfig: projectedConfig
         )
     }
 
