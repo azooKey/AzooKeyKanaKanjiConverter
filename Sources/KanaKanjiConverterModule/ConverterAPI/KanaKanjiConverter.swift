@@ -203,7 +203,7 @@ public final class KanaKanjiConverter {
             return model
         } else {
             do {
-                self.zenz = try Zenz(resourceURL: modelURL)
+                self.zenz = try Zenz.shared(resourceURL: modelURL)
                 self.sessions = self.sessions.mapValues { state in
                     let next = state
                     next.zenzaiTypoCache.invalidateForModelChange()
@@ -1135,7 +1135,6 @@ public final class KanaKanjiConverter {
         guard let result = self.convertToLattice(inputData, N_best: options.N_best, zenzaiMode: options.zenzaiMode, needTypoCorrection: needTypoCorrection) else {
             return ConversionResult(mainResults: [], predictionResults: [], englishPredictionResults: [], firstClauseResults: [])
         }
-
         return self.processResult(inputData: inputData, result: result, options: options)
     }
 

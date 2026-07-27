@@ -46,6 +46,89 @@ private final class ZenzTokenArrayBox {
     let tokens: [llama_token]
 }
 
+struct ZenzResolvedConversionCacheKey: Equatable, Hashable {
+    var dictionaryIdentifier: ObjectIdentifier
+    var input: [ComposingText.InputElement]
+    var convertTarget: String
+    var convertTargetCursorPosition: Int?
+    var keyboardLanguage: KeyboardLanguage
+    var versionDependentConfig: ConvertRequestOptions.ZenzaiVersionDependentMode
+}
+
+struct ZenzResolvedConversion {
+    var resultPrevs: [RegisteredNode]
+    var resultLatticeHead: ZenzResolvedLatticeHead
+    var prefixConstraint: Kana2Kanji.PrefixConstraint
+    var satisfyingCandidate: Candidate
+}
+
+struct ZenzResolvedLatticeNode: Hashable {
+    var data: DicdataElement
+    var range: Lattice.LatticeRange
+}
+
+final class ZenzResolvedLatticeHead: @unchecked Sendable {
+    init(nodes: [ZenzResolvedLatticeNode]) {
+        self.nodes = nodes
+        self.fingerprint = nodes.hashValue
+    }
+
+    let nodes: [ZenzResolvedLatticeNode]
+    let fingerprint: Int
+}
+
+private final class ZenzResolvedConversionCache: @unchecked Sendable {
+    private struct Entry {
+        var value: ZenzResolvedConversion
+        var accessIndex: UInt64
+    }
+
+    init(capacity: Int) {
+        self.capacity = capacity
+    }
+
+    func value(for key: ZenzResolvedConversionCacheKey) -> ZenzResolvedConversion? {
+        self.lock.withLock {
+            guard var entry = self.entries[key] else {
+                return nil
+            }
+            self.accessIndex &+= 1
+            entry.accessIndex = self.accessIndex
+            self.entries[key] = entry
+            return entry.value
+        }
+    }
+
+    func insert(_ value: ZenzResolvedConversion, for key: ZenzResolvedConversionCacheKey) {
+        var value = value
+        self.lock.withLock {
+            // 逐次入力では最大辞書長を超えた後の先頭候補が同一になる。
+            // 不変配列を既存entryと共有し、prefixごとの重複保持を避ける。
+            if let sharedHead = self.entries.values.lazy.map({
+                $0.value.resultLatticeHead
+            }).first(where: {
+                $0.fingerprint == value.resultLatticeHead.fingerprint
+                    && $0.nodes == value.resultLatticeHead.nodes
+            }) {
+                value.resultLatticeHead = sharedHead
+            }
+            self.accessIndex &+= 1
+            self.entries[key] = Entry(value: value, accessIndex: self.accessIndex)
+            if self.entries.count > self.capacity,
+               let oldestKey = self.entries.min(by: {
+                   $0.value.accessIndex < $1.value.accessIndex
+               })?.key {
+                self.entries.removeValue(forKey: oldestKey)
+            }
+        }
+    }
+
+    private let capacity: Int
+    private var entries: [ZenzResolvedConversionCacheKey: Entry] = [:]
+    private var accessIndex: UInt64 = 0
+    private let lock = NSLock()
+}
+
 /// 読み取り専用のGGUFモデルを複数の推論コンテキスト間で共有する。
 ///
 /// KV cacheなどの可変状態は`ZenzContext`側に残し、モデルの重みとvocabularyだけを
@@ -84,6 +167,7 @@ private final class SharedZenzModel {
         self.model = model
         self.vocab = vocab
         self.evaluationCache = ZenzEvaluationCache(capacity: 256)
+        self.resolvedConversionCache = ZenzResolvedConversionCache(capacity: 64)
         self.evaluationPromptTokenCache.countLimit = 128
     }
 
@@ -94,6 +178,7 @@ private final class SharedZenzModel {
     let model: OpaquePointer
     let vocab: OpaquePointer
     let evaluationCache: ZenzEvaluationCache
+    fileprivate let resolvedConversionCache: ZenzResolvedConversionCache
     let evaluationPromptTokenCache = NSCache<NSString, ZenzTokenArrayBox>()
 }
 
@@ -155,6 +240,9 @@ final class ZenzContext {
         ctx_params.n_threads       = Int32(n_threads)
         ctx_params.n_threads_batch = Int32(n_threads)
         ctx_params.n_batch = 512
+        #if Zenzai || ZenzaiCPU
+        ctx_params.n_ubatch = 64
+        #endif
         ctx_params.flash_attn = true
         return ctx_params
     }
@@ -313,6 +401,19 @@ final class ZenzContext {
 
     func cacheEvaluation(_ result: CandidateEvaluationResult, for key: ZenzEvaluationCacheKey) {
         self.sharedModel.evaluationCache.insert(result, for: key)
+    }
+
+    func cachedResolvedConversion(
+        for key: ZenzResolvedConversionCacheKey
+    ) -> ZenzResolvedConversion? {
+        self.sharedModel.resolvedConversionCache.value(for: key)
+    }
+
+    func cacheResolvedConversion(
+        _ value: ZenzResolvedConversion,
+        for key: ZenzResolvedConversionCacheKey
+    ) {
+        self.sharedModel.resolvedConversionCache.insert(value, for: key)
     }
 
     func normalizeForModel(_ text: String) -> String {

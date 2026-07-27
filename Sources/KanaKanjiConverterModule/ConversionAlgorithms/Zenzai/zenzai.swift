@@ -10,12 +10,44 @@ extension Kana2Kanji {
             self.prefixConstraint = constraint
             self.satisfyingCandidate = satisfyingCandidate
             self.cachedLattice = lattice
+            self.cachedLatticeInputData = lattice == nil ? nil : inputData
+        }
+
+        private init(
+            _ inputData: ComposingText,
+            constraint: PrefixConstraint,
+            satisfyingCandidate: Candidate?,
+            cachedLattice: Lattice?,
+            cachedLatticeInputData: ComposingText?
+        ) {
+            self.inputData = inputData
+            self.prefixConstraint = constraint
+            self.satisfyingCandidate = satisfyingCandidate
+            self.cachedLattice = cachedLattice
+            self.cachedLatticeInputData = cachedLatticeInputData
         }
 
         private var prefixConstraint: PrefixConstraint
         private var satisfyingCandidate: Candidate?
         private var inputData: ComposingText
         private var cachedLattice: Lattice?
+        private var cachedLatticeInputData: ComposingText?
+
+        /// 共有済みの変換結果を使う場合、現在の制約だけを更新し、直近の完全な
+        /// ラティスは次の未キャッシュ入力の差分構築用アンカーとして保持する。
+        func updatingResult(
+            for newInputData: ComposingText,
+            constraint: PrefixConstraint,
+            satisfyingCandidate: Candidate
+        ) -> ZenzaiCache {
+            ZenzaiCache(
+                newInputData,
+                constraint: constraint,
+                satisfyingCandidate: satisfyingCandidate,
+                cachedLattice: self.cachedLattice,
+                cachedLatticeInputData: self.cachedLatticeInputData
+            )
+        }
 
         func getNewConstraint(for newInputData: ComposingText) -> PrefixConstraint {
             if let satisfyingCandidate {
@@ -37,10 +69,11 @@ extension Kana2Kanji {
         }
 
         func getPreprocessedLattice(for newInputData: ComposingText, kanaKanji: Kana2Kanji, dicdataStoreState: DicdataStoreState) -> Lattice? {
-            guard let cachedLattice else { return nil }
+            guard let cachedLattice, let cachedLatticeInputData else { return nil }
 
             // 同じComposingTextなら既存のlatticeをそのまま返す
-            if newInputData.input == inputData.input && newInputData.convertTarget == inputData.convertTarget {
+            if newInputData.input == cachedLatticeInputData.input
+                && newInputData.convertTarget == cachedLatticeInputData.convertTarget {
                 cachedLattice.resetNodeStates()
                 return cachedLattice
             }
@@ -50,7 +83,7 @@ extension Kana2Kanji {
                 inputData: newInputData,
                 inputCount: newInputData.input.count,
                 surfaceCount: newInputData.convertTarget.count,
-                incrementalCacheInfo: (inputData: inputData, lattice: cachedLattice),
+                incrementalCacheInfo: (inputData: cachedLatticeInputData, lattice: cachedLattice),
                 dicdataStoreState: dicdataStoreState
             )
         }
@@ -89,12 +122,81 @@ extension Kana2Kanji {
     ) -> (result: LatticeNode, lattice: Lattice, cache: ZenzaiCache) {
         let latticeInputData = Self.zenzaiLatticeInputData(for: inputData)
         let zenzInputCursorPosition = Self.zenzaiInputCursorPosition(for: inputData)
+        let inputStyle = inputData.input.last?.inputStyle ?? .direct
+        let defersEvaluationForPendingInput = !requestRichCandidates
+            && personalizationMode == nil
+            && self.resolvePredictiveInputSource(
+                composingText: inputData,
+                inputStyle: inputStyle
+            ).droppedSuffixCount > 0
+        let resolvedConversionCacheKey: ZenzResolvedConversionCacheKey? =
+            if !requestRichCandidates,
+               personalizationMode == nil,
+               dicdataStoreState.canShareStaticConversionResults() {
+                ZenzResolvedConversionCacheKey(
+                    dictionaryIdentifier: ObjectIdentifier(self.dicdataStore),
+                    input: latticeInputData.input,
+                    convertTarget: latticeInputData.convertTarget,
+                    convertTargetCursorPosition: zenzInputCursorPosition,
+                    keyboardLanguage: dicdataStoreState.keyboardLanguage,
+                    versionDependentConfig: versionDependentConfig
+                )
+            } else {
+                nil
+            }
+        if let resolvedConversionCacheKey,
+           let cached = zenz.cachedResolvedConversion(for: resolvedConversionCacheKey) {
+            // 全文経路とは別にprocessResultが参照する先頭辞書ノードだけを復元する。
+            // 可変な探索状態を持つラティス本体は共有しない。
+            let lattice = Lattice(
+                inputCount: latticeInputData.input.count,
+                surfaceCount: latticeInputData.convertTarget.count,
+                rawNodes: [
+                    cached.resultLatticeHead.nodes.map {
+                        LatticeNode(data: $0.data, range: $0.range)
+                    }
+                ]
+            )
+            let eosNode = LatticeNode.EOSNode
+            eosNode.prevs = cached.resultPrevs
+            let nextCache = zenzaiCache?.updatingResult(
+                for: latticeInputData,
+                constraint: cached.prefixConstraint,
+                satisfyingCandidate: cached.satisfyingCandidate
+            ) ?? ZenzaiCache(
+                latticeInputData,
+                constraint: cached.prefixConstraint,
+                satisfyingCandidate: cached.satisfyingCandidate
+            )
+            return (
+                eosNode,
+                lattice,
+                nextCache
+            )
+        }
         var constraint = zenzaiCache?.getNewConstraint(for: latticeInputData) ?? PrefixConstraint([])
+        let incrementalPrefixConstraint: PrefixConstraint? = if zenzaiCache != nil,
+                                                                inputData.input.last?.inputStyle == .direct {
+            constraint
+        } else {
+            nil
+        }
         debug("initial constraint", constraint)
         let eosNode = LatticeNode.EOSNode
         var lattice: Lattice = Lattice()
         var constructedCandidates: [(RegisteredNode, Candidate)] = []
         var insertedCandidates: [(RegisteredNode, Candidate)] = []
+        func makeCache(
+            constraint: PrefixConstraint,
+            satisfyingCandidate: Candidate?
+        ) -> ZenzaiCache {
+            ZenzaiCache(
+                latticeInputData,
+                constraint: constraint,
+                satisfyingCandidate: satisfyingCandidate,
+                lattice: lattice
+            )
+        }
         defer {
             eosNode.prevs = insertedCandidates.map(\.0)
         }
@@ -116,8 +218,16 @@ extension Kana2Kanji {
                 // 実験の結果、ここは2-bestを取ると平均的な速度が最良になることがわかったので、そうしている。
                 draftResult = self.kana2lattice_all(latticeInputData, N_best: 2, needTypoCorrection: false, preprocessedLattice: preprocessedLattice, dicdataStoreState: dicdataStoreState)
             } else {
-                // 制約がついている場合は高速になるので、N=3としている
-                draftResult = self.kana2lattice_all_with_prefix_constraint(latticeInputData, N_best: 3, constraint: constraint, preprocessedLattice: preprocessedLattice, dicdataStoreState: dicdataStoreState)
+                // rich候補を要求しない通常モードでは最良経路しか消費しない。
+                // rich候補用の代替制約探索では従来どおり3-bestを保持する。
+                let constrainedNBest = requestRichCandidates ? 3 : 1
+                draftResult = self.kana2lattice_all_with_prefix_constraint(
+                    latticeInputData,
+                    N_best: constrainedNBest,
+                    constraint: constraint,
+                    preprocessedLattice: preprocessedLattice,
+                    dicdataStoreState: dicdataStoreState
+                )
             }
             if lattice.isEmpty {
                 // 初回のみ
@@ -137,7 +247,7 @@ extension Kana2Kanji {
                 debug("best was not found!")
                 // Emptyの場合
                 // 制約が満たせない場合は無視する
-                return (eosNode, lattice, ZenzaiCache(latticeInputData, constraint: PrefixConstraint([]), satisfyingCandidate: nil, lattice: lattice))
+                return (eosNode, lattice, makeCache(constraint: PrefixConstraint([]), satisfyingCandidate: nil))
             }
 
             debug("Constrained draft modeling", -start.timeIntervalSinceNow)
@@ -148,7 +258,17 @@ extension Kana2Kanji {
                 if inferenceLimit == 0 {
                     debug("inference limit! \(candidate.text) is used for excuse")
                     // When inference occurs more than maximum times, then just return result at this point
-                    return (eosNode, lattice, ZenzaiCache(latticeInputData, constraint: constraint, satisfyingCandidate: candidate, lattice: lattice))
+                    return (eosNode, lattice, makeCache(constraint: constraint, satisfyingCandidate: candidate))
+                }
+                if defersEvaluationForPendingInput {
+                    // ローマ字表で未確定のsuffixは、次のキーでかなへ置換される。
+                    // モデルが未確定ASCIIを評価しても結果を再利用できないため、
+                    // かな列が確定するまで辞書変換結果を保持する。
+                    return (
+                        eosNode,
+                        lattice,
+                        makeCache(constraint: constraint, satisfyingCandidate: candidate)
+                    )
                 }
                 let reviewResult = zenz.candidateEvaluate(
                     convertTarget: inputData.convertTarget,
@@ -156,6 +276,7 @@ extension Kana2Kanji {
                     candidates: [candidate],
                     requestRichCandidates: requestRichCandidates,
                     prefixConstraint: constraint,
+                    incrementalPrefixConstraint: incrementalPrefixConstraint,
                     personalizationMode: personalizationMode,
                     versionDependentConfig: versionDependentConfig
                 )
@@ -204,9 +325,36 @@ extension Kana2Kanji {
                         }
                     }
                     if satisfied {
-                        return (eosNode, lattice, ZenzaiCache(latticeInputData, constraint: constraint, satisfyingCandidate: candidate, lattice: lattice))
+                        if let resolvedConversionCacheKey,
+                           insertedCandidates.allSatisfy({
+                               $0.1.data.allSatisfy {
+                                   $0.metadata.isDisjoint(
+                                       with: [.isLearned, .isFromUserDictionary]
+                                   )
+                               }
+                           }) {
+                            zenz.cacheResolvedConversion(
+                                ZenzResolvedConversion(
+                                    resultPrevs: insertedCandidates.map(\.0),
+                                    resultLatticeHead: ZenzResolvedLatticeHead(
+                                        nodes: lattice[
+                                            index: .bothIndex(inputIndex: 0, surfaceIndex: 0)
+                                        ].map {
+                                            ZenzResolvedLatticeNode(
+                                                data: $0.data,
+                                                range: $0.range
+                                            )
+                                        }
+                                    ),
+                                    prefixConstraint: constraint,
+                                    satisfyingCandidate: candidate
+                                ),
+                                for: resolvedConversionCacheKey
+                            )
+                        }
+                        return (eosNode, lattice, makeCache(constraint: constraint, satisfyingCandidate: candidate))
                     } else {
-                        return (eosNode, lattice, ZenzaiCache(latticeInputData, constraint: constraint, satisfyingCandidate: nil, lattice: lattice))
+                        return (eosNode, lattice, makeCache(constraint: constraint, satisfyingCandidate: nil))
                     }
                 case .continue:
                     break reviewLoop

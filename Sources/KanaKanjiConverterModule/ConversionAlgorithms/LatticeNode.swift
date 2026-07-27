@@ -37,7 +37,11 @@ public final class LatticeNode {
 
     /// `LatticeNode`の持っている情報を反映した`RegisteredNode`を作成する
     /// `LatticeNode`は複数の過去のノードを持つことができるが、`RegisteredNode`は1つしか持たない。
-    func getRegisteredNode(_ index: Int, value: PValue) -> RegisteredNode {
+    func getRegisteredNode(
+        _ index: Int,
+        value: PValue,
+        constraintState: (matched: Int, total: Int)? = nil
+    ) -> RegisteredNode {
         let payload: RegisteredNodePayload
         if let registeredNodePayload {
             payload = registeredNodePayload
@@ -45,7 +49,12 @@ public final class LatticeNode {
             payload = RegisteredNodePayload(data: self.data, range: self.range)
             self.registeredNodePayload = payload
         }
-        return RegisteredNode(payload: payload, registered: self.prevs[index], totalValue: value)
+        return RegisteredNode(
+            payload: payload,
+            registered: self.prevs[index],
+            totalValue: value,
+            constraintState: constraintState
+        )
     }
 
     /// 再帰的にノードを遡り、`CandidateData`を構築する関数

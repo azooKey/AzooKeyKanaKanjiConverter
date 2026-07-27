@@ -108,11 +108,19 @@ public struct ComposingText: Sendable {
         var convertedLength = 0
 
         for (currentInputIndex, element) in input.enumerated() {
+            let previousElementCount = converting.count
+            let previousTailCount = converting.last?.string.count ?? 0
             // 現在の文字を入力した際に関連(依存)した文字列の長さ
             let deletedCount = Self.updateConvertTargetElements(currentElements: &converting, newElement: element)
 
             let previousConvertedLength = convertedLength
-            convertedLength = converting.reduce(0) { $0 + $1.string.count }
+            let currentTailCount = converting.last?.string.count ?? 0
+            if converting.count == previousElementCount {
+                convertedLength += currentTailCount - previousTailCount
+            } else {
+                // 入力方式が変わり、新しい独立した末尾要素が追加された。
+                convertedLength += currentTailCount
+            }
 
             // 今回の文字入力による変換が、前の暫定独立セグメントの文字を含むローマ字テーブルエントリによって行われた場合
             // 入力は前のセグメントに依存しているので、前のセグメントとの境界を消し、より長い独立セグメントにする
@@ -383,8 +391,25 @@ public struct ComposingText: Sendable {
         // [き, ょ, う, は, い, い, て, ん, き, だ]
         // i2c: [0: 0, 3: 2(きょ), 4: 3(う), 6: 4(は), 7: 5(い), 8: 6(い), 10: 7(て), 13: 9(んき), 15: 10(だ)]
 
+        if self.hasIdentityInputSurfaceIndexMapping {
+            return Dictionary(uniqueKeysWithValues: (0 ... self.input.count).map { ($0, $0) })
+        }
+
         let segmentBoundaries = getIndependentSegmentBoundaries()
         return Dictionary(segmentBoundaries.map { ($0.inputIndex, $0.surfaceIndex) }) { _, second in second }
+    }
+
+    var hasIdentityInputSurfaceIndexMapping: Bool {
+        self.input.count == self.convertTarget.count
+            && self.input.allSatisfy {
+                guard $0.inputStyle == .direct else {
+                    return false
+                }
+                if case .character = $0.piece {
+                    return true
+                }
+                return false
+            }
     }
 
     public mutating func stopComposition() {
@@ -497,7 +522,7 @@ extension ComposingText {
 
 // Equatableにしておく
 extension ComposingText: Equatable {}
-extension ComposingText.InputElement: Equatable {}
+extension ComposingText.InputElement: Hashable {}
 extension ComposingText.ConvertTargetElement: Equatable {
     static func == (lhs: ComposingText.ConvertTargetElement, rhs: ComposingText.ConvertTargetElement) -> Bool {
         lhs.inputStyle == rhs.inputStyle && lhs.string == rhs.string

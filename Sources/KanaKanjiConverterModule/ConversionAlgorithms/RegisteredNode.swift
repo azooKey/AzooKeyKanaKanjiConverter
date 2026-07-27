@@ -14,13 +14,19 @@ final class RegisteredNodePayload {
 /// `indirect enum`を用いて再帰的なノード構造を実現する。
 /// 辞書データと入力範囲は、同じLatticeNodeから派生したN-best経路間で共有する。
 indirect enum RegisteredNode {
-    case node(payload: RegisteredNodePayload, prev: RegisteredNode?, totalValue: PValue)
+    case node(
+        payload: RegisteredNodePayload,
+        prev: RegisteredNode?,
+        totalValue: PValue,
+        candidateUTF8Count: UInt16,
+        constraintMatchedUTF8Count: UInt16
+    )
 
     /// このノードが保持する辞書データ
     var data: DicdataElement {
         _read {
             switch self {
-            case .node(let payload, _, _):
+            case .node(let payload, _, _, _, _):
                 yield payload.data
             }
         }
@@ -30,7 +36,7 @@ indirect enum RegisteredNode {
     var prev: RegisteredNode? {
         _read {
             switch self {
-            case .node(_, let prev, _):
+            case .node(_, let prev, _, _, _):
                 yield prev
             }
         }
@@ -39,29 +45,59 @@ indirect enum RegisteredNode {
     /// 始点からこのノードまでのコスト
     var totalValue: PValue {
         switch self {
-        case .node(_, _, let totalValue):
+        case .node(_, _, let totalValue, _, _):
             return totalValue
+        }
+    }
+
+    var candidateUTF8Count: UInt16 {
+        switch self {
+        case .node(_, _, _, let candidateUTF8Count, _):
+            return candidateUTF8Count
+        }
+    }
+
+    var constraintMatchedUTF8Count: UInt16 {
+        switch self {
+        case .node(_, _, _, _, let constraintMatchedUTF8Count):
+            return constraintMatchedUTF8Count
         }
     }
 
     /// `composingText`の`input`で対応する範囲
     var range: Lattice.LatticeRange {
         switch self {
-        case .node(let payload, _, _):
+        case .node(let payload, _, _, _, _):
             return payload.range
         }
     }
 
     init(data: DicdataElement, registered: RegisteredNode?, totalValue: PValue, range: Lattice.LatticeRange) {
+        let candidateUTF8Count = (registered.map { Int($0.candidateUTF8Count) } ?? 0) + data.word.utf8.count
         self = .node(
             payload: RegisteredNodePayload(data: data, range: range),
             prev: registered,
-            totalValue: totalValue
+            totalValue: totalValue,
+            candidateUTF8Count: UInt16(clamping: candidateUTF8Count),
+            constraintMatchedUTF8Count: 0
         )
     }
 
-    init(payload: RegisteredNodePayload, registered: RegisteredNode?, totalValue: PValue) {
-        self = .node(payload: payload, prev: registered, totalValue: totalValue)
+    init(
+        payload: RegisteredNodePayload,
+        registered: RegisteredNode?,
+        totalValue: PValue,
+        constraintState: (matched: Int, total: Int)? = nil
+    ) {
+        let candidateUTF8Count = constraintState?.total
+            ?? ((registered.map { Int($0.candidateUTF8Count) } ?? 0) + payload.data.word.utf8.count)
+        self = .node(
+            payload: payload,
+            prev: registered,
+            totalValue: totalValue,
+            candidateUTF8Count: UInt16(clamping: candidateUTF8Count),
+            constraintMatchedUTF8Count: UInt16(clamping: constraintState?.matched ?? 0)
+        )
     }
 
     /// 始点ノードを生成する関数
