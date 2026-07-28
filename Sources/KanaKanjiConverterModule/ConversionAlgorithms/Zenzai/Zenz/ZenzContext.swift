@@ -143,6 +143,11 @@ private final class SharedZenzModel {
         ZenzBackend.initializeIfNeeded()
         var modelParams = llama_model_default_params()
         modelParams.use_mmap = true
+        #if ZenzaiCPU && os(iOS)
+        // b9637のCPU weight repackはモデルと同程度の追加bufferを常駐させる。
+        // iOSのメモリ制約を優先し、mmapされた元の量子化weightを直接利用する。
+        modelParams.use_extra_bufts = false
+        #endif
         #if ZenzaiCPU
         modelParams.n_gpu_layers = 0
         modelParams.split_mode = LLAMA_SPLIT_MODE_NONE

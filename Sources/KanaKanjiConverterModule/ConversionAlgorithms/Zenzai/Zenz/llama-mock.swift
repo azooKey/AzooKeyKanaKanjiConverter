@@ -36,6 +36,7 @@ package func llama_backend_free() {}
 
 package struct llama_model_params {
     package var use_mmap: Bool
+    package var use_extra_bufts: Bool
 }
 package func llama_model_default_params() -> llama_model_params { unimplemented() }
 
