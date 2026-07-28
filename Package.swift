@@ -144,9 +144,8 @@ let llamaCppTarget: Target = .systemLibrary(name: "llama.cpp")
 #else
 let llamaCppTarget: Target = .binaryTarget(
     name: "llama.cpp",
-    url: "https://github.com/azooKey/llama.cpp/releases/download/b4846/signed-llama.xcframework.zip",
-    // this can be computed `swift package compute-checksum llama-b4844-xcframework.zip`
-    checksum: "db3b13169df8870375f212e6ac21194225f1c85f7911d595ab64c8c790068e0a"
+    url: "https://github.com/azooKey/llama.cpp/releases/download/b9637-azookey.1/signed-llama-b9637-azookey.1.xcframework.zip",
+    checksum: "6176b3a6f7cbeca993644ca21d4b1c46ddaa59b98109376b7d32acef8e226a13"
 )
 #endif
 targets.append(llamaCppTarget)
@@ -165,7 +164,7 @@ targets.append(
 
 let package = Package(
     name: "AzooKeyKanaKanjiConverter",
-    platforms: [.iOS(.v16), .macOS(.v13)],
+    platforms: [.iOS(.v17), .macOS(.v13)],
     products: [
         // Products define the executables and libraries a package produces, and make them visible to other packages.
         .library(
