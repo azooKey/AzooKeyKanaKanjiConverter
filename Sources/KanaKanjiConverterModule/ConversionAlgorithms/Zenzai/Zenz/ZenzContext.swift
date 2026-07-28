@@ -244,6 +244,8 @@ final class ZenzContext {
         ctx_params.n_ubatch = 64
         #endif
         ctx_params.flash_attn = true
+        // 推論時間は呼び出し側で計測する。llama.cpp内部の統計更新は不要。
+        ctx_params.no_perf = true
         return ctx_params
     }
 

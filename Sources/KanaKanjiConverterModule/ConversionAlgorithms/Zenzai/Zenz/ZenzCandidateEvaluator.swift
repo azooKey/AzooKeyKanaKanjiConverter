@@ -347,42 +347,22 @@ struct ZenzCandidateEvaluator {
 
         let firstTokenIndex = startOffset + 1
         if firstTokenIndex < tokens.endIndex {
-            // 修正要求は候補の冒頭で確定することが多い。最初の少数tokenだけを
-            // decodeして判定し、必要な場合に限って残りを一括decodeする。
-            let firstChunkEndIndex = min(tokens.endIndex, firstTokenIndex + 4)
-            let firstChunkTokens = Array(tokens[..<firstChunkEndIndex])
+            // token i の判定に必要なのは token i - 1 のlogitsまでなので、
+            // 最終候補token自体はdecodeしない。
+            let evaluationTokens = Array(tokens.dropLast())
             guard let logits = context.evaluationLogits(
-                tokens: firstChunkTokens,
+                tokens: evaluationTokens,
                 startOffset: startOffset
             ) else {
                 debug("logits unavailable")
                 return .error
             }
             if let result = evaluateTokenRange(
-                firstTokenIndex ..< firstChunkEndIndex,
+                firstTokenIndex ..< tokens.endIndex,
                 logits: logits,
                 logitsStartIndex: startOffset
             ) {
                 return result
-            }
-
-            if firstChunkEndIndex < tokens.endIndex {
-                // 境界直前のtokenをlogits付きで再計算し、続きの最初のtokenを評価する。
-                let continuationStartOffset = firstChunkEndIndex - 1
-                guard let logits = context.evaluationLogits(
-                    tokens: tokens,
-                    startOffset: continuationStartOffset
-                ) else {
-                    debug("logits unavailable")
-                    return .error
-                }
-                if let result = evaluateTokenRange(
-                    firstChunkEndIndex ..< tokens.endIndex,
-                    logits: logits,
-                    logitsStartIndex: continuationStartOffset
-                ) {
-                    return result
-                }
             }
         }
         return finish(
