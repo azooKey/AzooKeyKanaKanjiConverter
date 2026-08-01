@@ -2,6 +2,30 @@
 import XCTest
 
 final class ZenzaiTypoIncrementalTests: XCTestCase {
+    private func assertEquivalentCandidateRanking(
+        _ incremental: [ZenzaiTypoCandidate],
+        _ full: [ZenzaiTypoCandidate],
+        message: @autoclosure () -> String,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        let message = message()
+        XCTAssertEqual(
+            incremental.map(\.score),
+            full.map(\.score),
+            "\(message): score ranking differs",
+            file: file,
+            line: line
+        )
+        XCTAssertEqual(
+            Dictionary(grouping: incremental, by: \.self).mapValues(\.count),
+            Dictionary(grouping: full, by: \.self).mapValues(\.count),
+            "\(message): candidate contents differ",
+            file: file,
+            line: line
+        )
+    }
+
     private struct DeterministicCharacterContext: ZenzCompatibleInputLanguageModelContext {
         init() {
             var characters: [Character] = []
@@ -73,10 +97,15 @@ final class ZenzaiTypoIncrementalTests: XCTestCase {
                     experimentalConfig: fullConfig,
                     cache: fullCache
                 )
-                XCTAssertEqual(
+                // Candidate generation ranks only by score. Candidates with exactly equal scores
+                // may therefore exchange positions when Dictionary's randomized iteration order
+                // differs between the incremental and full-search caches. Preserve the meaningful
+                // contract here: identical score ranks and identical candidate contents, including
+                // multiplicity, while allowing permutations only within equal-score ranks.
+                self.assertEquivalentCandidateRanking(
                     incremental,
                     full,
-                    "incremental search diverged for style=\(inputStyle), input=\(String(input.prefix(composingText.input.count)))"
+                    message: "incremental search diverged for style=\(inputStyle), input=\(String(input.prefix(composingText.input.count)))"
                 )
             }
         }
