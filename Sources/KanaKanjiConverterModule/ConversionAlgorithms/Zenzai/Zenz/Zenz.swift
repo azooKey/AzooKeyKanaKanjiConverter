@@ -77,6 +77,14 @@ package final class Zenz {
         self.zenzContext?.cacheResolvedConversion(value, for: key)
     }
 
+    func cachedDraftConversion(for key: ZenzDraftConversionCacheKey) -> ZenzDraftConversion? {
+        self.zenzContext?.cachedDraftConversion(for: key)
+    }
+
+    func cacheDraftConversion(_ value: ZenzDraftConversion, for key: ZenzDraftConversionCacheKey) {
+        self.zenzContext?.cacheDraftConversion(value, for: key)
+    }
+
     func candidateEvaluate(
         convertTarget: String,
         convertTargetCursorPosition: Int? = nil,

@@ -60,6 +60,21 @@ struct ZenzResolvedConversionCacheKey: Equatable, Hashable {
     var versionDependentConfig: ConvertRequestOptions.ZenzaiVersionDependentMode
 }
 
+struct ZenzDraftConversionCacheKey: Equatable, Hashable {
+    var dictionaryIdentifier: ObjectIdentifier
+    var input: [ComposingText.InputElement]
+    var convertTarget: String
+    var convertTargetCursorPosition: Int?
+    var keyboardLanguage: KeyboardLanguage
+    var versionDependentConfig: ConvertRequestOptions.ZenzaiVersionDependentMode
+    var prefixConstraint: Kana2Kanji.PrefixConstraint
+}
+
+struct ZenzDraftConversion {
+    var resultPrevs: [RegisteredNode]
+    var resultLatticeHead: ZenzResolvedLatticeHead
+}
+
 struct ZenzResolvedConversion {
     var resultPrevs: [RegisteredNode]
     var resultLatticeHead: ZenzResolvedLatticeHead
@@ -134,6 +149,56 @@ private final class ZenzResolvedConversionCache: @unchecked Sendable {
     private let lock = NSLock()
 }
 
+/// 同じ辞書状態・入力・制約から得た不変のdraft経路を共有するLRU cache。
+/// 可変な探索状態を含むlattice本体は保持しない。
+final class ZenzDraftConversionCache: @unchecked Sendable {
+    private struct Entry {
+        var value: ZenzDraftConversion
+        var accessIndex: UInt64
+    }
+
+    init(capacity: Int) {
+        self.capacity = capacity
+    }
+
+    func value(for key: ZenzDraftConversionCacheKey) -> ZenzDraftConversion? {
+        self.lock.withLock {
+            guard var entry = self.entries[key] else { return nil }
+            self.accessIndex &+= 1
+            entry.accessIndex = self.accessIndex
+            self.entries[key] = entry
+            return entry.value
+        }
+    }
+
+    func insert(_ value: ZenzDraftConversion, for key: ZenzDraftConversionCacheKey) {
+        var value = value
+        self.lock.withLock {
+            if let sharedHead = self.entries.values.lazy.map({
+                $0.value.resultLatticeHead
+            }).first(where: {
+                $0.fingerprint == value.resultLatticeHead.fingerprint
+                    && $0.nodes == value.resultLatticeHead.nodes
+            }) {
+                value.resultLatticeHead = sharedHead
+            }
+            self.accessIndex &+= 1
+            self.entries[key] = Entry(value: value, accessIndex: self.accessIndex)
+            if self.entries.count > self.capacity,
+               let oldestKey = self.entries.min(by: {
+                   $0.value.accessIndex < $1.value.accessIndex
+               })?.key {
+                self.entries.removeValue(forKey: oldestKey)
+            }
+        }
+    }
+
+    private let capacity: Int
+    private var entries: [ZenzDraftConversionCacheKey: Entry] = [:]
+    private var accessIndex: UInt64 = 0
+    private let lock = NSLock()
+}
+
 /// 読み取り専用のGGUFモデルを複数の推論コンテキスト間で共有する。
 ///
 /// KV cacheなどの可変状態は`ZenzContext`側に残し、モデルの重みとvocabularyだけを
@@ -178,6 +243,7 @@ private final class SharedZenzModel {
         self.vocab = vocab
         self.evaluationCache = ZenzEvaluationCache(capacity: 256)
         self.resolvedConversionCache = ZenzResolvedConversionCache(capacity: 64)
+        self.draftConversionCache = ZenzDraftConversionCache(capacity: 128)
         self.evaluationPromptTokenCache.countLimit = 128
     }
 
@@ -189,6 +255,7 @@ private final class SharedZenzModel {
     let vocab: OpaquePointer
     let evaluationCache: ZenzEvaluationCache
     fileprivate let resolvedConversionCache: ZenzResolvedConversionCache
+    fileprivate let draftConversionCache: ZenzDraftConversionCache
     let evaluationPromptTokenCache = NSCache<NSString, ZenzTokenArrayBox>()
 }
 
@@ -452,6 +519,14 @@ final class ZenzContext {
         for key: ZenzResolvedConversionCacheKey
     ) {
         self.sharedModel.resolvedConversionCache.insert(value, for: key)
+    }
+
+    func cachedDraftConversion(for key: ZenzDraftConversionCacheKey) -> ZenzDraftConversion? {
+        self.sharedModel.draftConversionCache.value(for: key)
+    }
+
+    func cacheDraftConversion(_ value: ZenzDraftConversion, for key: ZenzDraftConversionCacheKey) {
+        self.sharedModel.draftConversionCache.insert(value, for: key)
     }
 
     func normalizeForModel(_ text: String) -> String {

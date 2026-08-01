@@ -184,6 +184,39 @@ final class ZenzPromptBuilderTests: XCTestCase {
         XCTAssertEqual(cache.value(for: third), .wholeResult("third"))
     }
 
+    func testZenzDraftConversionCacheEvictsLeastRecentlyUsedEntry() {
+        let cache = ZenzDraftConversionCache(capacity: 2)
+        let dictionary = NSObject()
+        func key(_ target: String) -> ZenzDraftConversionCacheKey {
+            ZenzDraftConversionCacheKey(
+                dictionaryIdentifier: ObjectIdentifier(dictionary),
+                input: [],
+                convertTarget: target,
+                convertTargetCursorPosition: nil,
+                keyboardLanguage: .ja_JP,
+                versionDependentConfig: .v3(.init()),
+                prefixConstraint: .init([])
+            )
+        }
+        let value = ZenzDraftConversion(
+            resultPrevs: [],
+            resultLatticeHead: .init(nodes: [])
+        )
+        let first = key("first")
+        let second = key("second")
+        let third = key("third")
+
+        cache.insert(value, for: first)
+        cache.insert(value, for: second)
+        XCTAssertNotNil(cache.value(for: first))
+
+        cache.insert(value, for: third)
+
+        XCTAssertNil(cache.value(for: second))
+        XCTAssertNotNil(cache.value(for: first))
+        XCTAssertNotNil(cache.value(for: third))
+    }
+
     func testZenzInferenceThreadCountUsesPerformanceClusterOnDarwin() {
         XCTAssertEqual(
             ZenzContext.selectInferenceThreadCount(

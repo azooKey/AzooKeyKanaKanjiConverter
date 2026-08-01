@@ -178,6 +178,7 @@ extension Kana2Kanji {
         debug("initial constraint", constraint)
         let eosNode = LatticeNode.EOSNode
         var lattice: Lattice = Lattice()
+        var latticeIsComplete = true
         var constructedCandidates: [(RegisteredNode, Candidate)] = []
         var insertedCandidates: [(RegisteredNode, Candidate)] = []
         func makeCache(
@@ -188,29 +189,75 @@ extension Kana2Kanji {
                 latticeInputData,
                 constraint: constraint,
                 satisfyingCandidate: satisfyingCandidate,
-                lattice: lattice
+                lattice: latticeIsComplete ? lattice : nil
             )
         }
         defer {
             eosNode.prevs = insertedCandidates.map(\.0)
         }
         var inferenceLimit = inferenceLimit
+        var draftIteration = 0
         while true {
             let start = Date()
+            // 学習・ユーザ辞書・personalizationの影響がなく、入力と制約が完全一致する
+            // 初回draftだけを共有する。後続draftは直前の探索状態に依存するため対象外。
+            let draftCacheKey: ZenzDraftConversionCacheKey? = if draftIteration == 0,
+                                                                 !requestRichCandidates,
+                                                                 personalizationMode == nil,
+                                                                 dicdataStoreState.canShareStaticConversionResults() {
+                ZenzDraftConversionCacheKey(
+                    dictionaryIdentifier: ObjectIdentifier(self.dicdataStore),
+                    input: latticeInputData.input,
+                    convertTarget: latticeInputData.convertTarget,
+                    convertTargetCursorPosition: zenzInputCursorPosition,
+                    keyboardLanguage: dicdataStoreState.keyboardLanguage,
+                    versionDependentConfig: versionDependentConfig,
+                    prefixConstraint: constraint
+                )
+            } else {
+                nil
+            }
+            let cachedDraft = draftCacheKey.flatMap { zenz.cachedDraftConversion(for: $0) }
             let preprocessedLattice: Lattice?
-            if !lattice.isEmpty {
+            if cachedDraft != nil {
+                preprocessedLattice = nil
+            } else if !lattice.isEmpty {
                 // 今回の`all_zenzai`の呼び出し内部で使われているキャッシュ（lattice）が存在する場合はそちらを優先する
                 lattice.resetNodeStates()
                 preprocessedLattice = lattice
             } else {
                 // latticeがまだemptyの場合、zenzaiCache側に存在するキャッシュの活用を試みる
-                preprocessedLattice = zenzaiCache?.getPreprocessedLattice(for: latticeInputData, kanaKanji: self, dicdataStoreState: dicdataStoreState)
+                preprocessedLattice = zenzaiCache?.getPreprocessedLattice(
+                    for: latticeInputData,
+                    kanaKanji: self,
+                    dicdataStoreState: dicdataStoreState
+                )
             }
             let draftResult: (result: LatticeNode, lattice: Lattice)
-            if constraint.isEmpty {
-                // 全部を変換する場合はN=2の変換を行う
-                // 実験の結果、ここは2-bestを取ると平均的な速度が最良になることがわかったので、そうしている。
-                draftResult = self.kana2lattice_all(latticeInputData, N_best: 2, needTypoCorrection: false, preprocessedLattice: preprocessedLattice, dicdataStoreState: dicdataStoreState)
+            if let cachedDraft {
+                let cachedLattice = Lattice(
+                    inputCount: latticeInputData.input.count,
+                    surfaceCount: latticeInputData.convertTarget.count,
+                    rawNodes: [
+                        cachedDraft.resultLatticeHead.nodes.map {
+                            LatticeNode(data: $0.data, range: $0.range)
+                        }
+                    ]
+                )
+                let cachedResult = LatticeNode.EOSNode
+                cachedResult.prevs = cachedDraft.resultPrevs
+                draftResult = (cachedResult, cachedLattice)
+                // processResultが参照する先頭ノードだけを復元しているため、
+                // 後続draftのpreprocessed latticeとしては利用できない。
+                latticeIsComplete = false
+            } else if constraint.isEmpty {
+                draftResult = self.kana2lattice_all(
+                    latticeInputData,
+                    N_best: 2,
+                    needTypoCorrection: false,
+                    preprocessedLattice: preprocessedLattice,
+                    dicdataStoreState: dicdataStoreState
+                )
             } else {
                 // rich候補を要求しない通常モードでは最良経路しか消費しない。
                 // rich候補用の代替制約探索では従来どおり3-bestを保持する。
@@ -221,6 +268,21 @@ extension Kana2Kanji {
                     constraint: constraint,
                     preprocessedLattice: preprocessedLattice,
                     dicdataStoreState: dicdataStoreState
+                )
+            }
+            if let draftCacheKey, cachedDraft == nil {
+                zenz.cacheDraftConversion(
+                    ZenzDraftConversion(
+                        resultPrevs: draftResult.result.prevs,
+                        resultLatticeHead: ZenzResolvedLatticeHead(
+                            nodes: draftResult.lattice[
+                                index: .bothIndex(inputIndex: 0, surfaceIndex: 0)
+                            ].map {
+                                ZenzResolvedLatticeNode(data: $0.data, range: $0.range)
+                            }
+                        )
+                    ),
+                    for: draftCacheKey
                 )
             }
             if lattice.isEmpty {
@@ -237,6 +299,7 @@ extension Kana2Kanji {
                     best = (i, cand)
                 }
             }
+            draftIteration += 1
             guard var (index, candidate) = best else {
                 debug("best was not found!")
                 // Emptyの場合
@@ -302,7 +365,13 @@ extension Kana2Kanji {
                             } else if alternativeConstraint.probabilityRatio > 0.5 {
                                 // 十分に高い確率の場合、変換器を実際に呼び出して候補を作ってもらう
                                 lattice.resetNodeStates()
-                                let draftResult = self.kana2lattice_all_with_prefix_constraint(latticeInputData, N_best: 3, constraint: normalizedAlternativeConstraint, preprocessedLattice: lattice, dicdataStoreState: dicdataStoreState)
+                                let draftResult = self.kana2lattice_all_with_prefix_constraint(
+                                    latticeInputData,
+                                    N_best: 3,
+                                    constraint: normalizedAlternativeConstraint,
+                                    preprocessedLattice: lattice,
+                                    dicdataStoreState: dicdataStoreState
+                                )
                                 let candidates = draftResult.result.getCandidateData().map(self.processClauseCandidate)
                                 let best: (Int, Candidate)? = candidates.enumerated().reduce(into: (Int, Candidate)?.none) { best, pair in
                                     if let (_, c) = best, pair.1.value > c.value {
@@ -350,6 +419,10 @@ extension Kana2Kanji {
                         return (eosNode, lattice, makeCache(constraint: constraint, satisfyingCandidate: nil))
                     }
                 case .continue:
+                    if !latticeIsComplete {
+                        lattice = Lattice()
+                        latticeIsComplete = true
+                    }
                     break reviewLoop
                 case .retry(let candidateIndex):
                     index = candidateIndex

@@ -1,4 +1,5 @@
 import Foundation
+@testable import KanaKanjiConverterModule
 @testable import KanaKanjiConverterModuleWithDefaultDictionary
 import XCTest
 
@@ -69,6 +70,72 @@ final class ZenzaiTests: XCTestCase {
             typoCorrectionMode: .automatic,
             metadata: nil
         )
+    }
+
+    func testIncrementalLatticeMatchesFullRebuildForRomanAndAZIKTailRewrites() {
+        let dicdataStore = DicdataStore.withDefaultDictionary(preloadDictionary: true)
+        let kanaKanji = Kana2Kanji(dicdataStore: dicdataStore)
+        let state = dicdataStore.prepareState()
+
+        func firstTailRewrite(
+            in sequence: String,
+            inputStyle: InputStyle
+        ) -> (old: ComposingText, new: ComposingText)? {
+            var current = ComposingText()
+            for character in sequence {
+                let old = current
+                current.insertAtCursorPosition(String(character), inputStyle: inputStyle)
+                if !old.convertTarget.isEmpty,
+                   !current.convertTarget.hasPrefix(old.convertTarget) {
+                    return (old, current)
+                }
+            }
+            return nil
+        }
+
+        func assertIncrementalMatchesFull(
+            _ pair: (old: ComposingText, new: ComposingText),
+            file: StaticString = #filePath,
+            line: UInt = #line
+        ) {
+            let oldResult = kanaKanji.kana2lattice_all(
+                pair.old,
+                N_best: 2,
+                needTypoCorrection: false,
+                dicdataStoreState: state
+            )
+            let incrementalLattice = kanaKanji.buildLatticeWithIncrementalCache(
+                inputData: pair.new,
+                inputCount: pair.new.input.count,
+                surfaceCount: pair.new.convertTarget.count,
+                incrementalCacheInfo: (pair.old, oldResult.lattice),
+                dicdataStoreState: state
+            )
+            let incremental = kanaKanji.kana2lattice_all(
+                pair.new,
+                N_best: 2,
+                needTypoCorrection: false,
+                preprocessedLattice: incrementalLattice,
+                dicdataStoreState: state
+            )
+            let full = kanaKanji.kana2lattice_all(
+                pair.new,
+                N_best: 2,
+                needTypoCorrection: false,
+                dicdataStoreState: state
+            )
+            let incrementalCandidates = incremental.result.getCandidateData().map(kanaKanji.processClauseCandidate)
+            let fullCandidates = full.result.getCandidateData().map(kanaKanji.processClauseCandidate)
+            XCTAssertEqual(incrementalCandidates.map(\.text), fullCandidates.map(\.text), file: file, line: line)
+            XCTAssertEqual(incrementalCandidates.map(\.value), fullCandidates.map(\.value), file: file, line: line)
+        }
+
+        let roman = firstTailRewrite(in: "konobunshou", inputStyle: .roman2kana)
+        let azik = firstTailRewrite(in: "konobjxp", inputStyle: .mapped(id: .defaultAZIK))
+        XCTAssertNotNil(roman)
+        XCTAssertNotNil(azik)
+        if let roman { assertIncrementalMatchesFull(roman) }
+        if let azik { assertIncrementalMatchesFull(azik) }
     }
 
     func testFullConversion() async throws {
