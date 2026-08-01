@@ -199,12 +199,12 @@ final class ZenzDraftConversionCache: @unchecked Sendable {
     private let lock = NSLock()
 }
 
-/// 1つの変換セッション内だけで再利用するZenzaiのメモ化キャッシュ。
+/// 1つの`KanaKanjiConverter`内で再利用するZenzaiのメモ化キャッシュ。
 ///
-/// モデルやnative contextとは所有者を分け、Converterのセッション終了時に確実に
-/// 破棄されるようにする。これにより、別セッションや別テストの同一入力が以前の
-/// 変換結果を引き継がない。
-final class ZenzaiSessionCache: @unchecked Sendable {
+/// モデルやnative contextとは所有者を分け、別Converter間では共有しない。一方、
+/// `stopComposition()`は入力中の状態だけを終了するAPIなので、このキャッシュは
+/// compositionを跨いで保持する。
+final class ZenzaiMemoizationCache: @unchecked Sendable {
     init(
         evaluationCapacity: Int = 256,
         resolvedConversionCapacity: Int = 64,
@@ -568,13 +568,13 @@ final class ZenzContext {
 
     func encodeEvaluationPrompt(
         _ prompt: String,
-        sessionCache: ZenzaiSessionCache
+        memoizationCache: ZenzaiMemoizationCache
     ) -> [llama_token] {
-        if let cached = sessionCache.cachedEvaluationPromptTokens(for: prompt) {
+        if let cached = memoizationCache.cachedEvaluationPromptTokens(for: prompt) {
             return cached
         }
         let tokens = self.encode(prompt, addBOS: true, addEOS: false)
-        sessionCache.cacheEvaluationPromptTokens(tokens, for: prompt)
+        memoizationCache.cacheEvaluationPromptTokens(tokens, for: prompt)
         return tokens
     }
 

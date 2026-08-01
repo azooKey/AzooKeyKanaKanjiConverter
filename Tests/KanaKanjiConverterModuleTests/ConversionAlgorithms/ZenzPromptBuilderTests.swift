@@ -215,9 +215,9 @@ final class ZenzPromptBuilderTests: XCTestCase {
         XCTAssertNotNil(cache.value(for: third))
     }
 
-    func testZenzaiSessionCachesDoNotShareEntries() {
-        let firstSession = ZenzaiSessionCache()
-        let secondSession = ZenzaiSessionCache()
+    func testZenzaiMemoizationCachesDoNotShareEntries() {
+        let firstCache = ZenzaiMemoizationCache()
+        let secondCache = ZenzaiMemoizationCache()
         let evaluationKey = ZenzEvaluationCacheKey(
             prompt: "prompt",
             candidateTextForEvaluation: "候補",
@@ -260,22 +260,43 @@ final class ZenzPromptBuilderTests: XCTestCase {
             satisfyingCandidate: candidate
         )
 
-        firstSession.cacheEvaluation(.wholeResult("cached"), for: evaluationKey)
-        firstSession.cacheDraftConversion(draft, for: draftKey)
-        firstSession.cacheResolvedConversion(resolved, for: resolvedKey)
-        firstSession.cacheEvaluationPromptTokens([1, 2, 3], for: "prompt")
+        firstCache.cacheEvaluation(.wholeResult("cached"), for: evaluationKey)
+        firstCache.cacheDraftConversion(draft, for: draftKey)
+        firstCache.cacheResolvedConversion(resolved, for: resolvedKey)
+        firstCache.cacheEvaluationPromptTokens([1, 2, 3], for: "prompt")
 
         XCTAssertEqual(
-            firstSession.cachedEvaluation(for: evaluationKey),
+            firstCache.cachedEvaluation(for: evaluationKey),
             .wholeResult("cached")
         )
-        XCTAssertNotNil(firstSession.cachedDraftConversion(for: draftKey))
-        XCTAssertNotNil(firstSession.cachedResolvedConversion(for: resolvedKey))
-        XCTAssertEqual(firstSession.cachedEvaluationPromptTokens(for: "prompt"), [1, 2, 3])
-        XCTAssertNil(secondSession.cachedEvaluation(for: evaluationKey))
-        XCTAssertNil(secondSession.cachedDraftConversion(for: draftKey))
-        XCTAssertNil(secondSession.cachedResolvedConversion(for: resolvedKey))
-        XCTAssertNil(secondSession.cachedEvaluationPromptTokens(for: "prompt"))
+        XCTAssertNotNil(firstCache.cachedDraftConversion(for: draftKey))
+        XCTAssertNotNil(firstCache.cachedResolvedConversion(for: resolvedKey))
+        XCTAssertEqual(firstCache.cachedEvaluationPromptTokens(for: "prompt"), [1, 2, 3])
+        XCTAssertNil(secondCache.cachedEvaluation(for: evaluationKey))
+        XCTAssertNil(secondCache.cachedDraftConversion(for: draftKey))
+        XCTAssertNil(secondCache.cachedResolvedConversion(for: resolvedKey))
+        XCTAssertNil(secondCache.cachedEvaluationPromptTokens(for: "prompt"))
+    }
+
+    func testZenzaiMemoizationCacheSurvivesStopComposition() {
+        let converter = KanaKanjiConverter.withoutDictionary()
+        let cache = converter.zenzaiMemoizationCache
+
+        converter.stopComposition()
+
+        XCTAssertTrue(cache === converter.zenzaiMemoizationCache)
+    }
+
+    func testZenzaiMemoizationCacheIsScopedToConverterAndCanBePurged() {
+        let firstConverter = KanaKanjiConverter.withoutDictionary()
+        let secondConverter = KanaKanjiConverter.withoutDictionary()
+        let originalCache = firstConverter.zenzaiMemoizationCache
+
+        XCTAssertFalse(originalCache === secondConverter.zenzaiMemoizationCache)
+
+        firstConverter.purgeZenzaiMemoizationCache()
+
+        XCTAssertFalse(originalCache === firstConverter.zenzaiMemoizationCache)
     }
 
     func testZenzInferenceThreadCountUsesPerformanceClusterOnDarwin() {
