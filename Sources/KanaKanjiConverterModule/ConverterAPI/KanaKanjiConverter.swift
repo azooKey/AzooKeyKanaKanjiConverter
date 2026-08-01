@@ -19,7 +19,6 @@ public final class KanaKanjiConverter {
         var lattice: Lattice = .init()
         var completedData: Candidate?
         var zenzaiCache: Kana2Kanji.ZenzaiCache?
-        var zenzaiSessionCache: ZenzaiSessionCache = .init()
         var zenzaiTypoCache: ZenzaiTypoGenerationCache = .init()
         var ngramCache: NGramCache = .init()
         var predictiveInputCache: PredictiveInputCacheEntry?
@@ -57,6 +56,9 @@ public final class KanaKanjiConverter {
     private var lastData: DicdataElement?
     /// Zenzaiのためのzenzモデル
     private var zenz: Zenz?
+    /// 完全な入力・文脈・制約をキーにする純粋なメモ化結果。
+    /// compositionではなく、このConverterインスタンスの寿命に紐づける。
+    var zenzaiMemoizationCache = ZenzaiMemoizationCache()
     private var zenzaiPersonalization: (mode: ConvertRequestOptions.ZenzaiMode.PersonalizationMode, base: EfficientNGram, personal: EfficientNGram)?
     public private(set) var zenzStatus: String = ""
     private var dicdataStoreState: DicdataStoreState
@@ -73,9 +75,7 @@ public final class KanaKanjiConverter {
 
     private func withScratchSession<T>(_ body: () -> T) -> T {
         let scratchID: SessionID = "scratch-\(UUID().uuidString)"
-        var scratchState = self.currentSessionState
-        scratchState.zenzaiSessionCache = .init()
-        self.sessions[scratchID] = scratchState
+        self.sessions[scratchID] = self.currentSessionState
         let previousSessionID = self.activeSessionID
         let savedPersonalization = self.zenzaiPersonalization
         self.activeSessionID = scratchID
@@ -94,6 +94,14 @@ public final class KanaKanjiConverter {
         self.sessions = [Self.defaultSessionID: .init()]
         self.activeSessionID = Self.defaultSessionID
         self.lastData = nil
+    }
+
+    /// Zenzaiの純粋なメモ化結果を明示的に破棄します。
+    ///
+    /// 通常の変換確定では呼ぶ必要はありません。メモリ警告を受けた場合など、
+    /// compositionを終了せずに再計算可能なキャッシュだけを解放したい場合に利用します。
+    public func purgeZenzaiMemoizationCache() {
+        self.zenzaiMemoizationCache = .init()
     }
 
     private func getZenzaiPersonalization(mode: ConvertRequestOptions.ZenzaiMode.PersonalizationMode?) -> (mode: ConvertRequestOptions.ZenzaiMode.PersonalizationMode, base: EfficientNGram, personal: EfficientNGram)? {
@@ -207,10 +215,10 @@ public final class KanaKanjiConverter {
         } else {
             do {
                 self.zenz = try Zenz.shared(resourceURL: modelURL)
+                self.purgeZenzaiMemoizationCache()
                 self.sessions = self.sessions.mapValues { state in
-                    var next = state
+                    let next = state
                     next.zenzaiTypoCache.invalidateForModelChange()
-                    next.zenzaiSessionCache = .init()
                     return next
                 }
                 self.zenzStatus = "load \(modelURL.absoluteString)"
@@ -1034,7 +1042,7 @@ public final class KanaKanjiConverter {
                 inputData,
                 zenz: model,
                 zenzaiCache: self.currentSessionState.zenzaiCache,
-                zenzaiSessionCache: self.currentSessionState.zenzaiSessionCache,
+                zenzaiMemoizationCache: self.zenzaiMemoizationCache,
                 inferenceLimit: zenzaiMode.inferenceLimit,
                 requestRichCandidates: zenzaiMode.requestRichCandidates,
                 personalizationMode: self.getZenzaiPersonalization(mode: zenzaiMode.personalizationMode),

@@ -87,7 +87,7 @@ struct ZenzCandidateEvaluator {
         prefixConstraint: Kana2Kanji.PrefixConstraint,
         personalizationMode: (mode: ConvertRequestOptions.ZenzaiMode.PersonalizationMode, base: EfficientNGram, personal: EfficientNGram)?,
         versionDependentConfig: ConvertRequestOptions.ZenzaiVersionDependentMode,
-        sessionCache: ZenzaiSessionCache
+        memoizationCache: ZenzaiMemoizationCache
     ) -> CandidateEvaluationResult {
         debug("Evaluate", candidate)
         var userDictionaryPrompt = ""
@@ -133,17 +133,20 @@ struct ZenzCandidateEvaluator {
         } else {
             nil
         }
-        if let cacheKey, let cached = sessionCache.cachedEvaluation(for: cacheKey) {
+        if let cacheKey, let cached = memoizationCache.cachedEvaluation(for: cacheKey) {
             return cached
         }
         func finish(_ result: CandidateEvaluationResult) -> CandidateEvaluationResult {
             if let cacheKey, result != .error {
-                sessionCache.cacheEvaluation(result, for: cacheKey)
+                memoizationCache.cacheEvaluation(result, for: cacheKey)
             }
             return result
         }
 
-        let promptTokens = context.encodeEvaluationPrompt(prompt, sessionCache: sessionCache)
+        let promptTokens = context.encodeEvaluationPrompt(
+            prompt,
+            memoizationCache: memoizationCache
+        )
         let candidateTokens = context.encode(candidateTextForEvaluation, addBOS: false, addEOS: false)
         let addressedTokens: [llama_token]
         if reusesAddressedPrefix {

@@ -114,7 +114,7 @@ extension Kana2Kanji {
         _ inputData: ComposingText,
         zenz: Zenz,
         zenzaiCache: ZenzaiCache?,
-        zenzaiSessionCache: ZenzaiSessionCache,
+        zenzaiMemoizationCache: ZenzaiMemoizationCache,
         inferenceLimit: Int,
         requestRichCandidates: Bool,
         personalizationMode: (mode: ConvertRequestOptions.ZenzaiMode.PersonalizationMode, base: EfficientNGram, personal: EfficientNGram)?,
@@ -148,7 +148,7 @@ extension Kana2Kanji {
                 nil
         }
         if let resolvedConversionCacheKey,
-           let cached = zenzaiSessionCache.cachedResolvedConversion(
+           let cached = zenzaiMemoizationCache.cachedResolvedConversion(
                for: resolvedConversionCacheKey
            ) {
             // 全文経路とは別にprocessResultが参照する先頭辞書ノードだけを復元する。
@@ -221,7 +221,7 @@ extension Kana2Kanji {
                 nil
             }
             let cachedDraft = draftCacheKey.flatMap {
-                zenzaiSessionCache.cachedDraftConversion(for: $0)
+                zenzaiMemoizationCache.cachedDraftConversion(for: $0)
             }
             let preprocessedLattice: Lattice?
             if cachedDraft != nil {
@@ -276,7 +276,7 @@ extension Kana2Kanji {
                 )
             }
             if let draftCacheKey, cachedDraft == nil {
-                zenzaiSessionCache.cacheDraftConversion(
+                zenzaiMemoizationCache.cacheDraftConversion(
                     ZenzDraftConversion(
                         resultPrevs: draftResult.result.prevs,
                         resultLatticeHead: ZenzResolvedLatticeHead(
@@ -340,7 +340,7 @@ extension Kana2Kanji {
                     prefixConstraint: constraint,
                     personalizationMode: personalizationMode,
                     versionDependentConfig: versionDependentConfig,
-                    sessionCache: zenzaiSessionCache
+                    memoizationCache: zenzaiMemoizationCache
                 )
                 inferenceLimit -= 1
                 let nextAction = self.review(
@@ -401,7 +401,7 @@ extension Kana2Kanji {
                                    )
                                }
                            }) {
-                            zenzaiSessionCache.cacheResolvedConversion(
+                            zenzaiMemoizationCache.cacheResolvedConversion(
                                 ZenzResolvedConversion(
                                     resultPrevs: insertedCandidates.map(\.0),
                                     resultLatticeHead: ZenzResolvedLatticeHead(
