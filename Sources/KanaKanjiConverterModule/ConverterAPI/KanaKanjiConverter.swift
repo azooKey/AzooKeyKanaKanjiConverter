@@ -341,6 +341,11 @@ public final class KanaKanjiConverter {
         }
     }
 
+    /// 直前のLMベース typo correctionが行った探索量。性能テスト・診断用。
+    var latestExperimentalTypoCorrectionMetrics: ZenzaiTypoGenerationMetrics {
+        self.currentSessionState.zenzaiTypoCache.lastMetrics
+    }
+
     /// 入力する言語が分かったらこの関数をなるべく早い段階で呼ぶことで、SpellCheckerの初期化が行われ、変換がスムーズになる
     public func setKeyboardLanguage(_ language: KeyboardLanguage) {
         self.dicdataStoreState.updateKeyboardLanguage(language)

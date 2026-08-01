@@ -1,6 +1,7 @@
 import Foundation
 @testable import KanaKanjiConverterModule
 @testable import KanaKanjiConverterModuleWithDefaultDictionary
+import SwiftUtils
 import XCTest
 
 #if Zenzai || ZenzaiCPU
@@ -9,6 +10,13 @@ final class ZenzaiTests: XCTestCase {
         var label: String
         var leftSideContext: String
         var input: String
+    }
+
+    private struct GradualTypoCorrectionScenario {
+        var label: String
+        var leftSideContext: String
+        var input: String
+        var inputStyle: InputStyle
     }
 
     private func measuredRequestCandidates(
@@ -32,14 +40,40 @@ final class ZenzaiTests: XCTestCase {
         }
         let sorted = latencies.sorted()
         let average = sorted.reduce(0, +) / Double(sorted.count)
+        let p50Index = min(sorted.count - 1, Int(ceil(Double(sorted.count) * 0.5)) - 1)
         let p90Index = min(sorted.count - 1, Int(ceil(Double(sorted.count) * 0.9)) - 1)
         print(
             "[ZenzaiLatency] \(label)"
                 + " count=\(sorted.count)"
                 + " averageMs=\(average)"
+                + " p50Ms=\(sorted[p50Index])"
                 + " p90Ms=\(sorted[p90Index])"
                 + " maxMs=\(sorted[sorted.count - 1])"
         )
+    }
+
+    private func desktopNGramLanguageModelPrefix() throws -> String {
+        let environment = ProcessInfo.processInfo.environment
+        let configuredPrefix = environment["AZOOKEY_DESKTOP_NGRAM_PREFIX"]
+        let sourceFile = URL(fileURLWithPath: #filePath)
+        let repositoryRoot = sourceFile
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let siblingPrefix = repositoryRoot
+            .deletingLastPathComponent()
+            .appendingPathComponent("azooKeyDesktop/azooKeyMac/Resources/base_n5_lm/lm_")
+            .path
+        let rawPrefix = configuredPrefix ?? siblingPrefix
+        let normalizedPrefix = rawPrefix.hasSuffix("_") ? String(rawPrefix.dropLast()) : rawPrefix
+        let requiredSuffixes = ["_c_abc.marisa", "_u_abx.marisa", "_u_xbc.marisa", "_r_xbx.marisa"]
+        guard requiredSuffixes.allSatisfy({ FileManager.default.fileExists(atPath: normalizedPrefix + $0) }) else {
+            throw XCTSkip(
+                "azooKeyDesktop N-gram files are unavailable; set AZOOKEY_DESKTOP_NGRAM_PREFIX to the lm_ prefix"
+            )
+        }
+        return rawPrefix
     }
 
     private func inferenceLimitLabel(_ inferenceLimit: Int) -> String {
@@ -500,6 +534,164 @@ final class ZenzaiTests: XCTestCase {
             typoCandidates.contains(where: { $0.correctedInput == "ohayougozaimasu" }),
             "expected ohayougozaimasu in typo candidates, got: \(typoCandidates.map(\.correctedInput))"
         )
+    }
+
+    @MainActor
+    func testGradualTypoCorrection_NGram() throws {
+        // 通常のgradual conversionに加え、各prefixでLMベースのtypo探索を実行する。
+        // 同一入力を繰り返してキャッシュを人工的にwarmにせず、実際に1文字ずつ
+        // 伸びる入力で、通常変換・typo探索・両者の合計を個別にreportする。
+        guard ProcessInfo.processInfo.environment["ZENZAI_PROFILE_LATENCY"] == "1" else {
+            throw XCTSkip("Set ZENZAI_PROFILE_LATENCY=1 to run the gradual typo-correction benchmark")
+        }
+        guard ProcessInfo.processInfo.environment["SWIFT_DETERMINISTIC_HASHING"] == "1" else {
+            throw XCTSkip("Set SWIFT_DETERMINISTIC_HASHING=1 so tied beam candidates are reproducible")
+        }
+
+        let ngramPrefix = try self.desktopNGramLanguageModelPrefix()
+        var typoConfig = ExperimentalTypoCorrectionConfig(
+            languageModel: .ngram(.init(prefix: ngramPrefix, n: 5, d: 0.75)),
+            beamSize: 16,
+            topK: 32,
+            nBest: 3
+        )
+        typoConfig.collectsPerformanceMetrics = true
+        // azooKeyDesktopの設定値を固定する。探索幅を狭めてbenchmarkだけを通す変更を防ぐ。
+        XCTAssertEqual(typoConfig.beamSize, 16)
+        XCTAssertEqual(typoConfig.topK, 32)
+        XCTAssertEqual(typoConfig.nBest, 3)
+
+        let scenarios: [GradualTypoCorrectionScenario] = [
+            .init(
+                label: "Direct",
+                leftSideContext: "日本語入力の性能を確認します。",
+                input: "このぶんしょうはかんじへんかんがせいかくということでわだいのにほんごにゅうりょくしすてむをつかってうちこんでいます",
+                inputStyle: .direct
+            ),
+            .init(
+                label: "Roman2Kana",
+                leftSideContext: "日本語入力の性能を確認します。",
+                input: "konobunshouhakanjihenkangaseikakutoiukotodewadainonihongonyuuryokusisutemuwotukatteutikondeimasu",
+                inputStyle: .roman2kana
+            ),
+            .init(
+                label: "AZIK",
+                leftSideContext: "日本語入力の性能を確認します。",
+                input: "konobjxphakzzihdkzgasskakutoiuktdewadqnonihlgonyhryokusisutemuwotuka；teutikldwms",
+                inputStyle: .mapped(id: .defaultAZIK)
+            )
+        ]
+        let dicdataStore = DicdataStore.withDefaultDictionary(preloadDictionary: true)
+        let verifiesIncrementalSearch = ProcessInfo.processInfo.environment["ZENZAI_VERIFY_INCREMENTAL_TYPO"] == "1"
+
+        for scenario in scenarios {
+            // style間でlattice、typo探索キャッシュ、N-gramロード状態を共有しない。
+            let converter = KanaKanjiConverter(dicdataStore: dicdataStore)
+            let referenceConverter = verifiesIncrementalSearch
+                ? KanaKanjiConverter(dicdataStore: dicdataStore)
+                : nil
+            var referenceTypoConfig = typoConfig
+            referenceTypoConfig.usesIncrementalCheckpoint = false
+            let options = self.requestOptions(inferenceLimit: 5, leftSideContext: scenario.leftSideContext)
+            var composingText = ComposingText()
+            var conversionLatencies: [Double]? = []
+            var typoLatencies: [Double]? = []
+            var totalLatencies: [Double]? = []
+            var top1PreservedCount = 0
+            var top3PreservedCount = 0
+            var nonEmptyResultCount = 0
+            var aggregateMetrics = ZenzaiTypoGenerationMetrics()
+
+            for character in scenario.input {
+                composingText.insertAtCursorPosition(String(character), inputStyle: scenario.inputStyle)
+
+                let conversionStart = ProcessInfo.processInfo.systemUptime
+                let conversionResult = converter.requestCandidates(composingText, options: options)
+                let conversionEnd = ProcessInfo.processInfo.systemUptime
+                XCTAssertFalse(conversionResult.mainResults.isEmpty)
+
+                let typoCandidates = converter.experimentalRequestTypoCorrection(
+                    leftSideContext: scenario.leftSideContext,
+                    composingText: composingText,
+                    options: options,
+                    inputStyle: scenario.inputStyle,
+                    config: typoConfig
+                )
+                let typoEnd = ProcessInfo.processInfo.systemUptime
+                if let referenceConverter {
+                    let referenceCandidates = referenceConverter.experimentalRequestTypoCorrection(
+                        leftSideContext: scenario.leftSideContext,
+                        composingText: composingText,
+                        options: options,
+                        inputStyle: scenario.inputStyle,
+                        config: referenceTypoConfig
+                    )
+                    XCTAssertEqual(
+                        typoCandidates,
+                        referenceCandidates,
+                        "incremental typo search diverged for \(scenario.label), prefix length \(composingText.input.count)"
+                    )
+                }
+
+                conversionLatencies?.append((conversionEnd - conversionStart) * 1_000)
+                typoLatencies?.append((typoEnd - conversionEnd) * 1_000)
+                totalLatencies?.append((typoEnd - conversionStart) * 1_000)
+                if !typoCandidates.isEmpty {
+                    nonEmptyResultCount += 1
+                }
+                let originalInput = switch scenario.inputStyle {
+                case .direct:
+                    composingText.convertTarget.toKatakana()
+                case .roman2kana, .mapped:
+                    String(scenario.input.prefix(composingText.input.count))
+                }
+                if typoCandidates.first?.correctedInput == originalInput {
+                    top1PreservedCount += 1
+                }
+                if typoCandidates.prefix(3).contains(where: { $0.correctedInput == originalInput }) {
+                    top3PreservedCount += 1
+                }
+                let metrics = converter.latestExperimentalTypoCorrectionMetrics
+                aggregateMetrics.stepCount += metrics.stepCount
+                aggregateMetrics.expandedHypothesisCount += metrics.expandedHypothesisCount
+                aggregateMetrics.beamPrunedHypothesisCount += metrics.beamPrunedHypothesisCount
+                aggregateMetrics.upperBoundPrunedHypothesisCount += metrics.upperBoundPrunedHypothesisCount
+                aggregateMetrics.lmRequestCount += metrics.lmRequestCount
+                aggregateMetrics.lmCacheHitCount += metrics.lmCacheHitCount
+                aggregateMetrics.lmEvaluationCount += metrics.lmEvaluationCount
+                aggregateMetrics.peakBeamSize = max(aggregateMetrics.peakBeamSize, metrics.peakBeamSize)
+                aggregateMetrics.lmCacheEntryCount = metrics.lmCacheEntryCount
+            }
+
+            self.reportLatencies(conversionLatencies, label: "GradualTypo \(scenario.label) conversion inferenceLimit=5")
+            self.reportLatencies(typoLatencies, label: "GradualTypo \(scenario.label) ngram beam=16 topK=32 nBest=3")
+            self.reportLatencies(totalLatencies, label: "GradualTypo \(scenario.label) total")
+            print(
+                "[ZenzaiTypoQuality] \(scenario.label)"
+                    + " requests=\(scenario.input.count)"
+                    + " nonEmpty=\(nonEmptyResultCount)"
+                    + " top1Preserved=\(top1PreservedCount)"
+                    + " top1PreservedRate=\(Double(top1PreservedCount) / Double(scenario.input.count))"
+                    + " top3Preserved=\(top3PreservedCount)"
+                    + " top3PreservedRate=\(Double(top3PreservedCount) / Double(scenario.input.count))"
+            )
+            let lmHitRate = aggregateMetrics.lmRequestCount > 0
+                ? Double(aggregateMetrics.lmCacheHitCount) / Double(aggregateMetrics.lmRequestCount)
+                : 0
+            print(
+                "[ZenzaiTypoWork] \(scenario.label)"
+                    + " steps=\(aggregateMetrics.stepCount)"
+                    + " expanded=\(aggregateMetrics.expandedHypothesisCount)"
+                    + " beamPruned=\(aggregateMetrics.beamPrunedHypothesisCount)"
+                    + " upperBoundPruned=\(aggregateMetrics.upperBoundPrunedHypothesisCount)"
+                    + " lmRequests=\(aggregateMetrics.lmRequestCount)"
+                    + " lmCacheHits=\(aggregateMetrics.lmCacheHitCount)"
+                    + " lmEvaluations=\(aggregateMetrics.lmEvaluationCount)"
+                    + " lmHitRate=\(lmHitRate)"
+                    + " finalLMCacheEntries=\(aggregateMetrics.lmCacheEntryCount)"
+                    + " peakBeam=\(aggregateMetrics.peakBeamSize)"
+            )
+        }
     }
 }
 #endif
