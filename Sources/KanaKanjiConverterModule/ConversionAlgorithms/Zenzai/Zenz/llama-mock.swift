@@ -11,9 +11,14 @@ package typealias llama_seq_id = Int32
 package struct llama_context_params {
     package var seed: Int
     package var n_ctx: Int
+    package var n_seq_max: Int
+    package var kv_unified: Bool
     package var n_threads: Int32
     package var n_threads_batch: Int32
     package var n_batch: Int
+    package var flash_attn: Bool
+    package var flash_attn_type: Int32
+    package var no_perf: Bool
 }
 package func llama_context_default_params() -> llama_context_params { unimplemented() }
 
@@ -31,6 +36,7 @@ package func llama_backend_free() {}
 
 package struct llama_model_params {
     package var use_mmap: Bool
+    package var use_extra_bufts: Bool
 }
 package func llama_model_default_params() -> llama_model_params { unimplemented() }
 
@@ -41,6 +47,13 @@ package func llama_model_load_from_file(_: String, _: llama_model_params) -> lla
 package func llama_kv_cache_seq_rm(_: llama_context, _: llama_seq_id, _: llama_pos, _: llama_pos) {}
 package func llama_kv_cache_seq_cp(_: llama_context, _: llama_seq_id, _: llama_seq_id, _: llama_pos, _: llama_pos) {}
 package func llama_kv_cache_seq_pos_max(_: llama_context, _: llama_seq_id) -> Int { unimplemented() }
+
+package let LLAMA_FLASH_ATTN_TYPE_ENABLED: Int32 = 1
+package typealias llama_memory = OpaquePointer
+package func llama_get_memory(_: llama_context) -> llama_memory { unimplemented() }
+package func llama_memory_seq_rm(_: llama_memory, _: llama_seq_id, _: llama_pos, _: llama_pos) {}
+package func llama_memory_seq_cp(_: llama_memory, _: llama_seq_id, _: llama_seq_id, _: llama_pos, _: llama_pos) {}
+package func llama_memory_seq_pos_max(_: llama_memory, _: llama_seq_id) -> Int { unimplemented() }
 
 package struct llama_batch {
     package var token: [llama_token]

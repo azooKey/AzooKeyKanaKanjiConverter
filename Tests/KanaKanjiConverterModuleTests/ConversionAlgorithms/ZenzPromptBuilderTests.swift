@@ -155,4 +155,153 @@ final class ZenzPromptBuilderTests: XCTestCase {
 
         XCTAssertEqual(constraint, Kana2Kanji.PrefixConstraint(Array("橋".utf8), hasEOS: true, ignoreMemoryAndUserDictionary: true))
     }
+
+    func testZenzEvaluationCacheEvictsLeastRecentlyUsedEntry() {
+        let cache = ZenzEvaluationCache(capacity: 2)
+        func key(_ prompt: String) -> ZenzEvaluationCacheKey {
+            ZenzEvaluationCacheKey(
+                prompt: prompt,
+                candidateTextForEvaluation: "候補",
+                originalCandidateText: "候補",
+                prefixConstraint: .init([]),
+                requestRichCandidates: false,
+                reusesAddressedPrefix: false,
+                candidateSegments: [.init(word: "候補", ruby: "コウホ", isLearned: false)]
+            )
+        }
+        let first = key("first")
+        let second = key("second")
+        let third = key("third")
+
+        cache.insert(.wholeResult("first"), for: first)
+        cache.insert(.wholeResult("second"), for: second)
+        XCTAssertEqual(cache.value(for: first), .wholeResult("first"))
+
+        cache.insert(.wholeResult("third"), for: third)
+
+        XCTAssertNil(cache.value(for: second))
+        XCTAssertEqual(cache.value(for: first), .wholeResult("first"))
+        XCTAssertEqual(cache.value(for: third), .wholeResult("third"))
+    }
+
+    func testZenzDraftConversionCacheEvictsLeastRecentlyUsedEntry() {
+        let cache = ZenzDraftConversionCache(capacity: 2)
+        func key(_ target: String) -> ZenzDraftConversionCacheKey {
+            ZenzDraftConversionCacheKey(
+                input: [],
+                convertTarget: target,
+                convertTargetCursorPosition: nil,
+                keyboardLanguage: .ja_JP,
+                versionDependentConfig: .v3(.init()),
+                prefixConstraint: .init([])
+            )
+        }
+        let value = ZenzDraftConversion(
+            resultPrevs: [],
+            resultLatticeHead: .init(nodes: [])
+        )
+        let first = key("first")
+        let second = key("second")
+        let third = key("third")
+
+        cache.insert(value, for: first)
+        cache.insert(value, for: second)
+        XCTAssertNotNil(cache.value(for: first))
+
+        cache.insert(value, for: third)
+
+        XCTAssertNil(cache.value(for: second))
+        XCTAssertNotNil(cache.value(for: first))
+        XCTAssertNotNil(cache.value(for: third))
+    }
+
+    func testZenzaiSessionCachesDoNotShareEntries() {
+        let firstSession = ZenzaiSessionCache()
+        let secondSession = ZenzaiSessionCache()
+        let evaluationKey = ZenzEvaluationCacheKey(
+            prompt: "prompt",
+            candidateTextForEvaluation: "候補",
+            originalCandidateText: "候補",
+            prefixConstraint: .init([]),
+            requestRichCandidates: false,
+            reusesAddressedPrefix: false,
+            candidateSegments: [.init(word: "候補", ruby: "コウホ", isLearned: false)]
+        )
+        let draftKey = ZenzDraftConversionCacheKey(
+            input: [],
+            convertTarget: "こうほ",
+            convertTargetCursorPosition: nil,
+            keyboardLanguage: .ja_JP,
+            versionDependentConfig: .v3(.init()),
+            prefixConstraint: .init([])
+        )
+        let resolvedKey = ZenzResolvedConversionCacheKey(
+            input: [],
+            convertTarget: "こうほ",
+            convertTargetCursorPosition: nil,
+            keyboardLanguage: .ja_JP,
+            versionDependentConfig: .v3(.init()),
+            prefixConstraint: .init([]),
+            inferenceLimit: 1
+        )
+        let latticeHead = ZenzResolvedLatticeHead(nodes: [])
+        let draft = ZenzDraftConversion(resultPrevs: [], resultLatticeHead: latticeHead)
+        let candidate = Candidate(
+            text: "候補",
+            value: 0,
+            composingCount: .inputCount(0),
+            lastMid: 0,
+            data: []
+        )
+        let resolved = ZenzResolvedConversion(
+            resultPrevs: [],
+            resultLatticeHead: latticeHead,
+            prefixConstraint: .init([]),
+            satisfyingCandidate: candidate
+        )
+
+        firstSession.cacheEvaluation(.wholeResult("cached"), for: evaluationKey)
+        firstSession.cacheDraftConversion(draft, for: draftKey)
+        firstSession.cacheResolvedConversion(resolved, for: resolvedKey)
+        firstSession.cacheEvaluationPromptTokens([1, 2, 3], for: "prompt")
+
+        XCTAssertEqual(
+            firstSession.cachedEvaluation(for: evaluationKey),
+            .wholeResult("cached")
+        )
+        XCTAssertNotNil(firstSession.cachedDraftConversion(for: draftKey))
+        XCTAssertNotNil(firstSession.cachedResolvedConversion(for: resolvedKey))
+        XCTAssertEqual(firstSession.cachedEvaluationPromptTokens(for: "prompt"), [1, 2, 3])
+        XCTAssertNil(secondSession.cachedEvaluation(for: evaluationKey))
+        XCTAssertNil(secondSession.cachedDraftConversion(for: draftKey))
+        XCTAssertNil(secondSession.cachedResolvedConversion(for: resolvedKey))
+        XCTAssertNil(secondSession.cachedEvaluationPromptTokens(for: "prompt"))
+    }
+
+    func testZenzInferenceThreadCountUsesPerformanceClusterOnDarwin() {
+        XCTAssertEqual(
+            ZenzContext.selectInferenceThreadCount(
+                activeProcessorCount: 10,
+                performanceCoreCount: 6
+            ),
+            6
+        )
+    }
+
+    func testZenzInferenceThreadCountFallsBackWhenPerformanceClusterIsUnavailable() {
+        XCTAssertEqual(
+            ZenzContext.selectInferenceThreadCount(
+                activeProcessorCount: 8,
+                performanceCoreCount: nil
+            ),
+            6
+        )
+        XCTAssertEqual(
+            ZenzContext.selectInferenceThreadCount(
+                activeProcessorCount: 2,
+                performanceCoreCount: nil
+            ),
+            2
+        )
+    }
 }

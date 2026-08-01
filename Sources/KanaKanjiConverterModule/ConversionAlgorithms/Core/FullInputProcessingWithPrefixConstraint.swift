@@ -4,46 +4,35 @@ import SwiftUtils
 
 extension Kana2Kanji {
     // Compute matched bytes with constraint and total candidate bytes for (prev-chain + currentWord)
-    private func computeMatchedAndTotalLength(prev: RegisteredNode?, currentWord: String, constraintBytes: [UInt8]) -> (matched: Int, total: Int) {
-        // collect words from prev chain in forward order
-        var words: [String] = []
-        var p = prev
-        while let node = p {
-            if !node.data.word.isEmpty {
-                words.append(node.data.word)
-            }
-            p = node.prev
-        }
-        words.reverse()
-        words.append(currentWord)
+    private func computeMatchedAndTotalLength(
+        prev: borrowing RegisteredNode?,
+        currentWord: borrowing String,
+        constraintBytes: borrowing [UInt8]
+    ) -> (matched: Int, total: Int) {
+        let previousTotal = prev.map { Int($0.candidateUTF8Count) } ?? 0
+        var matched = prev.map { Int($0.constraintMatchedUTF8Count) } ?? 0
+        let total = previousTotal + currentWord.utf8.count
 
-        // total = sum of utf8 counts (cheap per word)
-        let total = words.reduce(0) { $0 + $1.utf8.count }
-
-        // matched = compare up to first mismatch or until constraint end
-        var ci = 0
-        if !constraintBytes.isEmpty {
-            outer: for w in words {
-                if ci >= constraintBytes.count {
-                    break
-                }
-                for b in w.utf8 {
-                    if ci >= constraintBytes.count {
-                        break outer
-                    }
-                    if b != constraintBytes[ci] {
-                        break outer
-                    }
-                    ci += 1
-                }
-            }
+        // 直前までに不一致がなければ、今回追加する単語だけを照合する。
+        // RegisteredNode生成時に累積値を保持するため、経路全体の再走査は不要。
+        guard matched == min(previousTotal, constraintBytes.count) else {
+            return (matched, total)
         }
-        // このprevのutf8カウントはtotalで、そのうちconstraintBytesと一致する部分がci
-        return (matched: ci, total: total)
+        for byte in currentWord.utf8 {
+            guard matched < constraintBytes.count, byte == constraintBytes[matched] else {
+                break
+            }
+            matched += 1
+        }
+        return (matched, total)
     }
 
     // Extend match with next word starting from current matched index
-    private func extendMatched(matched: Int, nextWord: String, constraintBytes: [UInt8]) -> (matched: Int, mismatch: Bool) {
+    private func extendMatched(
+        matched: Int,
+        nextWord: borrowing String,
+        constraintBytes: borrowing [UInt8]
+    ) -> (matched: Int, mismatch: Bool) {
         var ci = matched
         if ci >= constraintBytes.count {
             return (ci, false)
@@ -118,11 +107,101 @@ extension Kana2Kanji {
                 rawNodes: rawNodes
             )
         }
+        let constraintBytes = constraint.constraint
+        let constraintLength = constraintBytes.count
+        let enforcesConstraintOnStaticDictionary = !constraint.ignoreMemoryAndUserDictionary
         // 「i文字目から始まるnodes」に対して
         for (isHead, nodeArray) in lattice.indexedNodes(indices: latticeIndices) {
             // それぞれのnodeに対して
             for node in nodeArray {
                 if node.prevs.isEmpty {
+                    continue
+                }
+                if N_best == 1, let previous = node.prevs.first {
+                    let wValue = node.data.value()
+                    let value = previous.totalValue + wValue + (
+                        isHead
+                            ? self.dicdataStore.getCCValue(previous.data.rcid, node.data.lcid)
+                            : 0
+                    )
+                    let nextIndex = indexMap.dualIndex(for: node.range.endIndex)
+                    let matchState = self.computeMatchedAndTotalLength(
+                        prev: previous,
+                        currentWord: node.data.word,
+                        constraintBytes: constraintBytes
+                    )
+                    if nextIndex.surfaceIndex == surfaceCount {
+                        if enforcesConstraintOnStaticDictionary,
+                           node.data.metadata.isDisjoint(with: [.isLearned, .isFromUserDictionary]) {
+                            let condition = if constraint.hasEOS {
+                                matchState.matched == constraintLength
+                                    && matchState.total == constraintLength
+                            } else {
+                                matchState.matched == constraintLength
+                            }
+                            guard condition else {
+                                continue
+                            }
+                        }
+                        let newNode = node.getRegisteredNode(
+                            0,
+                            value: value,
+                            constraintState: matchState
+                        )
+                        if let current = result.prevs.first {
+                            if newNode.totalValue > current.totalValue {
+                                result.prevs[0] = newNode
+                            }
+                        } else {
+                            result.prevs.append(newNode)
+                        }
+                        continue
+                    }
+
+                    let ccLatter = self.dicdataStore.getCCLatter(node.data.rcid)
+                    for nextNode in lattice[index: nextIndex] {
+                        let newValue = value + ccLatter.get(nextNode.data.lcid)
+                        if let current = nextNode.prevs.first,
+                           current.totalValue >= newValue {
+                            continue
+                        }
+                        if enforcesConstraintOnStaticDictionary,
+                           nextNode.data.metadata.isDisjoint(with: [.isLearned, .isFromUserDictionary]) {
+                            guard matchState.matched
+                                == min(matchState.total, constraintLength) else {
+                                continue
+                            }
+                            let nextLength = nextNode.data.word.utf8.count
+                            let (matched, mismatch) = self.extendMatched(
+                                matched: matchState.matched,
+                                nextWord: nextNode.data.word,
+                                constraintBytes: constraintBytes
+                            )
+                            if mismatch {
+                                continue
+                            }
+                            let newTotal = matchState.total + nextLength
+                            let isCompatible = if constraint.hasEOS {
+                                matched == newTotal && newTotal < constraintLength
+                            } else {
+                                matched == constraintLength
+                                    || (newTotal <= constraintLength && matched == newTotal)
+                            }
+                            guard isCompatible else {
+                                continue
+                            }
+                        }
+                        let newNode = node.getRegisteredNode(
+                            0,
+                            value: newValue,
+                            constraintState: matchState
+                        )
+                        if nextNode.prevs.isEmpty {
+                            nextNode.prevs.append(newNode)
+                        } else {
+                            nextNode.prevs[0] = newNode
+                        }
+                    }
                     continue
                 }
                 // 生起確率を取得する。
@@ -137,36 +216,48 @@ extension Kana2Kanji {
                 // 変換した文字数
                 let nextIndex = indexMap.dualIndex(for: node.range.endIndex)
                 // 文字数がcountと等しい場合登録する
-                let constraintBytes = constraint.constraint
                 if nextIndex.surfaceIndex == surfaceCount {
                     // Precompute matched/total lengths per prev for (prev + current word)
                     let mtPerPrev: [(matched: Int, total: Int)] = node.prevs.indices.map { idx in
                         self.computeMatchedAndTotalLength(prev: node.prevs[idx], currentWord: node.data.word, constraintBytes: constraintBytes)
                     }
-                    let cLen = constraintBytes.count
                     for index in node.prevs.indices {
                         // 学習データやユーザ辞書由来の場合は素通しする
-                        if !constraint.ignoreMemoryAndUserDictionary, node.data.metadata.isDisjoint(with: [.isLearned, .isFromUserDictionary]) {
+                        if enforcesConstraintOnStaticDictionary,
+                           node.data.metadata.isDisjoint(with: [.isLearned, .isFromUserDictionary]) {
                             let (matched, total) = mtPerPrev[index]
                             // 最終チェック（EOS時の条件に合わせる）
                             let condition = if constraint.hasEOS {
-                                matched == cLen && total == cLen
+                                matched == constraintLength && total == constraintLength
                             } else {
-                                matched == cLen
+                                matched == constraintLength
                             }
                             guard condition else {
                                 continue
                             }
                         }
-                        let newnode: RegisteredNode = node.getRegisteredNode(index, value: node.values[index])
-                        result.prevs.append(newnode)
+                        let newnode: RegisteredNode = node.getRegisteredNode(
+                            index,
+                            value: node.values[index],
+                            constraintState: mtPerPrev[index]
+                        )
+                        if N_best == 1 {
+                            if let current = result.prevs.first {
+                                if newnode.totalValue > current.totalValue {
+                                    result.prevs[0] = newnode
+                                }
+                            } else {
+                                result.prevs.append(newnode)
+                            }
+                        } else {
+                            result.prevs.append(newnode)
+                        }
                     }
                 } else {
                     // Precompute matched/total lengths per prev for (prev + current word)
                     let mtPerPrev: [(matched: Int, total: Int)] = node.prevs.indices.map { idx in
                         self.computeMatchedAndTotalLength(prev: node.prevs[idx], currentWord: node.data.word, constraintBytes: constraintBytes)
                     }
-                    let cLen = constraintBytes.count
                     let ccLatter = self.dicdataStore.getCCLatter(node.data.rcid)
                     // nodeの繋がる次にあり得る全てのnextnodeに対して
                     for nextnode in lattice[index: nextIndex] {
@@ -186,10 +277,11 @@ extension Kana2Kanji {
                             // 制約 AB 単語 A   (OK)
                             // 制約 AB 単語 AC  (NG)
                             // ただし、学習データやユーザ辞書由来の場合は素通しする
-                            if !constraint.ignoreMemoryAndUserDictionary, nextnode.data.metadata.isDisjoint(with: [.isLearned, .isFromUserDictionary]) {
+                            if enforcesConstraintOnStaticDictionary,
+                               nextnode.data.metadata.isDisjoint(with: [.isLearned, .isFromUserDictionary]) {
                                 let (matchedPrev, totalPrev) = mtPerPrev[index]
                                 // ensure no prior mismatch
-                                guard matchedPrev == min(totalPrev, cLen) else {
+                                guard matchedPrev == min(totalPrev, constraintLength) else {
                                     continue
                                 }
                                 let nextLen = nextnode.data.word.utf8.count
@@ -201,10 +293,11 @@ extension Kana2Kanji {
                                 let newTotal = totalPrev + nextLen
                                 let ok: Bool = if constraint.hasEOS {
                                     // require strict prefix of constraint
-                                    matchedExt == newTotal && newTotal < cLen
+                                    matchedExt == newTotal && newTotal < constraintLength
                                 } else {
                                     // accept either: constraint is prefix of candidate, or candidate is prefix of constraint
-                                    (matchedExt == cLen) || (newTotal <= cLen && matchedExt == newTotal)
+                                    (matchedExt == constraintLength)
+                                        || (newTotal <= constraintLength && matchedExt == newTotal)
                                 }
                                 guard ok else {
                                     continue
@@ -214,7 +307,11 @@ extension Kana2Kanji {
                             if nextnode.prevs.count >= N_best {
                                 nextnode.prevs.removeLast()
                             }
-                            let newnode: RegisteredNode = node.getRegisteredNode(index, value: newValue)
+                            let newnode: RegisteredNode = node.getRegisteredNode(
+                                index,
+                                value: newValue,
+                                constraintState: mtPerPrev[index]
+                            )
                             // removeしてからinsertした方が速い (insertはO(N)なので)
                             nextnode.prevs.insert(newnode, at: lastindex)
                         }
@@ -231,8 +328,8 @@ extension Kana2Kanji {
         inputCount: Int,
         surfaceCount: Int,
         incrementalCacheInfo: (inputData: ComposingText, lattice: Lattice)?,
-        dicdataStoreState: DicdataStoreState,
-        ) -> Lattice {
+        dicdataStoreState: DicdataStoreState
+    ) -> Lattice {
         let indexMap = LatticeDualIndexMap(inputData)
         let latticeIndices = indexMap.indices(inputCount: inputCount, surfaceCount: surfaceCount)
         guard let incrementalCacheInfo else {
@@ -273,9 +370,11 @@ extension Kana2Kanji {
         let commonInputCount = zip(oldInput, newInput).prefix { $0 == $1 }.count
         let commonSurfaceCount = zip(oldSurface, newSurface).prefix { $0 == $1 }.count
 
-        // 逐次入力でない場合（中間の文字が変わった場合）は通常の処理
-        if commonInputCount != min(oldInput.count, newInput.count) ||
-            commonSurfaceCount != min(oldSurface.count, newSurface.count) {
+        // inputの中間が変更された場合は通常の処理に戻す。
+        // Roman/AZIKの逐次入力では、inputは単純なsuffix追加でも
+        // convertTargetの未確定suffixが `k -> か` のように書き換わる。
+        // そのケースは下で独立セグメント境界まで戻し、suffixだけ作り直す。
+        if commonInputCount != oldInput.count {
             let rawNodes = latticeIndices.map { index in
                 let inputRange: (startIndex: Int, endIndexRange: Range<Int>?)? = if let iIndex = index.inputIndex {
                     (iIndex, nil)
@@ -305,19 +404,65 @@ extension Kana2Kanji {
         // 逐次入力の場合：既存Latticeから共通部分を再利用し、新しい部分のみ辞書引き
         let cachedLattice = incrementalCacheInfo.lattice
 
-        // 共通部分のLatticeを取得（SuffixReplacementProcessing.swiftのprefixメソッドを想定）
-        var newLattice = cachedLattice.prefix(inputCount: commonInputCount, surfaceCount: commonSurfaceCount)
+        // surfaceの末尾書き換えがある場合、commonSurfaceCountがローマ字変換の
+        // 独立セグメント内を指すことがある。その位置ではinput/surfaceの
+        // 対応が一意でないため、直前の独立セグメント境界まで戻す。
+        let reusableBoundary: (input: Int, surface: Int)
+        if commonSurfaceCount == oldSurface.count {
+            reusableBoundary = (commonInputCount, commonSurfaceCount)
+        } else {
+            reusableBoundary = incrementalCacheInfo.inputData
+                .inputIndexToSurfaceIndexMap()
+                .lazy
+                .filter { $0.value <= commonSurfaceCount }
+                .map { (input: $0.key, surface: $0.value) }
+                .max {
+                    if $0.surface == $1.surface {
+                        $0.input < $1.input
+                    } else {
+                        $0.surface < $1.surface
+                    }
+                } ?? (0, 0)
+        }
+        let reusableInputCount = reusableBoundary.input
+        let reusableSurfaceCount = reusableBoundary.surface
+
+        // 純粋なsuffix追加では既存Latticeの全ノードがそのまま有効なので、
+        // 各ノード配列のfilterと再構築を避ける。削除を伴う場合だけprefixを切り出す。
+        var newLattice = if reusableInputCount == oldInput.count,
+                            reusableSurfaceCount == oldSurface.count {
+            cachedLattice
+        } else {
+            cachedLattice.prefix(
+                inputCount: reusableInputCount,
+                surfaceCount: reusableSurfaceCount
+            )
+        }
         newLattice.resetNodeStates()
 
         // 新規部分に関わる辞書引き（既存部分から新規部分にまたがる単語も含む）
+        // lookupDicdata自体がmaxlengthより長い範囲を探索しないため、それより前から
+        // 始まるノードは新規suffixへ到達できない。
+        let earliestAffectedInputIndex = max(
+            0,
+            reusableInputCount + 1 - self.dicdataStore.maxlength
+        )
+        let earliestAffectedSurfaceIndex = max(
+            0,
+            reusableSurfaceCount + 1 - self.dicdataStore.maxlength
+        )
         let additionalRawNodes = latticeIndices.map { index in
-            let inputRange: (startIndex: Int, endIndexRange: Range<Int>?)? = if let iIndex = index.inputIndex, max(commonInputCount, iIndex) < inputCount {
-                (iIndex, max(commonInputCount, iIndex) ..< inputCount)
+            let inputRange: (startIndex: Int, endIndexRange: Range<Int>?)? = if let iIndex = index.inputIndex,
+                                                                              iIndex >= earliestAffectedInputIndex,
+                                                                              max(reusableInputCount, iIndex) < inputCount {
+                (iIndex, max(reusableInputCount, iIndex) ..< inputCount)
             } else {
                 nil
             }
-            let surfaceRange: (startIndex: Int, endIndexRange: Range<Int>?)? = if let sIndex = index.surfaceIndex, max(commonSurfaceCount, sIndex) < surfaceCount {
-                (sIndex, max(commonSurfaceCount, sIndex) ..< surfaceCount)
+            let surfaceRange: (startIndex: Int, endIndexRange: Range<Int>?)? = if let sIndex = index.surfaceIndex,
+                                                                                sIndex >= earliestAffectedSurfaceIndex,
+                                                                                max(reusableSurfaceCount, sIndex) < surfaceCount {
+                (sIndex, max(reusableSurfaceCount, sIndex) ..< surfaceCount)
             } else {
                 nil
             }

@@ -19,6 +19,64 @@ enum CandidateEvaluationResult: Sendable, Equatable, Hashable {
     }
 }
 
+struct ZenzEvaluationCacheKey: Sendable, Equatable, Hashable {
+    struct CandidateSegment: Sendable, Equatable, Hashable {
+        var word: String
+        var ruby: String
+        var isLearned: Bool
+    }
+
+    var prompt: String
+    var candidateTextForEvaluation: String
+    var originalCandidateText: String
+    var prefixConstraint: Kana2Kanji.PrefixConstraint
+    var requestRichCandidates: Bool
+    var reusesAddressedPrefix: Bool
+    var candidateSegments: [CandidateSegment]
+}
+
+/// モデル評価結果を少量だけ保持する、スレッドセーフなLRUキャッシュ。
+final class ZenzEvaluationCache: @unchecked Sendable {
+    private struct Entry {
+        var result: CandidateEvaluationResult
+        var accessIndex: UInt64
+    }
+
+    init(capacity: Int) {
+        self.capacity = max(1, capacity)
+    }
+
+    func value(for key: ZenzEvaluationCacheKey) -> CandidateEvaluationResult? {
+        self.lock.withLock {
+            guard var entry = self.entries[key] else {
+                return nil
+            }
+            self.accessIndex &+= 1
+            entry.accessIndex = self.accessIndex
+            self.entries[key] = entry
+            return entry.result
+        }
+    }
+
+    func insert(_ result: CandidateEvaluationResult, for key: ZenzEvaluationCacheKey) {
+        self.lock.withLock {
+            self.accessIndex &+= 1
+            if self.entries[key] == nil, self.entries.count >= self.capacity,
+               let leastRecentlyUsedKey = self.entries.min(by: {
+                   $0.value.accessIndex < $1.value.accessIndex
+               })?.key {
+                self.entries[leastRecentlyUsedKey] = nil
+            }
+            self.entries[key] = Entry(result: result, accessIndex: self.accessIndex)
+        }
+    }
+
+    private let capacity: Int
+    private var entries: [ZenzEvaluationCacheKey: Entry] = [:]
+    private var accessIndex: UInt64 = 0
+    private let lock = NSLock()
+}
+
 struct ZenzCandidateEvaluator {
     static func evaluate(
         context: ZenzContext,
@@ -28,7 +86,8 @@ struct ZenzCandidateEvaluator {
         requestRichCandidates: Bool,
         prefixConstraint: Kana2Kanji.PrefixConstraint,
         personalizationMode: (mode: ConvertRequestOptions.ZenzaiMode.PersonalizationMode, base: EfficientNGram, personal: EfficientNGram)?,
-        versionDependentConfig: ConvertRequestOptions.ZenzaiVersionDependentMode
+        versionDependentConfig: ConvertRequestOptions.ZenzaiVersionDependentMode,
+        sessionCache: ZenzaiSessionCache
     ) -> CandidateEvaluationResult {
         debug("Evaluate", candidate)
         var userDictionaryPrompt = ""
@@ -48,15 +107,46 @@ struct ZenzCandidateEvaluator {
             versionDependentConfig: versionDependentConfig
         )
         let normalizedPrompt = context.normalizeForModel(prompt)
-        let promptTokens = context.encode(prompt, addBOS: true, addEOS: false)
+        let prevPrompt = context.previousEvaluationPrompt()
+        let reusesAddressedPrefix = prevPrompt == normalizedPrompt && !requestRichCandidates
+        // A cache hit must produce the same subsequent incremental-evaluation state
+        // as a model evaluation.
         defer {
-            context.setPreviousEvaluationPromptTokens(promptTokens)
+            context.setPreviousEvaluationPrompt(normalizedPrompt)
         }
-        let prevPrompt = context.previousEvaluationPromptTokens()
+        let cacheKey: ZenzEvaluationCacheKey? = if personalizationMode == nil {
+            ZenzEvaluationCacheKey(
+                prompt: prompt,
+                candidateTextForEvaluation: candidateTextForEvaluation,
+                originalCandidateText: candidate.text,
+                prefixConstraint: prefixConstraint,
+                requestRichCandidates: requestRichCandidates,
+                reusesAddressedPrefix: reusesAddressedPrefix,
+                candidateSegments: candidate.data.map {
+                    .init(
+                        word: $0.word,
+                        ruby: $0.ruby,
+                        isLearned: $0.metadata.contains(.isLearned)
+                    )
+                }
+            )
+        } else {
+            nil
+        }
+        if let cacheKey, let cached = sessionCache.cachedEvaluation(for: cacheKey) {
+            return cached
+        }
+        func finish(_ result: CandidateEvaluationResult) -> CandidateEvaluationResult {
+            if let cacheKey, result != .error {
+                sessionCache.cacheEvaluation(result, for: cacheKey)
+            }
+            return result
+        }
 
+        let promptTokens = context.encodeEvaluationPrompt(prompt, sessionCache: sessionCache)
         let candidateTokens = context.encode(candidateTextForEvaluation, addBOS: false, addEOS: false)
         let addressedTokens: [llama_token]
-        if prevPrompt == promptTokens, !requestRichCandidates {
+        if reusesAddressedPrefix {
             var prefix = ""
             for character in candidate.text {
                 let newPrefix = prefix + String(character)
@@ -73,20 +163,26 @@ struct ZenzCandidateEvaluator {
 
         let tokens = promptTokens + candidateTokens
         let startOffset = promptTokens.count - 1 + addressedTokens.count
-        guard let logits = context.evaluationLogits(tokens: tokens, startOffset: startOffset) else {
-            debug("logits unavailable")
-            return .error
-        }
         let n_vocab = Int(context.vocabSize)
-        let candidateLearnedTokens: [(isLearned: Bool, priority: Float)] = candidate.data.flatMap {
-            Array(repeating: ($0.metadata.contains(.isLearned), logf(self.learningPriority(data: $0))), count: context.encode($0.word, addBOS: false).count)
-        }
-        let candidateTokenMetadata = if candidateLearnedTokens.count >= candidateTokens.count {
-            Array(candidateLearnedTokens.prefix(candidateTokens.count))
+        let learnedTokenPriorities: [Float]?
+        if candidate.data.contains(where: { $0.metadata.contains(.isLearned) }) {
+            let candidateLearnedTokens = candidate.data.flatMap {
+                Array(
+                    repeating: $0.metadata.contains(.isLearned) ? logf(self.learningPriority(data: $0)) : 0,
+                    count: context.encode($0.word, addBOS: false).count
+                )
+            }
+            if candidateLearnedTokens.count >= candidateTokens.count {
+                learnedTokenPriorities = Array(candidateLearnedTokens.prefix(candidateTokens.count))
+            } else {
+                learnedTokenPriorities = candidateLearnedTokens + Array(
+                    repeating: 0,
+                    count: candidateTokens.count - candidateLearnedTokens.count
+                )
+            }
         } else {
-            candidateLearnedTokens + Array(repeating: (false, 0), count: candidateTokens.count - candidateLearnedTokens.count)
+            learnedTokenPriorities = nil
         }
-        let isLearnedToken: [(isLearned: Bool, priority: Float)] = Array(repeating: (false, 0), count: promptTokens.count) + candidateTokenMetadata
 
         var score: Float = 0
 
@@ -100,94 +196,183 @@ struct ZenzCandidateEvaluator {
             var probabilityRatioToMaxProb: Float
         }
 
-        struct TokenAndLogprob: Comparable {
-            static func < (lhs: TokenAndLogprob, rhs: TokenAndLogprob) -> Bool {
-                lhs.logprob < rhs.logprob
+        struct TokenAndLogit: Comparable {
+            static func < (lhs: TokenAndLogit, rhs: TokenAndLogit) -> Bool {
+                lhs.logit < rhs.logit
             }
             var token: llama_token
-            var logprob: Float
+            var logit: Float
         }
 
         var altTokens = FixedSizeHeap<AlternativeHighProbToken>(size: requestRichCandidates ? 5 : 0)
-        for (i, tokenID) in tokens.indexed().dropFirst(startOffset + 1) {
-            var sumexp: Float = 0
-            let startIndex = (i - 1 - startOffset) * Int(n_vocab)
-            let endIndex = (i - startOffset) * Int(n_vocab)
-            var tokenHeap = FixedSizeHeap<TokenAndLogprob>(size: requestRichCandidates ? 3 : 1)
-            for index in startIndex ..< endIndex {
-                sumexp += expf(logits[index])
-            }
-            let logsumexp = logf(sumexp)
+        func evaluateTokenRange(
+            _ range: Range<Int>,
+            logits: UnsafeMutablePointer<Float>,
+            logitsStartIndex: Int
+        ) -> CandidateEvaluationResult? {
+            for i in range {
+                let tokenID = tokens[i]
+                let startIndex = (i - 1 - logitsStartIndex) * n_vocab
+                let endIndex = startIndex + n_vocab
+                var tokenHeap = FixedSizeHeap<TokenAndLogit>(size: requestRichCandidates ? 3 : 0)
+                let maxItem: TokenAndLogit
 
-            if let (mode, baseLM, personalLM) = personalizationMode, mode.alpha > 0 {
-                let prefix = tokens[..<i].dropFirst(promptTokens.count).map(Int.init)
-                let baseProb: [Float]
-                let personalProb: [Float]
-                if !prefix.isEmpty {
-                    baseProb = baseLM.bulkPredict(prefix).map { logf(Float($0) + 1e-7) }
-                    personalProb = personalLM.bulkPredict(prefix).map { logf(Float($0) + 1e-7) }
-                } else {
-                    baseProb = Array(repeating: 0, count: Int(n_vocab))
-                    personalProb = baseProb
-                }
-                for (vocabIndex, (lpb, lpp)) in zip(0 ..< Int(n_vocab), zip(baseProb, personalProb)) {
-                    let logp = logits[startIndex + vocabIndex] - logsumexp
-                    let personalizedLogp = logp + mode.alpha * (lpp - lpb)
-                    tokenHeap.insertIfPossible(TokenAndLogprob(token: llama_token(vocabIndex), logprob: personalizedLogp))
-                }
-            } else {
-                for index in startIndex ..< endIndex {
-                    let logp = logits[index] - logsumexp
-                    tokenHeap.insertIfPossible(TokenAndLogprob(token: llama_token(index - startIndex), logprob: logp))
-                }
-            }
-
-            guard let maxItem = tokenHeap.max else {
-                debug("Max Item could not be found for unknown reason")
-                return .error
-            }
-            if maxItem.token != tokenID {
-                if maxItem.token == context.eosToken {
-                    let cchars: [CChar] = tokens[..<i].reduce(into: []) {
-                        $0.append(contentsOf: context.tokenToPiece(token: $1))
+                if let (mode, baseLM, personalLM) = personalizationMode, mode.alpha > 0 {
+                    let prefix = tokens[..<i].dropFirst(promptTokens.count).map(Int.init)
+                    let baseProb: [Float]
+                    let personalProb: [Float]
+                    if !prefix.isEmpty {
+                        baseProb = baseLM.bulkPredict(prefix).map { logf(Float($0) + 1e-7) }
+                        personalProb = personalLM.bulkPredict(prefix).map { logf(Float($0) + 1e-7) }
+                    } else {
+                        baseProb = Array(repeating: 0, count: n_vocab)
+                        personalProb = baseProb
                     }
-                    let data = Data(cchars.map { UInt8(bitPattern: $0) })
-                    let string = String(data: data, encoding: .utf8) ?? ""
-                    let wholeResult = String(string.dropFirst(normalizedPrompt.count))
-                    return .wholeResult(wholeResult)
-                } else {
-                    let actualLogp = logits[startIndex + Int(tokenID)] - logsumexp
-                    let preferLearnedToken = isLearnedToken[i].isLearned && actualLogp + isLearnedToken[i].priority > maxItem.logprob
-                    if !preferLearnedToken {
-                        let cchars = tokens[..<i].reduce(into: []) {
-                            $0.append(contentsOf: context.tokenToPiece(token: $1))
-                        } + context.tokenToPiece(token: maxItem.token)
-                        return .fixRequired(prefixConstraint: cchars.dropFirst(normalizedPrompt.utf8.count).map(UInt8.init))
-                    }
-                }
-            } else if !tokenHeap.isEmpty {
-                tokenHeap.removeMax()
-                let prefix = tokens[..<i].reduce(into: []) {
-                    $0.append(contentsOf: context.tokenToPiece(token: $1))
-                }.dropFirst(normalizedPrompt.utf8.count)
-
-                for item in tokenHeap.unordered {
-                    altTokens.insertIfPossible(
-                        AlternativeHighProbToken(
-                            token: item.token,
-                            constraint: prefix.map(UInt8.init) + context.tokenToPiece(token: item.token).map(UInt8.init),
-                            probabilityRatioToMaxProb: expf(item.logprob - maxItem.logprob)
+                    if requestRichCandidates {
+                        for (vocabIndex, (lpb, lpp)) in zip(
+                            0 ..< n_vocab,
+                            zip(baseProb, personalProb)
+                        ) {
+                            let personalizedLogit = logits[startIndex + vocabIndex]
+                                + mode.alpha * (lpp - lpb)
+                            tokenHeap.insertIfPossible(
+                                TokenAndLogit(
+                                    token: llama_token(vocabIndex),
+                                    logit: personalizedLogit
+                                )
+                            )
+                        }
+                        guard let maximum = tokenHeap.max else {
+                            debug("Max Item could not be found for unknown reason")
+                            return .error
+                        }
+                        maxItem = maximum
+                    } else {
+                        var maximum = TokenAndLogit(
+                            token: 0,
+                            logit: logits[startIndex] + mode.alpha * (personalProb[0] - baseProb[0])
                         )
+                        for vocabIndex in 1 ..< n_vocab {
+                            let personalizedLogit = logits[startIndex + vocabIndex]
+                                + mode.alpha * (personalProb[vocabIndex] - baseProb[vocabIndex])
+                            if personalizedLogit > maximum.logit {
+                                maximum = TokenAndLogit(
+                                    token: llama_token(vocabIndex),
+                                    logit: personalizedLogit
+                                )
+                            }
+                        }
+                        maxItem = maximum
+                    }
+                } else if requestRichCandidates {
+                    for index in startIndex ..< endIndex {
+                        tokenHeap.insertIfPossible(
+                            TokenAndLogit(
+                                token: llama_token(index - startIndex),
+                                logit: logits[index]
+                            )
+                        )
+                    }
+                    guard let maximum = tokenHeap.max else {
+                        debug("Max Item could not be found for unknown reason")
+                        return .error
+                    }
+                    maxItem = maximum
+                } else {
+                    var maximumToken = 0
+                    var maximumLogit = logits[startIndex]
+                    for vocabIndex in 1 ..< n_vocab {
+                        let logit = logits[startIndex + vocabIndex]
+                        if logit > maximumLogit {
+                            maximumToken = vocabIndex
+                            maximumLogit = logit
+                        }
+                    }
+                    maxItem = TokenAndLogit(
+                        token: llama_token(maximumToken),
+                        logit: maximumLogit
                     )
                 }
+
+                if maxItem.token != tokenID {
+                    if maxItem.token == context.eosToken {
+                        let cchars = tokens[..<i].reduce(into: []) {
+                            $0.append(contentsOf: context.tokenToPiece(token: $1))
+                        }
+                        let data = Data(cchars.map { UInt8(bitPattern: $0) })
+                        let string = String(data: data, encoding: .utf8) ?? ""
+                        let wholeResult = String(string.dropFirst(normalizedPrompt.count))
+                        return finish(.wholeResult(wholeResult))
+                    } else {
+                        let candidateTokenIndex = i - promptTokens.count
+                        let learnedPriority = learnedTokenPriorities.map {
+                            candidateTokenIndex < $0.count ? $0[candidateTokenIndex] : 0
+                        } ?? 0
+                        // softmaxの正規化項は両辺で相殺されるため、logitのまま比較できる。
+                        let preferLearnedToken = learnedPriority > 0
+                            && logits[startIndex + Int(tokenID)] + learnedPriority > maxItem.logit
+                        if !preferLearnedToken {
+                            let cchars = tokens[..<i].reduce(into: []) {
+                                $0.append(contentsOf: context.tokenToPiece(token: $1))
+                            } + context.tokenToPiece(token: maxItem.token)
+                            return finish(
+                                .fixRequired(
+                                    prefixConstraint: cchars.dropFirst(normalizedPrompt.utf8.count).map(UInt8.init)
+                                )
+                            )
+                        }
+                    }
+                } else if requestRichCandidates {
+                    tokenHeap.removeMax()
+                    let prefix = tokens[..<i].reduce(into: []) {
+                        $0.append(contentsOf: context.tokenToPiece(token: $1))
+                    }.dropFirst(normalizedPrompt.utf8.count)
+
+                    for item in tokenHeap.unordered {
+                        altTokens.insertIfPossible(
+                            AlternativeHighProbToken(
+                                token: item.token,
+                                constraint: prefix.map(UInt8.init)
+                                    + context.tokenToPiece(token: item.token).map(UInt8.init),
+                                probabilityRatioToMaxProb: expf(item.logit - maxItem.logit)
+                            )
+                        )
+                    }
+                }
+                // この値は順位付けには使われない。正規化項の全語彙走査を避けるため、
+                // 等価な順位を持つ未正規化logitを蓄積する。
+                score += maxItem.logit
             }
-            score += maxItem.logprob
+            return nil
         }
-        return .pass(
-            score: score,
-            alternativeConstraints: altTokens.unordered.sorted(by: >).map {
-                .init(probabilityRatio: $0.probabilityRatioToMaxProb, prefixConstraint: $0.constraint)
+
+        let firstTokenIndex = startOffset + 1
+        if firstTokenIndex < tokens.endIndex {
+            // token i の判定に必要なのは token i - 1 のlogitsまでなので、
+            // 最終候補token自体はdecodeしない。
+            let evaluationTokens = Array(tokens.dropLast())
+            guard let logits = context.evaluationLogits(
+                tokens: evaluationTokens,
+                startOffset: startOffset
+            ) else {
+                debug("logits unavailable")
+                return .error
             }
+            if let result = evaluateTokenRange(
+                firstTokenIndex ..< tokens.endIndex,
+                logits: logits,
+                logitsStartIndex: startOffset
+            ) {
+                return result
+            }
+        }
+        return finish(
+            .pass(
+                score: score,
+                alternativeConstraints: altTokens.unordered.sorted(by: >).map {
+                    .init(probabilityRatio: $0.probabilityRatioToMaxProb, prefixConstraint: $0.constraint)
+                }
+            )
         )
     }
 
