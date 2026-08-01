@@ -144,8 +144,8 @@ let llamaCppTarget: Target = .systemLibrary(name: "llama.cpp")
 #else
 let llamaCppTarget: Target = .binaryTarget(
     name: "llama.cpp",
-    url: "https://github.com/azooKey/llama.cpp/releases/download/b9637-azookey.1/signed-llama-b9637-azookey.1.xcframework.zip",
-    checksum: "6176b3a6f7cbeca993644ca21d4b1c46ddaa59b98109376b7d32acef8e226a13"
+    url: "https://github.com/azooKey/llama.cpp/releases/download/b4846/signed-llama.xcframework.zip",
+    checksum: "db3b13169df8870375f212e6ac21194225f1c85f7911d595ab64c8c790068e0a"
 )
 #endif
 targets.append(llamaCppTarget)

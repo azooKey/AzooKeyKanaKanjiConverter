@@ -126,6 +126,44 @@ final class ZenzaiTests: XCTestCase {
         )
     }
 
+    /// azooKey for iOSのDirect入力で使われる主要設定を再現する。
+    ///
+    /// 辞書・Zenzaiの候補評価だけを測る簡略設定では、llama.cpp更新による実端末上の
+    /// 逐次入力regressionを捕捉できなかった。prediction、learning、left contextを
+    /// 有効にした状態で、文字数の増加に伴う各requestのlatencyを観測する。
+    private func iOSDirectInputOptions() -> ConvertRequestOptions {
+        .init(
+            N_best: 10,
+            requireJapanesePrediction: .autoMix,
+            requireEnglishPrediction: .autoMix,
+            keyboardLanguage: .ja_JP,
+            englishCandidateInRoman2KanaInput: true,
+            fullWidthRomanCandidate: true,
+            halfWidthKanaCandidate: true,
+            learningType: .inputAndOutput,
+            maxMemoryCount: 65_536,
+            shouldResetMemory: false,
+            memoryDirectoryURL: FileManager.default.temporaryDirectory
+                .appendingPathComponent("azookey-ios-direct-benchmark-memory"),
+            sharedContainerURL: FileManager.default.temporaryDirectory
+                .appendingPathComponent("azookey-ios-direct-benchmark-shared"),
+            textReplacer: .empty,
+            specialCandidateProviders: [],
+            zenzaiMode: .on(
+                weight: URL(
+                    fileURLWithPath: "/Library/Input Methods/azooKeyMac.app/Contents/Resources/ggml-model-Q5_K_M.gguf"
+                ),
+                inferenceLimit: 1,
+                personalizationMode: nil,
+                versionDependentMode: .v3(
+                    .init(leftSideContext: "今日は", maxLeftSideContextLength: 20)
+                )
+            ),
+            typoCorrectionMode: .automatic,
+            metadata: .init(versionString: "azooKey iOS benchmark")
+        )
+    }
+
     func testIncrementalLatticeMatchesFullRebuildForRomanAndAZIKTailRewrites() {
         let dicdataStore = DicdataStore.withDefaultDictionary(preloadDictionary: true)
         let kanaKanji = Kana2Kanji(dicdataStore: dicdataStore)
@@ -390,6 +428,32 @@ final class ZenzaiTests: XCTestCase {
                         + " predictionHits=\(predictionHitCount)"
                 )
             }
+        }
+    }
+
+    @MainActor
+    func testIOSDirectIncrementalInput() throws {
+        let converter = KanaKanjiConverter.withDefaultDictionary()
+        let options = self.iOSDirectInputOptions()
+        let profilesLatency = ProcessInfo.processInfo.environment["ZENZAI_PROFILE_LATENCY"] == "1"
+        var latencies: [Double]? = profilesLatency ? [] : nil
+        var composingText = ComposingText()
+        var finalResult: ConversionResult?
+
+        for character in "かなかんじへんかんをためしています" {
+            composingText.insertAtCursorPosition(String(character), inputStyle: .direct)
+            finalResult = self.measuredRequestCandidates(
+                converter,
+                composingText: composingText,
+                options: options,
+                latencies: &latencies
+            )
+        }
+
+        XCTAssertFalse(finalResult?.mainResults.isEmpty ?? true)
+        self.reportLatencies(latencies, label: "iOS Direct incremental inferenceLimit=1")
+        if let latencies {
+            print("[ZenzaiIOSDirect] samplesMs=\(latencies)")
         }
     }
 

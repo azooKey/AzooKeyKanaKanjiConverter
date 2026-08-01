@@ -30,11 +30,6 @@ enum ZenzError: LocalizedError {
 /// コンテキストより先に解放される可能性があるプロセス終了時の明示解放は行わない。
 private enum ZenzBackend {
     private static let initialized: Void = {
-        #if ZenzaiCPU && canImport(Darwin)
-        // llama.cpp b9637ではbackend registry生成時にMetalも初期化される。
-        // CPU推論ではMetal shaderの初期ロードを避ける。
-        setenv("GGML_DISABLE_METAL", "1", 0)
-        #endif
         llama_backend_init()
     }()
 
@@ -279,11 +274,6 @@ private final class SharedZenzModel {
         ZenzBackend.initializeIfNeeded()
         var modelParams = llama_model_default_params()
         modelParams.use_mmap = true
-        #if ZenzaiCPU && os(iOS)
-        // b9637のCPU weight repackはモデルと同程度の追加bufferを常駐させる。
-        // iOSのメモリ制約を優先し、mmapされた元の量子化weightを直接利用する。
-        modelParams.use_extra_bufts = false
-        #endif
         #if ZenzaiCPU
         modelParams.n_gpu_layers = 0
         modelParams.split_mode = LLAMA_SPLIT_MODE_NONE
@@ -376,16 +366,7 @@ final class ZenzContext {
         debug("Using \(n_threads) threads")
         var ctx_params = llama_context_default_params()
         ctx_params.n_ctx = 512
-        #if os(Linux) || os(Windows)
         ctx_params.flash_attn = true
-        #else
-        // 評価用(0)と入力予測用(1)の2 sequenceを同一KV cacheで扱う。
-        ctx_params.n_seq_max = 2
-        // 両sequenceはpromptの大部分を共有する。512 tokenの総容量を分割せず、
-        // 従来と同じ容量のKV cacheとして共有する。
-        ctx_params.kv_unified = true
-        ctx_params.flash_attn_type = LLAMA_FLASH_ATTN_TYPE_ENABLED
-        #endif
         ctx_params.n_threads       = Int32(n_threads)
         ctx_params.n_threads_batch = Int32(n_threads)
         ctx_params.n_batch = 512
@@ -482,9 +463,6 @@ final class ZenzContext {
     }
 
     private func getLogits(tokens: [llama_token], logits_start_index: Int = 0, seqId: llama_seq_id = 0) -> UnsafeMutablePointer<Float>? {
-        #if !os(Linux) && !os(Windows)
-        let memory = llama_get_memory(self.context)
-        #endif
         let currentPrevInput = self.prevInputBySeq[seqId] ?? []
         var effectivePrevInput = currentPrevInput
 
@@ -502,13 +480,8 @@ final class ZenzContext {
             if otherPrefix > currentPrefix {
                 let copiedPrefixCount = min(otherPrefix, logits_start_index)
                 if copiedPrefixCount > 0 {
-                    #if os(Linux) || os(Windows)
                     llama_kv_cache_seq_rm(context, seqId, 0, -1)
                     llama_kv_cache_seq_cp(context, otherSeqId, seqId, 0, llama_pos(copiedPrefixCount))
-                    #else
-                    llama_memory_seq_rm(memory, seqId, 0, -1)
-                    llama_memory_seq_cp(memory, otherSeqId, seqId, 0, llama_pos(copiedPrefixCount))
-                    #endif
                     effectivePrevInput = otherPrevInput
                 }
             }
@@ -517,23 +490,14 @@ final class ZenzContext {
         // Manage KV cache: remove entries that differ from previous input
         let prefixCacheCount: Int
         do {
-            #if os(Linux) || os(Windows)
             let pos_max = llama_kv_cache_seq_pos_max(self.context, seqId)
-            #else
-            let pos_max = llama_memory_seq_pos_max(memory, seqId)
-            #endif
             debug("pos max:", pos_max, "prevInput count:", effectivePrevInput.count, "tokens count:", tokens.count)
             let commonTokens = effectivePrevInput.commonPrefix(with: tokens)
             // Remove KV cache from position commonTokens.count onwards to recompute divergent part
             // removed range: [llama_pos(commonTokens.count), inf)
             prefixCacheCount = min(commonTokens.count, logits_start_index)
-            #if os(Linux) || os(Windows)
             llama_kv_cache_seq_rm(context, seqId, llama_pos(prefixCacheCount), -1)
             debug("new pos max:", llama_kv_cache_seq_pos_max(self.context, seqId), "commonTokens:", commonTokens.count)
-            #else
-            llama_memory_seq_rm(memory, seqId, llama_pos(prefixCacheCount), -1)
-            debug("new pos max:", llama_memory_seq_pos_max(memory, seqId), "commonTokens:", commonTokens.count)
-            #endif
         }
         self.batch.n_tokens = 0
         let n_ctx = llama_n_ctx(context)
