@@ -114,6 +114,7 @@ extension Kana2Kanji {
         _ inputData: ComposingText,
         zenz: Zenz,
         zenzaiCache: ZenzaiCache?,
+        zenzaiSessionCache: ZenzaiSessionCache,
         inferenceLimit: Int,
         requestRichCandidates: Bool,
         personalizationMode: (mode: ConvertRequestOptions.ZenzaiMode.PersonalizationMode, base: EfficientNGram, personal: EfficientNGram)?,
@@ -129,23 +130,27 @@ extension Kana2Kanji {
                 composingText: inputData,
                 inputStyle: inputStyle
             ).droppedSuffixCount > 0
+        var constraint = zenzaiCache?.getNewConstraint(for: latticeInputData) ?? PrefixConstraint([])
         let resolvedConversionCacheKey: ZenzResolvedConversionCacheKey? =
             if !requestRichCandidates,
                personalizationMode == nil,
                dicdataStoreState.canShareStaticConversionResults() {
                 ZenzResolvedConversionCacheKey(
-                    dictionaryIdentifier: ObjectIdentifier(self.dicdataStore),
                     input: latticeInputData.input,
                     convertTarget: latticeInputData.convertTarget,
                     convertTargetCursorPosition: zenzInputCursorPosition,
                     keyboardLanguage: dicdataStoreState.keyboardLanguage,
-                    versionDependentConfig: versionDependentConfig
+                    versionDependentConfig: versionDependentConfig,
+                    prefixConstraint: constraint,
+                    inferenceLimit: inferenceLimit
                 )
             } else {
                 nil
-            }
+        }
         if let resolvedConversionCacheKey,
-           let cached = zenz.cachedResolvedConversion(for: resolvedConversionCacheKey) {
+           let cached = zenzaiSessionCache.cachedResolvedConversion(
+               for: resolvedConversionCacheKey
+           ) {
             // 全文経路とは別にprocessResultが参照する先頭辞書ノードだけを復元する。
             // 可変な探索状態を持つラティス本体は共有しない。
             let lattice = Lattice(
@@ -174,7 +179,6 @@ extension Kana2Kanji {
                 nextCache
             )
         }
-        var constraint = zenzaiCache?.getNewConstraint(for: latticeInputData) ?? PrefixConstraint([])
         debug("initial constraint", constraint)
         let eosNode = LatticeNode.EOSNode
         var lattice: Lattice = Lattice()
@@ -206,7 +210,6 @@ extension Kana2Kanji {
                                                                  personalizationMode == nil,
                                                                  dicdataStoreState.canShareStaticConversionResults() {
                 ZenzDraftConversionCacheKey(
-                    dictionaryIdentifier: ObjectIdentifier(self.dicdataStore),
                     input: latticeInputData.input,
                     convertTarget: latticeInputData.convertTarget,
                     convertTargetCursorPosition: zenzInputCursorPosition,
@@ -217,7 +220,9 @@ extension Kana2Kanji {
             } else {
                 nil
             }
-            let cachedDraft = draftCacheKey.flatMap { zenz.cachedDraftConversion(for: $0) }
+            let cachedDraft = draftCacheKey.flatMap {
+                zenzaiSessionCache.cachedDraftConversion(for: $0)
+            }
             let preprocessedLattice: Lattice?
             if cachedDraft != nil {
                 preprocessedLattice = nil
@@ -271,7 +276,7 @@ extension Kana2Kanji {
                 )
             }
             if let draftCacheKey, cachedDraft == nil {
-                zenz.cacheDraftConversion(
+                zenzaiSessionCache.cacheDraftConversion(
                     ZenzDraftConversion(
                         resultPrevs: draftResult.result.prevs,
                         resultLatticeHead: ZenzResolvedLatticeHead(
@@ -334,7 +339,8 @@ extension Kana2Kanji {
                     requestRichCandidates: requestRichCandidates,
                     prefixConstraint: constraint,
                     personalizationMode: personalizationMode,
-                    versionDependentConfig: versionDependentConfig
+                    versionDependentConfig: versionDependentConfig,
+                    sessionCache: zenzaiSessionCache
                 )
                 inferenceLimit -= 1
                 let nextAction = self.review(
@@ -395,7 +401,7 @@ extension Kana2Kanji {
                                    )
                                }
                            }) {
-                            zenz.cacheResolvedConversion(
+                            zenzaiSessionCache.cacheResolvedConversion(
                                 ZenzResolvedConversion(
                                     resultPrevs: insertedCandidates.map(\.0),
                                     resultLatticeHead: ZenzResolvedLatticeHead(

@@ -64,27 +64,6 @@ package final class Zenz {
         // 不一致範囲を除去するため、Converter単位のnative context再生成は不要。
     }
 
-    func cachedResolvedConversion(
-        for key: ZenzResolvedConversionCacheKey
-    ) -> ZenzResolvedConversion? {
-        self.zenzContext?.cachedResolvedConversion(for: key)
-    }
-
-    func cacheResolvedConversion(
-        _ value: ZenzResolvedConversion,
-        for key: ZenzResolvedConversionCacheKey
-    ) {
-        self.zenzContext?.cacheResolvedConversion(value, for: key)
-    }
-
-    func cachedDraftConversion(for key: ZenzDraftConversionCacheKey) -> ZenzDraftConversion? {
-        self.zenzContext?.cachedDraftConversion(for: key)
-    }
-
-    func cacheDraftConversion(_ value: ZenzDraftConversion, for key: ZenzDraftConversionCacheKey) {
-        self.zenzContext?.cacheDraftConversion(value, for: key)
-    }
-
     func candidateEvaluate(
         convertTarget: String,
         convertTargetCursorPosition: Int? = nil,
@@ -92,7 +71,8 @@ package final class Zenz {
         requestRichCandidates: Bool,
         prefixConstraint: Kana2Kanji.PrefixConstraint,
         personalizationMode: (mode: ConvertRequestOptions.ZenzaiMode.PersonalizationMode, base: EfficientNGram, personal: EfficientNGram)?,
-        versionDependentConfig: ConvertRequestOptions.ZenzaiVersionDependentMode
+        versionDependentConfig: ConvertRequestOptions.ZenzaiVersionDependentMode,
+        sessionCache: ZenzaiSessionCache
     ) -> CandidateEvaluationResult {
         self.inferenceLock.withLock {
             guard let zenzContext else {
@@ -107,7 +87,8 @@ package final class Zenz {
                     requestRichCandidates: requestRichCandidates,
                     prefixConstraint: prefixConstraint,
                     personalizationMode: personalizationMode,
-                    versionDependentConfig: versionDependentConfig
+                    versionDependentConfig: versionDependentConfig,
+                    sessionCache: sessionCache
                 )
             }
             return .error

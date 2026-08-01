@@ -52,16 +52,16 @@ private final class ZenzTokenArrayBox {
 }
 
 struct ZenzResolvedConversionCacheKey: Equatable, Hashable {
-    var dictionaryIdentifier: ObjectIdentifier
     var input: [ComposingText.InputElement]
     var convertTarget: String
     var convertTargetCursorPosition: Int?
     var keyboardLanguage: KeyboardLanguage
     var versionDependentConfig: ConvertRequestOptions.ZenzaiVersionDependentMode
+    var prefixConstraint: Kana2Kanji.PrefixConstraint
+    var inferenceLimit: Int
 }
 
 struct ZenzDraftConversionCacheKey: Equatable, Hashable {
-    var dictionaryIdentifier: ObjectIdentifier
     var input: [ComposingText.InputElement]
     var convertTarget: String
     var convertTargetCursorPosition: Int?
@@ -199,6 +199,77 @@ final class ZenzDraftConversionCache: @unchecked Sendable {
     private let lock = NSLock()
 }
 
+/// 1つの変換セッション内だけで再利用するZenzaiのメモ化キャッシュ。
+///
+/// モデルやnative contextとは所有者を分け、Converterのセッション終了時に確実に
+/// 破棄されるようにする。これにより、別セッションや別テストの同一入力が以前の
+/// 変換結果を引き継がない。
+final class ZenzaiSessionCache: @unchecked Sendable {
+    init(
+        evaluationCapacity: Int = 256,
+        resolvedConversionCapacity: Int = 64,
+        draftConversionCapacity: Int = 128,
+        promptTokenCapacity: Int = 128
+    ) {
+        self.evaluationCache = ZenzEvaluationCache(capacity: evaluationCapacity)
+        self.resolvedConversionCache = ZenzResolvedConversionCache(
+            capacity: resolvedConversionCapacity
+        )
+        self.draftConversionCache = ZenzDraftConversionCache(
+            capacity: draftConversionCapacity
+        )
+        self.evaluationPromptTokenCache.countLimit = promptTokenCapacity
+    }
+
+    func cachedEvaluation(for key: ZenzEvaluationCacheKey) -> CandidateEvaluationResult? {
+        self.evaluationCache.value(for: key)
+    }
+
+    func cacheEvaluation(_ result: CandidateEvaluationResult, for key: ZenzEvaluationCacheKey) {
+        self.evaluationCache.insert(result, for: key)
+    }
+
+    func cachedResolvedConversion(
+        for key: ZenzResolvedConversionCacheKey
+    ) -> ZenzResolvedConversion? {
+        self.resolvedConversionCache.value(for: key)
+    }
+
+    func cacheResolvedConversion(
+        _ value: ZenzResolvedConversion,
+        for key: ZenzResolvedConversionCacheKey
+    ) {
+        self.resolvedConversionCache.insert(value, for: key)
+    }
+
+    func cachedDraftConversion(for key: ZenzDraftConversionCacheKey) -> ZenzDraftConversion? {
+        self.draftConversionCache.value(for: key)
+    }
+
+    func cacheDraftConversion(
+        _ value: ZenzDraftConversion,
+        for key: ZenzDraftConversionCacheKey
+    ) {
+        self.draftConversionCache.insert(value, for: key)
+    }
+
+    func cachedEvaluationPromptTokens(for prompt: String) -> [llama_token]? {
+        self.evaluationPromptTokenCache.object(forKey: prompt as NSString)?.tokens
+    }
+
+    func cacheEvaluationPromptTokens(_ tokens: [llama_token], for prompt: String) {
+        self.evaluationPromptTokenCache.setObject(
+            ZenzTokenArrayBox(tokens),
+            forKey: prompt as NSString
+        )
+    }
+
+    private let evaluationCache: ZenzEvaluationCache
+    private let resolvedConversionCache: ZenzResolvedConversionCache
+    private let draftConversionCache: ZenzDraftConversionCache
+    private let evaluationPromptTokenCache = NSCache<NSString, ZenzTokenArrayBox>()
+}
+
 /// 読み取り専用のGGUFモデルを複数の推論コンテキスト間で共有する。
 ///
 /// KV cacheなどの可変状態は`ZenzContext`側に残し、モデルの重みとvocabularyだけを
@@ -241,10 +312,6 @@ private final class SharedZenzModel {
         }
         self.model = model
         self.vocab = vocab
-        self.evaluationCache = ZenzEvaluationCache(capacity: 256)
-        self.resolvedConversionCache = ZenzResolvedConversionCache(capacity: 64)
-        self.draftConversionCache = ZenzDraftConversionCache(capacity: 128)
-        self.evaluationPromptTokenCache.countLimit = 128
     }
 
     deinit {
@@ -253,10 +320,6 @@ private final class SharedZenzModel {
 
     let model: OpaquePointer
     let vocab: OpaquePointer
-    let evaluationCache: ZenzEvaluationCache
-    fileprivate let resolvedConversionCache: ZenzResolvedConversionCache
-    fileprivate let draftConversionCache: ZenzDraftConversionCache
-    let evaluationPromptTokenCache = NSCache<NSString, ZenzTokenArrayBox>()
 }
 
 /// 同時に強参照するモデルを1個に制限する、プロセス共通のモデルキャッシュ。
@@ -292,7 +355,6 @@ final class ZenzContext {
     private var batch: llama_batch
     private var prevInputBySeq: [llama_seq_id: [llama_token]] = [:]
     private var prevPromptBySeq: [llama_seq_id: String] = [:]
-    private var evaluationPromptTokenCache: (prompt: String, tokens: [llama_token])?
 
     private let n_len: Int32 = 512
     private let evalSeqId: llama_seq_id = 0
@@ -500,50 +562,19 @@ final class ZenzContext {
         self.prevPromptBySeq[evalSeqId] = prompt
     }
 
-    func cachedEvaluation(for key: ZenzEvaluationCacheKey) -> CandidateEvaluationResult? {
-        self.sharedModel.evaluationCache.value(for: key)
-    }
-
-    func cacheEvaluation(_ result: CandidateEvaluationResult, for key: ZenzEvaluationCacheKey) {
-        self.sharedModel.evaluationCache.insert(result, for: key)
-    }
-
-    func cachedResolvedConversion(
-        for key: ZenzResolvedConversionCacheKey
-    ) -> ZenzResolvedConversion? {
-        self.sharedModel.resolvedConversionCache.value(for: key)
-    }
-
-    func cacheResolvedConversion(
-        _ value: ZenzResolvedConversion,
-        for key: ZenzResolvedConversionCacheKey
-    ) {
-        self.sharedModel.resolvedConversionCache.insert(value, for: key)
-    }
-
-    func cachedDraftConversion(for key: ZenzDraftConversionCacheKey) -> ZenzDraftConversion? {
-        self.sharedModel.draftConversionCache.value(for: key)
-    }
-
-    func cacheDraftConversion(_ value: ZenzDraftConversion, for key: ZenzDraftConversionCacheKey) {
-        self.sharedModel.draftConversionCache.insert(value, for: key)
-    }
-
     func normalizeForModel(_ text: String) -> String {
         self.preprocessText(text: text)
     }
 
-    func encodeEvaluationPrompt(_ prompt: String) -> [llama_token] {
-        if let cached = self.evaluationPromptTokenCache, cached.prompt == prompt {
-            return cached.tokens
-        }
-        if let cached = self.sharedModel.evaluationPromptTokenCache.object(forKey: prompt as NSString) {
-            self.evaluationPromptTokenCache = (prompt, cached.tokens)
-            return cached.tokens
+    func encodeEvaluationPrompt(
+        _ prompt: String,
+        sessionCache: ZenzaiSessionCache
+    ) -> [llama_token] {
+        if let cached = sessionCache.cachedEvaluationPromptTokens(for: prompt) {
+            return cached
         }
         let tokens = self.encode(prompt, addBOS: true, addEOS: false)
-        self.evaluationPromptTokenCache = (prompt, tokens)
-        self.sharedModel.evaluationPromptTokenCache.setObject(ZenzTokenArrayBox(tokens), forKey: prompt as NSString)
+        sessionCache.cacheEvaluationPromptTokens(tokens, for: prompt)
         return tokens
     }
 

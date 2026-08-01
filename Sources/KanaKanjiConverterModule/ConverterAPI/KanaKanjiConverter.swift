@@ -19,6 +19,7 @@ public final class KanaKanjiConverter {
         var lattice: Lattice = .init()
         var completedData: Candidate?
         var zenzaiCache: Kana2Kanji.ZenzaiCache?
+        var zenzaiSessionCache: ZenzaiSessionCache = .init()
         var zenzaiTypoCache: ZenzaiTypoGenerationCache = .init()
         var ngramCache: NGramCache = .init()
         var predictiveInputCache: PredictiveInputCacheEntry?
@@ -72,7 +73,9 @@ public final class KanaKanjiConverter {
 
     private func withScratchSession<T>(_ body: () -> T) -> T {
         let scratchID: SessionID = "scratch-\(UUID().uuidString)"
-        self.sessions[scratchID] = self.currentSessionState
+        var scratchState = self.currentSessionState
+        scratchState.zenzaiSessionCache = .init()
+        self.sessions[scratchID] = scratchState
         let previousSessionID = self.activeSessionID
         let savedPersonalization = self.zenzaiPersonalization
         self.activeSessionID = scratchID
@@ -205,8 +208,9 @@ public final class KanaKanjiConverter {
             do {
                 self.zenz = try Zenz.shared(resourceURL: modelURL)
                 self.sessions = self.sessions.mapValues { state in
-                    let next = state
+                    var next = state
                     next.zenzaiTypoCache.invalidateForModelChange()
+                    next.zenzaiSessionCache = .init()
                     return next
                 }
                 self.zenzStatus = "load \(modelURL.absoluteString)"
@@ -1030,6 +1034,7 @@ public final class KanaKanjiConverter {
                 inputData,
                 zenz: model,
                 zenzaiCache: self.currentSessionState.zenzaiCache,
+                zenzaiSessionCache: self.currentSessionState.zenzaiSessionCache,
                 inferenceLimit: zenzaiMode.inferenceLimit,
                 requestRichCandidates: zenzaiMode.requestRichCandidates,
                 personalizationMode: self.getZenzaiPersonalization(mode: zenzaiMode.personalizationMode),

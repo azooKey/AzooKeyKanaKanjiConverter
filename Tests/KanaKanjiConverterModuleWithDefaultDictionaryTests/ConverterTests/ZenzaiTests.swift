@@ -36,6 +36,10 @@ final class ZenzaiTests: XCTestCase {
         )
     }
 
+    private func inferenceLimitLabel(_ inferenceLimit: Int) -> String {
+        inferenceLimit == .max ? "max" : String(inferenceLimit)
+    }
+
     func sequentialInput(_ composingText: inout ComposingText, sequence: String, inputStyle: KanaKanjiConverterModule.InputStyle) {
         for char in sequence {
             composingText.insertAtCursorPosition(String(char), inputStyle: inputStyle)
@@ -139,6 +143,8 @@ final class ZenzaiTests: XCTestCase {
     }
 
     func testFullConversion() async throws {
+        // 各doブロックは独立した変換セッションである。同じ入力を繰り返すケースも、
+        // 以前のConverterの変換結果キャッシュに依存せず再評価される必要がある。
         do {
             let converter = KanaKanjiConverter.withDefaultDictionary()
             var c = ComposingText()
@@ -180,11 +186,12 @@ final class ZenzaiTests: XCTestCase {
     func testGradualConversion() throws {
         // 辞書は先に読み込んでおく（純粋な比較のため）
         let dicdataStore = DicdataStore.withDefaultDictionary(preloadDictionary: true)
-        var latencies: [Double]? = ProcessInfo.processInfo.environment["ZENZAI_PROFILE_LATENCY"] == "1" ? [] : nil
-        defer {
-            self.reportLatencies(latencies, label: "Direct")
-        }
+        let profilesLatency = ProcessInfo.processInfo.environment["ZENZAI_PROFILE_LATENCY"] == "1"
+        // inferenceLimitごとに独立したシナリオとして測る。Converterは必ずループ内で
+        // 生成し、別limitで得た変換結果LRUのwarm hitを性能値へ混入させないこと。
+        // モデル重みとnative contextの共有は、製品のメモリ設計どおり許容する。
         for inferenceLimit in [1, 2, 3, 5, .max] {
+            var latencies: [Double]? = profilesLatency ? [] : nil
             let converter = KanaKanjiConverter(dicdataStore: dicdataStore)
             var c = ComposingText()
             let text = "このぶんしょうはかんじへんかんがせいかくということでわだいのにほんごにゅうりょくしすてむをつかってうちこんでいます"
@@ -200,6 +207,10 @@ final class ZenzaiTests: XCTestCase {
                     XCTAssertEqual(results.mainResults.first?.text, "この文章は漢字変換が正確ということで話題の日本語入力システムを使って打ち込んでいます")
                 }
             }
+            self.reportLatencies(
+                latencies,
+                label: "Direct inferenceLimit=\(self.inferenceLimitLabel(inferenceLimit))"
+            )
         }
     }
 
@@ -207,11 +218,12 @@ final class ZenzaiTests: XCTestCase {
     func testGradualConversion_Roman2Kana() throws {
         // 辞書は先に読み込んでおく（純粋な比較のため）
         let dicdataStore = DicdataStore.withDefaultDictionary(preloadDictionary: true)
-        var latencies: [Double]? = ProcessInfo.processInfo.environment["ZENZAI_PROFILE_LATENCY"] == "1" ? [] : nil
-        defer {
-            self.reportLatencies(latencies, label: "Roman2Kana")
-        }
+        let profilesLatency = ProcessInfo.processInfo.environment["ZENZAI_PROFILE_LATENCY"] == "1"
+        // inferenceLimitごとに独立したシナリオとして測る。Converterは必ずループ内で
+        // 生成し、別limitで得た変換結果LRUのwarm hitを性能値へ混入させないこと。
+        // モデル重みとnative contextの共有は、製品のメモリ設計どおり許容する。
         for inferenceLimit in [1, 2, 3, 5, .max] {
+            var latencies: [Double]? = profilesLatency ? [] : nil
             let converter = KanaKanjiConverter(dicdataStore: dicdataStore)
             var c = ComposingText()
             let text = "konobunshouhakanjihenkangaseikakutoiukotodewadainonihongonyuuryokusisutemuwotukatteutikondeimasu"
@@ -227,6 +239,10 @@ final class ZenzaiTests: XCTestCase {
                     XCTAssertEqual(results.mainResults.first?.text, "この文章は漢字変換が正確ということで話題の日本語入力システムを使って打ち込んでいます")
                 }
             }
+            self.reportLatencies(
+                latencies,
+                label: "Roman2Kana inferenceLimit=\(self.inferenceLimitLabel(inferenceLimit))"
+            )
         }
     }
 
@@ -234,11 +250,12 @@ final class ZenzaiTests: XCTestCase {
     func testGradualConversion_AZIK() throws {
         // 辞書は先に読み込んでおく（純粋な比較のため）
         let dicdataStore = DicdataStore.withDefaultDictionary(preloadDictionary: true)
-        var latencies: [Double]? = ProcessInfo.processInfo.environment["ZENZAI_PROFILE_LATENCY"] == "1" ? [] : nil
-        defer {
-            self.reportLatencies(latencies, label: "AZIK")
-        }
+        let profilesLatency = ProcessInfo.processInfo.environment["ZENZAI_PROFILE_LATENCY"] == "1"
+        // inferenceLimitごとに独立したシナリオとして測る。Converterは必ずループ内で
+        // 生成し、別limitで得た変換結果LRUのwarm hitを性能値へ混入させないこと。
+        // モデル重みとnative contextの共有は、製品のメモリ設計どおり許容する。
         for inferenceLimit in [1, 2, 3, 5, .max] {
+            var latencies: [Double]? = profilesLatency ? [] : nil
             let converter = KanaKanjiConverter(dicdataStore: dicdataStore)
             var c = ComposingText()
             let text = "konobjxphakzzihdkzgasskakutoiuktdewadqnonihlgonyhryokusisutemuwotuka；teutikldwms"
@@ -254,6 +271,10 @@ final class ZenzaiTests: XCTestCase {
                     XCTAssertEqual(results.mainResults.first?.text, "この文章は漢字変換が正確ということで話題の日本語入力システムを使って打ち込んでいます")
                 }
             }
+            self.reportLatencies(
+                latencies,
+                label: "AZIK inferenceLimit=\(self.inferenceLimitLabel(inferenceLimit))"
+            )
         }
     }
 
