@@ -142,6 +142,17 @@ if checkObjcAvailability() {
 #if os(Windows) || os(Linux)
 let llamaCppTarget: Target = .systemLibrary(name: "llama.cpp")
 #else
+// b4846 is intentionally pinned instead of b9637-azookey.1.
+// On iOS devices, Direct input was fast at 0e67a1f (b4846), regressed at the
+// immediately following db4632f (b9637), and recovered after restoring b4846.
+// b9637's Apple Silicon CPU speedup depends on runtime weight repacking: on an
+// M2 Pro it reduced steady-state latency from about 10.8 to 7.2 ms/request, but
+// allocated a 63.77 MiB anonymous CPU_REPACK buffer in addition to the GGUF mmap.
+// Disabling repacking removed that speedup (about 10.6 ms/request), while the
+// iOS regression remained. The macOS product uses the GPU path, where b4846 did
+// not regress; b9637 also hit a Metal residency-set assertion during shutdown.
+// Reconsider this pin only after both the iOS small-batch regression and the
+// repack memory/lifecycle costs have been addressed and measured on device.
 let llamaCppTarget: Target = .binaryTarget(
     name: "llama.cpp",
     url: "https://github.com/azooKey/llama.cpp/releases/download/b4846/signed-llama.xcframework.zip",
