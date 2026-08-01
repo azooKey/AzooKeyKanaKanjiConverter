@@ -12,19 +12,43 @@ protocol ZenzCompatibleInputLanguageModelContext {
     func encodeRaw(_ text: String) -> [Int]
     func tokenToSingleCharacter(tokenID: Int) -> Character?
     func nextLogProbs(promptTokenIDs: [Int], emittedTokenIDs: [Int]) -> [Float]?
+    var finiteHistoryCacheDescriptor: ZenzFiniteHistoryCacheDescriptor? { get }
+}
+
+struct ZenzFiniteHistoryCacheDescriptor {
+    var namespace: String
+    var tokenLimit: Int
+}
+
+extension ZenzCompatibleInputLanguageModelContext {
+    var finiteHistoryCacheDescriptor: ZenzFiniteHistoryCacheDescriptor? { nil }
 }
 
 struct NGramContext: ZenzCompatibleInputLanguageModelContext {
     private let model: EfficientNGram
     private let tokenizer: ZenzTokenizer
 
-    init(model: EfficientNGram, tokenizer: ZenzTokenizer = .init()) {
+    init(
+        model: EfficientNGram,
+        cacheNamespace: String,
+        historyTokenLimit: Int,
+        tokenizer: ZenzTokenizer = .init()
+    ) {
         self.model = model
+        self.cacheNamespace = cacheNamespace
+        self.historyTokenLimit = historyTokenLimit
         self.tokenizer = tokenizer
     }
 
+    private let cacheNamespace: String
+    private let historyTokenLimit: Int
+
     var vocabSize: Int {
         self.tokenizer.vocabSize
+    }
+
+    var finiteHistoryCacheDescriptor: ZenzFiniteHistoryCacheDescriptor? {
+        .init(namespace: self.cacheNamespace, tokenLimit: self.historyTokenLimit)
     }
 
     func encodeRaw(_ text: String) -> [Int] {
