@@ -5,10 +5,17 @@ import SwiftUtils
 
 extension Kana2Kanji {
     struct ZenzaiCache {
-        init(_ inputData: ComposingText, constraint: PrefixConstraint, satisfyingCandidate: Candidate?, lattice: Lattice? = nil) {
+        init(
+            _ inputData: ComposingText,
+            constraint: PrefixConstraint,
+            satisfyingCandidate: Candidate?,
+            evaluatedSatisfyingCandidate: Candidate? = nil,
+            lattice: Lattice? = nil
+        ) {
             self.inputData = inputData
             self.prefixConstraint = constraint
             self.satisfyingCandidate = satisfyingCandidate
+            self.evaluatedSatisfyingCandidate = evaluatedSatisfyingCandidate
             self.cachedLattice = lattice
             self.cachedLatticeInputData = lattice == nil ? nil : inputData
         }
@@ -17,18 +24,21 @@ extension Kana2Kanji {
             _ inputData: ComposingText,
             constraint: PrefixConstraint,
             satisfyingCandidate: Candidate?,
+            evaluatedSatisfyingCandidate: Candidate?,
             cachedLattice: Lattice?,
             cachedLatticeInputData: ComposingText?
         ) {
             self.inputData = inputData
             self.prefixConstraint = constraint
             self.satisfyingCandidate = satisfyingCandidate
+            self.evaluatedSatisfyingCandidate = evaluatedSatisfyingCandidate
             self.cachedLattice = cachedLattice
             self.cachedLatticeInputData = cachedLatticeInputData
         }
 
         private var prefixConstraint: PrefixConstraint
         private var satisfyingCandidate: Candidate?
+        private(set) var evaluatedSatisfyingCandidate: Candidate?
         private var inputData: ComposingText
         private var cachedLattice: Lattice?
         private var cachedLatticeInputData: ComposingText?
@@ -44,6 +54,7 @@ extension Kana2Kanji {
                 newInputData,
                 constraint: constraint,
                 satisfyingCandidate: satisfyingCandidate,
+                evaluatedSatisfyingCandidate: satisfyingCandidate,
                 cachedLattice: self.cachedLattice,
                 cachedLatticeInputData: self.cachedLatticeInputData
             )
@@ -171,7 +182,8 @@ extension Kana2Kanji {
             ) ?? ZenzaiCache(
                 latticeInputData,
                 constraint: cached.prefixConstraint,
-                satisfyingCandidate: cached.satisfyingCandidate
+                satisfyingCandidate: cached.satisfyingCandidate,
+                evaluatedSatisfyingCandidate: cached.satisfyingCandidate
             )
             return (
                 eosNode,
@@ -187,12 +199,14 @@ extension Kana2Kanji {
         var insertedCandidates: [(RegisteredNode, Candidate)] = []
         func makeCache(
             constraint: PrefixConstraint,
-            satisfyingCandidate: Candidate?
+            satisfyingCandidate: Candidate?,
+            evaluatedSatisfyingCandidate: Candidate? = nil
         ) -> ZenzaiCache {
             ZenzaiCache(
                 latticeInputData,
                 constraint: constraint,
                 satisfyingCandidate: satisfyingCandidate,
+                evaluatedSatisfyingCandidate: evaluatedSatisfyingCandidate,
                 lattice: latticeIsComplete ? lattice : nil
             )
         }
@@ -325,11 +339,20 @@ extension Kana2Kanji {
                 if defersEvaluationForPendingInput {
                     // ローマ字表で未確定のsuffixは、次のキーでかなへ置換される。
                     // モデルが未確定ASCIIを評価しても結果を再利用できないため、
-                    // かな列が確定するまで辞書変換結果を保持する。
+                    // かな列が確定するまで評価を省略する。未評価のdraftは制約へ
+                    // 昇格させず、現在の入力にも適用できた直前のLM承認候補だけを
+                    // stable prefixとして引き継ぐ。
+                    let evaluatedCandidate = constraint.isEmpty
+                        ? nil
+                        : zenzaiCache?.evaluatedSatisfyingCandidate
                     return (
                         eosNode,
                         lattice,
-                        makeCache(constraint: constraint, satisfyingCandidate: candidate)
+                        makeCache(
+                            constraint: constraint,
+                            satisfyingCandidate: evaluatedCandidate,
+                            evaluatedSatisfyingCandidate: evaluatedCandidate
+                        )
                     )
                 }
                 let reviewResult = zenz.candidateEvaluate(
@@ -420,7 +443,15 @@ extension Kana2Kanji {
                                 for: resolvedConversionCacheKey
                             )
                         }
-                        return (eosNode, lattice, makeCache(constraint: constraint, satisfyingCandidate: candidate))
+                        return (
+                            eosNode,
+                            lattice,
+                            makeCache(
+                                constraint: constraint,
+                                satisfyingCandidate: candidate,
+                                evaluatedSatisfyingCandidate: candidate
+                            )
+                        )
                     } else {
                         return (eosNode, lattice, makeCache(constraint: constraint, satisfyingCandidate: nil))
                     }

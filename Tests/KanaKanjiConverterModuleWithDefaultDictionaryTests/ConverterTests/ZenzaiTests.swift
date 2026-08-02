@@ -305,6 +305,23 @@ final class ZenzaiTests: XCTestCase {
     }
 
     @MainActor
+    func testGradualConversion_Roman2KanaDoesNotPromoteUnevaluatedDraft() throws {
+        let converter = KanaKanjiConverter.withDefaultDictionary()
+        var options = self.requestOptions(inferenceLimit: 5)
+        options.typoCorrectionMode = .disabled
+        var composingText = ComposingText()
+        var result: ConversionResult?
+
+        for character in "mizuwonomunda" {
+            composingText.insertAtCursorPosition(String(character), inputStyle: .roman2kana)
+            result = converter.requestCandidates(composingText, options: options)
+        }
+
+        XCTAssertEqual(composingText.convertTarget, "みずをのむんだ")
+        XCTAssertEqual(result?.mainResults.first?.text, "水を飲むんだ")
+    }
+
+    @MainActor
     func testGradualConversion() throws {
         // 辞書は先に読み込んでおく（純粋な比較のため）
         let dicdataStore = DicdataStore.withDefaultDictionary(preloadDictionary: true)
