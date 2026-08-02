@@ -13,6 +13,15 @@ import SwiftUtils
 
 /// かな漢字変換の管理を受け持つクラス
 public final class KanaKanjiConverter {
+    /// 1つのConverterを複数の入力セッションで共有するための識別子。
+    public struct ConversionSessionID: Hashable, Sendable {
+        fileprivate let rawValue: String
+    }
+
+    public enum ConversionSessionError: Error, Equatable, Sendable {
+        case unknownSession(ConversionSessionID)
+    }
+
     private let converter: Kana2Kanji
     private struct ConversionSessionState {
         var previousInputData: ComposingText?
@@ -23,9 +32,9 @@ public final class KanaKanjiConverter {
         var ngramCache: NGramCache = .init()
         var predictiveInputCache: PredictiveInputCacheEntry?
         var stablePredictionCandidateCache: StablePredictionCandidateCacheEntry?
+        var lastData: DicdataElement?
     }
-    private typealias SessionID = String
-    private static let defaultSessionID: SessionID = "default"
+    private static let defaultSessionID = ConversionSessionID(rawValue: "default")
 
     public init(dicdataStore: DicdataStore) {
         self.converter = .init(dicdataStore: dicdataStore)
@@ -51,9 +60,10 @@ public final class KanaKanjiConverter {
     private var checkerInitialized: [KeyboardLanguage: Bool] = [.none: true, .ja_JP: true]
 
     // 前回の変換や確定の情報を取っておく部分。
-    private var sessions: [SessionID: ConversionSessionState] = ["default": .init()]
-    private var activeSessionID: SessionID = "default"
-    private var lastData: DicdataElement?
+    private var sessions: [ConversionSessionID: ConversionSessionState] = [
+        KanaKanjiConverter.defaultSessionID: .init()
+    ]
+    private var activeSessionID = KanaKanjiConverter.defaultSessionID
     /// Zenzaiのためのzenzモデル
     private var zenz: Zenz?
     /// 完全な入力・文脈・制約をキーにする純粋なメモ化結果。
@@ -73,8 +83,50 @@ public final class KanaKanjiConverter {
         self.sessions[self.activeSessionID] = state
     }
 
+    /// 独立した変換状態を持つセッションを作成します。
+    ///
+    /// 辞書、モデル、学習データ、Converter単位のメモ化キャッシュは同じ
+    /// `KanaKanjiConverter`インスタンス内で共有されます。
+    public func createSession() -> ConversionSessionID {
+        let sessionID = ConversionSessionID(rawValue: UUID().uuidString)
+        self.sessions[sessionID] = .init()
+        return sessionID
+    }
+
+    /// 作成済みの変換セッションを破棄します。
+    public func removeSession(_ sessionID: ConversionSessionID) {
+        guard sessionID != Self.defaultSessionID else {
+            self.sessions[sessionID] = .init()
+            return
+        }
+        self.sessions[sessionID] = nil
+        if self.activeSessionID == sessionID {
+            self.activeSessionID = Self.defaultSessionID
+        }
+    }
+
+    /// 指定したセッションを有効にして同期処理を実行します。
+    ///
+    /// `KanaKanjiConverter`はスレッドセーフではありません。複数の実行コンテキストから
+    /// 利用する場合、呼び出し側でこのメソッドを含むConverterアクセスを直列化してください。
+    /// `operation`終了時には、ネストした呼び出しを含めて元のセッションへ戻ります。
+    public func withSession<Result>(
+        _ sessionID: ConversionSessionID,
+        operation: () throws -> Result
+    ) throws -> Result {
+        guard self.sessions[sessionID] != nil else {
+            throw ConversionSessionError.unknownSession(sessionID)
+        }
+        let previousSessionID = self.activeSessionID
+        self.activeSessionID = sessionID
+        defer {
+            self.activeSessionID = previousSessionID
+        }
+        return try operation()
+    }
+
     private func withScratchSession<T>(_ body: () -> T) -> T {
-        let scratchID: SessionID = "scratch-\(UUID().uuidString)"
+        let scratchID = ConversionSessionID(rawValue: "scratch-\(UUID().uuidString)")
         self.sessions[scratchID] = self.currentSessionState
         let previousSessionID = self.activeSessionID
         let savedPersonalization = self.zenzaiPersonalization
@@ -91,9 +143,7 @@ public final class KanaKanjiConverter {
     public func stopComposition() {
         self.zenz?.endSession()
         self.zenzaiPersonalization = nil
-        self.sessions = [Self.defaultSessionID: .init()]
-        self.activeSessionID = Self.defaultSessionID
-        self.lastData = nil
+        self.sessions[self.activeSessionID] = .init()
     }
 
     /// Zenzaiの純粋なメモ化結果を明示的に破棄します。
@@ -394,8 +444,10 @@ public final class KanaKanjiConverter {
     /// - Warning:
     ///   `commitUpdateLearningData`を呼び出すまで永続化されません。
     public func updateLearningData(_ candidate: Candidate) {
-        self.dicdataStoreState.updateLearningData(candidate, with: self.lastData)
-        self.lastData = candidate.data.last
+        self.dicdataStoreState.updateLearningData(candidate, with: self.currentSessionState.lastData)
+        self.updateCurrentSessionState {
+            $0.lastData = candidate.data.last
+        }
     }
 
     /// 確定操作後、学習メモリをアップデートする関数。
@@ -405,7 +457,9 @@ public final class KanaKanjiConverter {
     ///   `commitUpdateLearningData`を呼び出すまで永続化されません。
     public func updateLearningData(_ candidate: Candidate, with predictionCandidate: PostCompositionPredictionCandidate) {
         self.dicdataStoreState.updateLearningData(candidate, with: predictionCandidate)
-        self.lastData = predictionCandidate.lastData
+        self.updateCurrentSessionState {
+            $0.lastData = predictionCandidate.lastData
+        }
     }
 
     /// 確定操作後の学習メモリの更新を確定させます。

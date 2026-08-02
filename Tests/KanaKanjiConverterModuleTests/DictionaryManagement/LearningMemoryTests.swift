@@ -8,6 +8,22 @@ final class LearningMemoryTests: XCTestCase {
         .init(learningType: .inputAndOutput, maxMemoryCount: 32, memoryURL: memoryURL)
     }
 
+    func testSaveSkipsWhenNoPendingMemory() throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("LearningMemoryTest-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+
+        let manager = LearningManager(dictionaryURL: Self.resourceURL)
+        _ = manager.updateConfig(self.getConfigForMemoryTest(memoryURL: dir))
+
+        XCTAssertFalse(manager.save())
+
+        let element = DicdataElement(word: "テスト", ruby: "テスト", cid: CIDData.一般名詞.cid, mid: MIDData.一般.mid, value: -10)
+        manager.update(data: [element])
+        XCTAssertTrue(manager.save())
+        XCTAssertFalse(manager.save())
+    }
+
     func testPauseFileIsClearedOnInit() throws {
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent("LearningMemoryTest-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
