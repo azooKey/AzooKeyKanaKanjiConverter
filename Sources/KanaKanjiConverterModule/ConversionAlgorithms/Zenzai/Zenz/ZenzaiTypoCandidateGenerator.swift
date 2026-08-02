@@ -66,6 +66,10 @@ public struct ExperimentalTypoCorrectionConfig: Sendable, Equatable, Hashable {
     public var beta: Float
     /// 隣接2文字の転置のチャネルコスト。
     public var gamma: Float
+    /// テスト・診断時だけ探索量を収集する。通常実行ではhot pathへの計測負荷を避ける。
+    var collectsPerformanceMetrics = false
+    /// 増分checkpointとの完全一致を検証するテストでのみfalseにする。
+    var usesIncrementalCheckpoint = true
 }
 
 /// typo探索の最終出力候補。
@@ -100,28 +104,123 @@ public struct ZenzaiTypoCandidate: Sendable, Equatable, Hashable {
     public var prominence: Float
 }
 
+/// typo探索1回分の仕事量を表す診断値。
+/// latencyとは分離し、探索アルゴリズム変更時に速くなった理由を確認するために使う。
+struct ZenzaiTypoGenerationMetrics: Sendable, Equatable {
+    var inputElementCount = 0
+    var stepCount = 0
+    var peakBeamSize = 0
+    var expandedHypothesisCount = 0
+    var beamPrunedHypothesisCount = 0
+    var upperBoundPrunedHypothesisCount = 0
+    var lmRequestCount = 0
+    var lmCacheHitCount = 0
+    var lmEvaluationCount = 0
+    var lmCacheEntryCount = 0
+}
+
+/// 同じ有限履歴またはtoken prefixから得た次token分布と、その派生計算を共有する。
+private final class ZenzaiTypoLMDistribution: @unchecked Sendable {
+    init(nextLogProbs: [Float]) {
+        self.nextLogProbs = nextLogProbs
+    }
+
+    let nextLogProbs: [Float]
+    var pendingProxyLogProbs: [String: Float] = [:]
+    var topCharacters: [Int: [Character]] = [:]
+}
+
+/// token prefixを共有するLM状態。仮説は配列キーではなくこのノードを直接参照する。
+private final class ZenzaiTypoLMState: @unchecked Sendable {
+    init(emittedTokenIDs: [Int]) {
+        self.emittedTokenIDs = emittedTokenIDs
+    }
+
+    let emittedTokenIDs: [Int]
+    var distribution: ZenzaiTypoLMDistribution?
+    var children: [Int: ZenzaiTypoLMState] = [:]
+}
+
+private struct ZenzaiTypoInputTransitionKey: Hashable {
+    var pending: String
+    var newCharacter: Character
+}
+
+private struct ZenzaiTypoInputTransitionValue {
+    var emitted: String
+    var pending: String
+}
+
+private struct ZenzaiTypoGeneratorState: Sendable, Equatable, Hashable {
+    var pending: String
+    var prevInputPiece: InputPiece?
+    var proxyLogp: Float
+}
+
+private struct ZenzaiTypoHypothesis: Sendable {
+    var correctedInput: String
+    var emittedText: String
+    var emittedLMState: ZenzaiTypoLMState
+    var j: Int
+    var prevEmittedChar: Character?
+    var score: Float
+    var lmScore: Float
+    var channelCost: Float
+    var generatorState: ZenzaiTypoGeneratorState?
+}
+
+private struct ZenzaiTypoIncrementalCheckpoint {
+    var prompt: String
+    var inputStyle: InputStyle
+    var config: ExperimentalTypoCorrectionConfig
+    var observedInputPieces: [InputPiece]
+    var observedCharacters: [Character]
+    var beam: [ZenzaiTypoHypothesis]
+    var completedStepCount: Int
+}
+
 /// セッション跨ぎで typo 探索のLM補助キャッシュを保持するコンテナ。
 final class ZenzaiTypoGenerationCache {
     fileprivate var prompt: String = ""
     fileprivate var promptTokenIDs: [Int] = []
     fileprivate var vocabSize: Int = 0
-    fileprivate var nextLogProbCache: [[Int]: [Float]] = [:]
+    fileprivate var lmRootState = ZenzaiTypoLMState(emittedTokenIDs: [])
+    fileprivate var lmCachedDistributionCount = 0
     fileprivate var encodeCache: [String: [Int]] = [:]
     fileprivate var tokenCharCache: [Int: Character?] = [:]
+    fileprivate var cachedInputStyle: InputStyle?
+    fileprivate var inputTransitionCache: [ZenzaiTypoInputTransitionKey: ZenzaiTypoInputTransitionValue] = [:]
+    fileprivate var pendingFirstTokenIDsCache: [String: [Int]] = [:]
+    fileprivate var finiteHistoryCacheNamespace: String?
+    fileprivate var finiteHistoryDistributions: [[Int]: ZenzaiTypoLMDistribution] = [:]
+    fileprivate var incrementalCheckpoint: ZenzaiTypoIncrementalCheckpoint?
+    var lastMetrics = ZenzaiTypoGenerationMetrics()
 
     func invalidateAll() {
         self.prompt = ""
         self.promptTokenIDs = []
         self.vocabSize = 0
-        self.nextLogProbCache = [:]
+        self.lmRootState = ZenzaiTypoLMState(emittedTokenIDs: [])
+        self.lmCachedDistributionCount = 0
         self.encodeCache = [:]
         self.tokenCharCache = [:]
+        self.cachedInputStyle = nil
+        self.inputTransitionCache = [:]
+        self.pendingFirstTokenIDsCache = [:]
+        self.finiteHistoryCacheNamespace = nil
+        self.finiteHistoryDistributions = [:]
+        self.incrementalCheckpoint = nil
     }
 
     func invalidateForModelChange() {
-        self.nextLogProbCache = [:]
+        self.lmRootState = ZenzaiTypoLMState(emittedTokenIDs: [])
+        self.lmCachedDistributionCount = 0
         self.encodeCache = [:]
         self.tokenCharCache = [:]
+        self.pendingFirstTokenIDsCache = [:]
+        self.finiteHistoryCacheNamespace = nil
+        self.finiteHistoryDistributions = [:]
+        self.incrementalCheckpoint = nil
     }
 }
 
@@ -218,7 +317,6 @@ private struct KeyTopology: Sendable {
         }
         return result
     }
-        
 
     private static func coordinateDistance(
         _ from: Character,
@@ -266,6 +364,14 @@ private struct KeyTopology: Sendable {
 }
 
 enum ZenzaiTypoCandidateGenerator {
+    private typealias GeneratorState = ZenzaiTypoGeneratorState
+    private typealias Hypothesis = ZenzaiTypoHypothesis
+    private typealias IncrementalCheckpoint = ZenzaiTypoIncrementalCheckpoint
+
+    private final class MetricsRecorder {
+        var value = ZenzaiTypoGenerationMetrics()
+    }
+
     /// 観測入力をどこから組み立てるかを示す種別。
     /// - convertTarget: 画面上の変換対象文字列を使う（direct/tenkey向け）
     /// - composingInput: InputPiece列から組み立てる（roman/mapped向け）
@@ -288,28 +394,8 @@ enum ZenzaiTypoCandidateGenerator {
     private struct ObservedElement: Sendable {
         var inputPiece: InputPiece
         var character: Character
-    }
-
-    /// 各仮説に持たせるInputTable消費状態。
-    /// `pending` は未確定の入力サフィックス、`proxyLogp` はその先読み確率。
-    private struct GeneratorState: Sendable, Equatable, Hashable {
-        var pending: String
-        var prevInputPiece: InputPiece?
-        var proxyLogp: Float
-    }
-
-    /// 探索中の1仮説。
-    private struct Hypothesis: Sendable {
-        var correctedInput: String
-        var emittedText: String
-        var emittedTokenIDs: [Int]
-        /// 何文字の観測入力を消費したかを示すインデックス。
-        var j: Int
-        var prevEmittedChar: Character?
-        var score: Float
-        var lmScore: Float
-        var channelCost: Float
-        var generatorState: GeneratorState?
+        var neighborDistances: [Character: Float]
+        var targetCharacters: [Character]
     }
 
     /// ヒープ管理用の軽量ラッパー。
@@ -333,8 +419,9 @@ enum ZenzaiTypoCandidateGenerator {
 
     /// deferred評価キューに積む未評価展開。
     private struct DeferredRequest {
-        var parent: Hypothesis
-        var baseState: GeneratorState
+        /// `expandWithDeferred` に渡されたbeam内の親仮説位置。
+        /// 親仮説全体を各展開へ複製すると、sort時に大きな値を移動し続けるため添字だけを保持する。
+        var parentIndex: Int
         var correctedAppend: String
         var observedCount: Int
         var channelAdd: Float
@@ -357,15 +444,40 @@ enum ZenzaiTypoCandidateGenerator {
     private struct LMScorer<Context: ZenzCompatibleInputLanguageModelContext> {
         private let context: Context
         private let cache: ZenzaiTypoGenerationCache
+        private let metrics: MetricsRecorder?
 
         init(
             context: Context,
             leftSideContext: String,
-            cache: ZenzaiTypoGenerationCache
+            inputStyle: InputStyle,
+            cache: ZenzaiTypoGenerationCache,
+            metrics: MetricsRecorder?
         ) {
             self.context = context
             self.cache = cache
+            self.metrics = metrics
+            self.prepareFiniteHistoryCache()
+            self.prepareInputStyle(inputStyle)
             self.preparePrompt(leftSideContext: leftSideContext)
+        }
+
+        private func prepareFiniteHistoryCache() {
+            let namespace = self.context.finiteHistoryCacheDescriptor?.namespace
+            guard self.cache.finiteHistoryCacheNamespace != namespace else {
+                return
+            }
+            self.cache.invalidateForModelChange()
+            self.cache.finiteHistoryCacheNamespace = namespace
+        }
+
+        private func prepareInputStyle(_ inputStyle: InputStyle) {
+            guard self.cache.cachedInputStyle != inputStyle else {
+                return
+            }
+            self.cache.cachedInputStyle = inputStyle
+            self.cache.inputTransitionCache = [:]
+            self.cache.pendingFirstTokenIDsCache = [:]
+            self.cache.incrementalCheckpoint = nil
         }
 
         private func preparePrompt(leftSideContext: String) {
@@ -378,7 +490,9 @@ enum ZenzaiTypoCandidateGenerator {
             if self.cache.prompt != prompt || self.cache.promptTokenIDs.isEmpty {
                 self.cache.prompt = prompt
                 self.cache.promptTokenIDs = self.context.encodeRaw(prompt)
-                self.cache.nextLogProbCache = [:]
+                self.cache.lmRootState = ZenzaiTypoLMState(emittedTokenIDs: [])
+                self.cache.lmCachedDistributionCount = 0
+                self.cache.incrementalCheckpoint = nil
             }
         }
 
@@ -391,8 +505,11 @@ enum ZenzaiTypoCandidateGenerator {
             return tokenIDs
         }
 
-        mutating func topKCharacters(emittedTokenIDs: [Int], k: Int) -> [Character] {
-            guard let nextLogProbs = self.nextLogProbs(emittedTokenIDs: emittedTokenIDs) else {
+        mutating func topKCharacters(emittedLMState: ZenzaiTypoLMState, k: Int) -> [Character] {
+            if let cached = emittedLMState.distribution?.topCharacters[k] {
+                return cached
+            }
+            guard let nextLogProbs = self.nextLogProbs(emittedLMState: emittedLMState) else {
                 return []
             }
             var heap = FixedSizeHeap<TokenLogProb>(size: max(1, k * 4))
@@ -412,22 +529,23 @@ enum ZenzaiTypoCandidateGenerator {
                     break
                 }
             }
+            emittedLMState.distribution?.topCharacters[k] = chars
             return chars
         }
 
         mutating func appendAndScore(
-            emittedTokenIDs: [Int],
+            emittedLMState: ZenzaiTypoLMState,
             lmScore: Float,
             appendText: String
-        ) -> (emittedTokenIDs: [Int], lmScore: Float)? {
+        ) -> (emittedLMState: ZenzaiTypoLMState, lmScore: Float)? {
             let appendTokenIDs = self.encodeRaw(appendText)
             guard !appendTokenIDs.isEmpty else {
-                return (emittedTokenIDs, lmScore)
+                return (emittedLMState, lmScore)
             }
-            var currentTokenIDs = emittedTokenIDs
+            var currentState = emittedLMState
             var currentScore = lmScore
             for tokenID in appendTokenIDs {
-                guard let logProbs = self.nextLogProbs(emittedTokenIDs: currentTokenIDs) else {
+                guard let logProbs = self.nextLogProbs(emittedLMState: currentState) else {
                     return nil
                 }
                 let index = Int(tokenID)
@@ -435,9 +553,9 @@ enum ZenzaiTypoCandidateGenerator {
                     return nil
                 }
                 currentScore += logProbs[index]
-                currentTokenIDs.append(tokenID)
+                currentState = self.childState(parent: currentState, tokenID: tokenID)
             }
-            return (currentTokenIDs, currentScore)
+            return (currentState, currentScore)
         }
 
         private mutating func tokenToSingleCharacter(_ token: Int) -> Character? {
@@ -449,18 +567,88 @@ enum ZenzaiTypoCandidateGenerator {
             return char
         }
 
-        mutating func nextLogProbs(emittedTokenIDs: [Int]) -> [Float]? {
-            if let cached = self.cache.nextLogProbCache[emittedTokenIDs] {
+        mutating func consumeWithEmission(
+            pending: String,
+            newCharacter: Character,
+            table: InputTable
+        ) -> (emitted: String, pending: String) {
+            let key = ZenzaiTypoInputTransitionKey(pending: pending, newCharacter: newCharacter)
+            if let cached = self.cache.inputTransitionCache[key] {
+                return (cached.emitted, cached.pending)
+            }
+            let value = ZenzaiTypoCandidateGenerator.computeConsumeWithEmission(
+                pending: pending,
+                newCharacter: newCharacter,
+                table: table
+            )
+            self.cache.inputTransitionCache[key] = .init(emitted: value.emitted, pending: value.pending)
+            return value
+        }
+
+        mutating func pendingFirstTokenIDs(pending: String, table: InputTable) -> [Int] {
+            if let cached = self.cache.pendingFirstTokenIDsCache[pending] {
                 return cached
             }
+            let tokenIDs = ZenzaiTypoCandidateGenerator.computePendingFirstTokenIDs(
+                pending: pending,
+                table: table,
+                scorer: &self
+            )
+            self.cache.pendingFirstTokenIDsCache[pending] = tokenIDs
+            return tokenIDs
+        }
+
+        private func childState(parent: ZenzaiTypoLMState, tokenID: Int) -> ZenzaiTypoLMState {
+            if let child = parent.children[tokenID] {
+                return child
+            }
+            var emittedTokenIDs = parent.emittedTokenIDs
+            emittedTokenIDs.append(tokenID)
+            let child = ZenzaiTypoLMState(emittedTokenIDs: emittedTokenIDs)
+            parent.children[tokenID] = child
+            return child
+        }
+
+        mutating func nextLogProbs(emittedLMState: ZenzaiTypoLMState) -> [Float]? {
+            self.metrics?.value.lmRequestCount += 1
+            if let cached = emittedLMState.distribution {
+                self.metrics?.value.lmCacheHitCount += 1
+                return cached.nextLogProbs
+            }
+            let finiteHistoryKey: [Int]? = if let descriptor = self.context.finiteHistoryCacheDescriptor {
+                if descriptor.tokenLimit == 0 {
+                    []
+                } else if emittedLMState.emittedTokenIDs.count >= descriptor.tokenLimit {
+                    Array(emittedLMState.emittedTokenIDs.suffix(descriptor.tokenLimit))
+                } else {
+                    Array(
+                        (self.cache.promptTokenIDs + emittedLMState.emittedTokenIDs)
+                            .suffix(descriptor.tokenLimit)
+                    )
+                }
+            } else {
+                nil
+            }
+            if let finiteHistoryKey,
+               let cached = self.cache.finiteHistoryDistributions[finiteHistoryKey] {
+                self.metrics?.value.lmCacheHitCount += 1
+                emittedLMState.distribution = cached
+                return cached.nextLogProbs
+            }
+            self.metrics?.value.lmEvaluationCount += 1
             let values = self.context.nextLogProbs(
                 promptTokenIDs: self.cache.promptTokenIDs,
-                emittedTokenIDs: emittedTokenIDs
+                emittedTokenIDs: emittedLMState.emittedTokenIDs
             )
             guard let values else {
                 return nil
             }
-            self.cache.nextLogProbCache[emittedTokenIDs] = values
+            let distribution = ZenzaiTypoLMDistribution(nextLogProbs: values)
+            emittedLMState.distribution = distribution
+            if let finiteHistoryKey {
+                self.cache.finiteHistoryDistributions[finiteHistoryKey] = distribution
+            }
+            self.cache.lmCachedDistributionCount += 1
             return values
         }
     }
@@ -542,7 +730,11 @@ enum ZenzaiTypoCandidateGenerator {
             cache.d = d
             cache.loadAttempted = true
         }
-        return NGramContext(model: model)
+        return NGramContext(
+            model: model,
+            cacheNamespace: "\(resolvedPrefix)|n=\(n)|d=\(d.bitPattern)",
+            historyTokenLimit: max(0, n - 1)
+        )
     }
 
     static func generate<Context: ZenzCompatibleInputLanguageModelContext>(
@@ -553,10 +745,27 @@ enum ZenzaiTypoCandidateGenerator {
         experimentalConfig: ExperimentalTypoCorrectionConfig,
         cache: ZenzaiTypoGenerationCache
     ) -> [ZenzaiTypoCandidate] {
+        let metrics = experimentalConfig.collectsPerformanceMetrics ? MetricsRecorder() : nil
+        cache.lastMetrics = .init()
         let mode = Self.resolveGenerationConfig(inputStyle: inputStyle)
-        let observedElements = Self.observedElements(composingText: composingText, source: mode.observedSource)
+        let observedElements = Self.observedElements(
+            composingText: composingText,
+            source: mode.observedSource,
+            keyTopology: mode.keyTopology
+        )
         guard !observedElements.isEmpty else {
             return []
+        }
+        metrics?.value.inputElementCount = observedElements.count
+        defer {
+            if let metrics {
+                metrics.value.lmCacheEntryCount = if cache.finiteHistoryCacheNamespace == nil {
+                    cache.lmCachedDistributionCount
+                } else {
+                    cache.finiteHistoryDistributions.count
+                }
+                cache.lastMetrics = metrics.value
+            }
         }
         let maxSteps = experimentalConfig.maxSteps ?? (observedElements.count * 2 + 8)
 
@@ -564,7 +773,7 @@ enum ZenzaiTypoCandidateGenerator {
             Hypothesis(
                 correctedInput: "",
                 emittedText: "",
-                emittedTokenIDs: [],
+                emittedLMState: cache.lmRootState,
                 j: 0,
                 prevEmittedChar: nil,
                 score: 0,
@@ -577,11 +786,48 @@ enum ZenzaiTypoCandidateGenerator {
         var scorer = LMScorer(
             context: context,
             leftSideContext: leftSideContext,
-            cache: cache
+            inputStyle: inputStyle,
+            cache: cache,
+            metrics: metrics
         )
-        var beam: [Hypothesis] = [initialHypothesis()]
+        let observedInputPieces = observedElements.map(\.inputPiece)
+        let observedCharacters = observedElements.map(\.character)
+        let previousInputPieces = Array(observedInputPieces.dropLast())
+        let previousCharacters = Array(observedCharacters.dropLast())
+        let resumeCheckpoint: IncrementalCheckpoint? = if
+            let checkpoint = cache.incrementalCheckpoint,
+            experimentalConfig.usesIncrementalCheckpoint,
+            checkpoint.prompt == cache.prompt,
+            checkpoint.inputStyle == inputStyle,
+            checkpoint.config == experimentalConfig,
+            checkpoint.observedInputPieces == previousInputPieces,
+            checkpoint.observedCharacters == previousCharacters {
+            checkpoint
+        } else {
+            nil
+        }
+        var beam = resumeCheckpoint?.beam ?? [initialHypothesis()]
+        var completedStepCount = resumeCheckpoint?.completedStepCount ?? 0
+        var nextCheckpoint: IncrementalCheckpoint?
+        metrics?.value.peakBeamSize = beam.count
 
-        for _ in 0..<maxSteps {
+        while completedStepCount < maxSteps {
+            // 1文字追加後も探索が同一である範囲だけを保存する。observedCountは最大2なので、
+            // current tailの2文字前へ到達する前ならisInputTail/reachesTailの分岐に触れない。
+            if experimentalConfig.usesIncrementalCheckpoint,
+               observedElements.count >= 3,
+               beam.allSatisfy({ $0.j <= observedElements.count - 3 }) {
+                nextCheckpoint = .init(
+                    prompt: cache.prompt,
+                    inputStyle: inputStyle,
+                    config: experimentalConfig,
+                    observedInputPieces: observedInputPieces,
+                    observedCharacters: observedCharacters,
+                    beam: beam,
+                    completedStepCount: completedStepCount
+                )
+            }
+            metrics?.value.stepCount += 1
             let result = Self.expandWithDeferred(
                 beam: beam,
                 observedElements: observedElements,
@@ -589,18 +835,24 @@ enum ZenzaiTypoCandidateGenerator {
                 keyTopology: mode.keyTopology,
                 useInputCharacterLMFilter: mode.usesInputCharacterLMFilter,
                 scorer: &scorer,
-                config: experimentalConfig
+                config: experimentalConfig,
+                metrics: metrics
             )
             let expanded = result.expanded
             let allConsumed = result.allConsumed
             guard !expanded.isEmpty else {
                 break
             }
-            beam = expanded.sorted(by: { $0.score > $1.score }).prefix(experimentalConfig.beamSize).map { $0 }
+            beam = Array(expanded.sorted(by: { $0.score > $1.score }).prefix(experimentalConfig.beamSize))
+            completedStepCount += 1
+            if let metrics {
+                metrics.value.peakBeamSize = max(metrics.value.peakBeamSize, beam.count)
+            }
             if allConsumed {
                 break
             }
         }
+        cache.incrementalCheckpoint = nextCheckpoint
 
         let finals: [Hypothesis] = {
             let consumed = beam.filter { $0.j == observedElements.count }
@@ -654,7 +906,7 @@ enum ZenzaiTypoCandidateGenerator {
             }
         }
 
-        return unique.values.sorted(by: { $0.score > $1.score }).prefix(experimentalConfig.nBest).map { $0 }
+        return Array(unique.values.sorted(by: { $0.score > $1.score }).prefix(experimentalConfig.nBest))
     }
 
     private static func resolveGenerationConfig(inputStyle: InputStyle) -> TypoGenerationConfig {
@@ -677,10 +929,23 @@ enum ZenzaiTypoCandidateGenerator {
         }
     }
 
-    private static func observedElements(composingText: ComposingText, source: ObservedSource) -> [ObservedElement] {
+    private static func observedElements(
+        composingText: ComposingText,
+        source: ObservedSource,
+        keyTopology: KeyTopology
+    ) -> [ObservedElement] {
+        func makeElement(inputPiece: InputPiece, character: Character) -> ObservedElement {
+            let neighborDistances = keyTopology.neighborDistances(around: character)
+            return .init(
+                inputPiece: inputPiece,
+                character: character,
+                neighborDistances: neighborDistances,
+                targetCharacters: ([character] + neighborDistances.keys).sorted()
+            )
+        }
         if source == .convertTarget {
             return composingText.convertTarget.toKatakana().map {
-                ObservedElement(inputPiece: .character($0), character: $0)
+                makeElement(inputPiece: .character($0), character: $0)
             }
         }
         var result: [ObservedElement] = []
@@ -689,13 +954,14 @@ enum ZenzaiTypoCandidateGenerator {
             guard let normalized = Self.canonicalCharacter(for: element.piece) else {
                 continue
             }
-            result.append(.init(inputPiece: element.piece, character: normalized))
+            result.append(makeElement(inputPiece: element.piece, character: normalized))
         }
         return result
     }
 
     private static func expandCandidates<Context: ZenzCompatibleInputLanguageModelContext>(
         hypothesis: Hypothesis,
+        parentIndex: Int,
         observedElements: [ObservedElement],
         table: InputTable,
         keyTopology: KeyTopology,
@@ -709,16 +975,14 @@ enum ZenzaiTypoCandidateGenerator {
         let observedElement = observedElements[hypothesis.j]
         let observed = observedElement.character
         let isInputTail = hypothesis.j == observedElements.count - 1
-        let neighborDistances = Self.neighborDistances(for: observedElement.inputPiece, topology: keyTopology)
-        var allowed = Set([observed])
-        allowed.formUnion(neighborDistances.keys)
+        let neighborDistances = observedElement.neighborDistances
         let targetChars: [Character]
         if useInputCharacterLMFilter {
-            let lmTopChars = Set(scorer.topKCharacters(emittedTokenIDs: hypothesis.emittedTokenIDs, k: config.topK))
-            let scoredTargets = allowed.intersection(lmTopChars.union([observed]))
+            let lmTopChars = Set(scorer.topKCharacters(emittedLMState: hypothesis.emittedLMState, k: config.topK))
+            let scoredTargets = observedElement.targetCharacters.filter { $0 == observed || lmTopChars.contains($0) }
             targetChars = scoredTargets.isEmpty ? [observed] : scoredTargets.sorted(by: { $0 < $1 })
         } else {
-            targetChars = allowed.sorted(by: { $0 < $1 })
+            targetChars = observedElement.targetCharacters
         }
         var immediate: [Hypothesis] = []
         immediate.reserveCapacity(20)
@@ -787,7 +1051,7 @@ enum ZenzaiTypoCandidateGenerator {
             let firstTokens = scorer.encodeRaw(String(firstChar))
             guard firstTokens.count == 1,
                   let firstToken = firstTokens.first,
-                  let nextLogProbs = scorer.nextLogProbs(emittedTokenIDs: hypothesis.emittedTokenIDs)
+                  let nextLogProbs = scorer.nextLogProbs(emittedLMState: hypothesis.emittedLMState)
             else {
                 appendImmediate(
                     correctedAppend: correctedAppend,
@@ -807,8 +1071,7 @@ enum ZenzaiTypoCandidateGenerator {
             let upperBoundScore = upperBoundLM - (hypothesis.channelCost + channelAdd)
             deferred.append(
                 DeferredRequest(
-                    parent: hypothesis,
-                    baseState: baseState,
+                    parentIndex: parentIndex,
                     correctedAppend: correctedAppend,
                     observedCount: observedCount,
                     channelAdd: channelAdd,
@@ -828,7 +1091,7 @@ enum ZenzaiTypoCandidateGenerator {
             var pending = baseState.pending
             var emitted = ""
             for char in trueSeq {
-                let consumed = Self.consumeWithEmission(pending: pending, newChar: char, table: table)
+                let consumed = scorer.consumeWithEmission(pending: pending, newCharacter: char, table: table)
                 emitted += consumed.emitted
                 pending = consumed.pending
             }
@@ -865,7 +1128,7 @@ enum ZenzaiTypoCandidateGenerator {
            let insertionDistance = Self.neighborDistances(for: prevInput, topology: keyTopology)[observed] {
             let newProxyLogp = Self.pendingProxyLogProb(
                 pending: baseState.pending,
-                emittedTokenIDs: hypothesis.emittedTokenIDs,
+                emittedLMState: hypothesis.emittedLMState,
                 table: table,
                 scorer: &scorer
             )
@@ -904,20 +1167,24 @@ enum ZenzaiTypoCandidateGenerator {
         keyTopology: KeyTopology,
         useInputCharacterLMFilter: Bool,
         scorer: inout LMScorer<Context>,
-        config: ExperimentalTypoCorrectionConfig
+        config: ExperimentalTypoCorrectionConfig,
+        metrics: MetricsRecorder?
     ) -> (expanded: [Hypothesis], allConsumed: Bool) {
         var heap = FixedSizeHeap<ScoredHypothesis>(size: max(1, config.beamSize))
         var deferredRequests: [DeferredRequest] = []
         var allConsumed = true
+        var viableHypothesisCount = 0
 
-        for hypothesis in beam {
+        for (parentIndex, hypothesis) in beam.enumerated() {
             if hypothesis.j >= observedElements.count {
+                viableHypothesisCount += 1
                 _ = heap.insertIfPossible(ScoredHypothesis(hypothesis))
                 continue
             }
             allConsumed = false
             let (immediate, deferred) = Self.expandCandidates(
                 hypothesis: hypothesis,
+                parentIndex: parentIndex,
                 observedElements: observedElements,
                 table: table,
                 keyTopology: keyTopology,
@@ -925,7 +1192,9 @@ enum ZenzaiTypoCandidateGenerator {
                 scorer: &scorer,
                 config: config
             )
+            metrics?.value.expandedHypothesisCount += immediate.count + deferred.count
             for candidate in immediate {
+                viableHypothesisCount += 1
                 _ = heap.insertIfPossible(ScoredHypothesis(candidate))
             }
             deferredRequests.append(contentsOf: deferred)
@@ -933,31 +1202,36 @@ enum ZenzaiTypoCandidateGenerator {
 
         if !deferredRequests.isEmpty {
             deferredRequests.sort(by: { $0.upperBoundScore > $1.upperBoundScore })
-            for request in deferredRequests {
+            for (index, request) in deferredRequests.enumerated() {
                 if heap.unordered.count >= max(1, config.beamSize),
                    let cutoff = heap.min?.score,
                    request.upperBoundScore < cutoff {
+                    metrics?.value.upperBoundPrunedHypothesisCount += deferredRequests.count - index
                     break
                 }
-                guard let evaluated = Self.evaluateAdvance(
-                    parent: request.parent,
-                    baseState: request.baseState,
-                    correctedAppend: request.correctedAppend,
-                    observedCount: request.observedCount,
-                    channelAdd: request.channelAdd,
-                    emitted: request.emitted,
-                    pending: request.pending,
-                    lastInputPiece: request.lastInputPiece,
-                    table: table,
-                    scorer: &scorer
-                ) else {
+                let parent = beam[request.parentIndex]
+                guard let baseState = parent.generatorState,
+                      let evaluated = Self.evaluateAdvance(
+                          parent: parent,
+                          baseState: baseState,
+                          correctedAppend: request.correctedAppend,
+                          observedCount: request.observedCount,
+                          channelAdd: request.channelAdd,
+                          emitted: request.emitted,
+                          pending: request.pending,
+                          lastInputPiece: request.lastInputPiece,
+                          table: table,
+                          scorer: &scorer
+                      ) else {
                     continue
                 }
+                viableHypothesisCount += 1
                 _ = heap.insertIfPossible(ScoredHypothesis(evaluated))
             }
         }
 
         let expanded = heap.unordered.sorted(by: { $0.score > $1.score }).map(\.hypothesis)
+        metrics?.value.beamPrunedHypothesisCount += max(0, viableHypothesisCount - expanded.count)
         return (expanded, allConsumed)
     }
 
@@ -978,24 +1252,24 @@ enum ZenzaiTypoCandidateGenerator {
             return nil
         }
         let baseLMScore = parent.lmScore - oldProxyLogp
-        var emittedTokenIDs = parent.emittedTokenIDs
+        var emittedLMState = parent.emittedLMState
         var emittedLogp: Float = 0
         var prevEmittedChar = parent.prevEmittedChar
         if !emitted.isEmpty {
             guard let appended = scorer.appendAndScore(
-                emittedTokenIDs: emittedTokenIDs,
+                emittedLMState: emittedLMState,
                 lmScore: 0,
                 appendText: emitted
             ) else {
                 return nil
             }
-            emittedTokenIDs = appended.emittedTokenIDs
+            emittedLMState = appended.emittedLMState
             emittedLogp = appended.lmScore
             prevEmittedChar = emitted.last
         }
         let newProxyLogp = Self.pendingProxyLogProb(
             pending: pending,
-            emittedTokenIDs: emittedTokenIDs,
+            emittedLMState: emittedLMState,
             table: table,
             scorer: &scorer
         )
@@ -1011,7 +1285,7 @@ enum ZenzaiTypoCandidateGenerator {
         var next = parent
         next.correctedInput += correctedAppend
         next.emittedText += emitted
-        next.emittedTokenIDs = emittedTokenIDs
+        next.emittedLMState = emittedLMState
         next.lmScore = baseLMScore + emittedLogp + newProxyLogp
         next.channelCost += channelAdd
         next.score = next.lmScore - next.channelCost
@@ -1043,9 +1317,9 @@ enum ZenzaiTypoCandidateGenerator {
         var newlyEmitted = ""
         while completed.j < observedElements.count {
             let observed = observedElements[completed.j].character
-            let consumed = Self.consumeWithEmission(
+            let consumed = scorer.consumeWithEmission(
                 pending: state.pending,
-                newChar: observed,
+                newCharacter: observed,
                 table: table
             )
             state.pending = consumed.pending
@@ -1055,25 +1329,25 @@ enum ZenzaiTypoCandidateGenerator {
             newlyEmitted += consumed.emitted
         }
 
-        var emittedTokenIDs = completed.emittedTokenIDs
+        var emittedLMState = completed.emittedLMState
         var emittedLogp: Float = 0
         if !newlyEmitted.isEmpty {
             let appended = scorer.appendAndScore(
-                emittedTokenIDs: emittedTokenIDs,
+                emittedLMState: emittedLMState,
                 lmScore: 0,
                 appendText: newlyEmitted
             )
             guard let appended else {
                 return nil
             }
-            emittedTokenIDs = appended.emittedTokenIDs
+            emittedLMState = appended.emittedLMState
             emittedLogp = appended.lmScore
             completed.prevEmittedChar = newlyEmitted.last
             completed.emittedText += newlyEmitted
         }
         let newProxyLogp = Self.pendingProxyLogProb(
             pending: state.pending,
-            emittedTokenIDs: emittedTokenIDs,
+            emittedLMState: emittedLMState,
             table: table,
             scorer: &scorer
         )
@@ -1082,18 +1356,18 @@ enum ZenzaiTypoCandidateGenerator {
         }
         state.proxyLogp = newProxyLogp
         completed.generatorState = state
-        completed.emittedTokenIDs = emittedTokenIDs
+        completed.emittedLMState = emittedLMState
         completed.lmScore = baseLMScore + emittedLogp + newProxyLogp
         completed.score = completed.lmScore - completed.channelCost
         return completed
     }
 
-    private static func consumeWithEmission(
+    private static func computeConsumeWithEmission(
         pending: String,
-        newChar: Character,
+        newCharacter: Character,
         table: InputTable
     ) -> (emitted: String, pending: String) {
-        let raw = pending + String(newChar)
+        let raw = pending + String(newCharacter)
         let converted = Self.applyInputTable(raw: raw, table: table)
         let nextPending = Self.pendingSuffix(raw: raw, converted: converted, table: table)
         guard !nextPending.isEmpty else {
@@ -1211,16 +1485,19 @@ enum ZenzaiTypoCandidateGenerator {
 
     private static func pendingProxyLogProb<Context: ZenzCompatibleInputLanguageModelContext>(
         pending: String,
-        emittedTokenIDs: [Int],
+        emittedLMState: ZenzaiTypoLMState,
         table: InputTable,
         scorer: inout LMScorer<Context>
     ) -> Float {
         guard !pending.isEmpty else {
             return 0
         }
-        let firstTokenIDs = Self.pendingFirstTokenIDs(pending: pending, table: table, scorer: &scorer)
+        if let cached = emittedLMState.distribution?.pendingProxyLogProbs[pending] {
+            return cached
+        }
+        let firstTokenIDs = scorer.pendingFirstTokenIDs(pending: pending, table: table)
         guard !firstTokenIDs.isEmpty,
-              let nextLogProbs = scorer.nextLogProbs(emittedTokenIDs: emittedTokenIDs) else {
+              let nextLogProbs = scorer.nextLogProbs(emittedLMState: emittedLMState) else {
             return -.infinity
         }
         var maxLogProb: Float = -.infinity
@@ -1248,10 +1525,12 @@ enum ZenzaiTypoCandidateGenerator {
         guard sumExp > 0 else {
             return -.infinity
         }
-        return maxLogProb + logf(sumExp)
+        let result = maxLogProb + logf(sumExp)
+        emittedLMState.distribution?.pendingProxyLogProbs[pending] = result
+        return result
     }
 
-    private static func pendingFirstTokenIDs<Context: ZenzCompatibleInputLanguageModelContext>(
+    private static func computePendingFirstTokenIDs<Context: ZenzCompatibleInputLanguageModelContext>(
         pending: String,
         table: InputTable,
         scorer: inout LMScorer<Context>
@@ -1272,5 +1551,4 @@ enum ZenzaiTypoCandidateGenerator {
         }
         return tokenIDs.sorted()
     }
-
 }

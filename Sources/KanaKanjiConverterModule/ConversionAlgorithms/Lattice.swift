@@ -14,8 +14,23 @@ struct LatticeNodeArray: Sequence {
 
 struct LatticeDualIndexMap: Sendable {
     private var inputIndexToSurfaceIndexMap: [Int: Int]
+    private var surfaceIndexToInputIndexMap: [Int: Int]
+    private var isIdentity: Bool
+
     init(_ composingText: ComposingText) {
-        self.inputIndexToSurfaceIndexMap = composingText.inputIndexToSurfaceIndexMap()
+        if composingText.hasIdentityInputSurfaceIndexMapping {
+            self.inputIndexToSurfaceIndexMap = [:]
+            self.surfaceIndexToInputIndexMap = [:]
+            self.isIdentity = true
+            return
+        }
+        let inputToSurface = composingText.inputIndexToSurfaceIndexMap()
+        self.inputIndexToSurfaceIndexMap = inputToSurface
+        self.surfaceIndexToInputIndexMap = Dictionary(
+            inputToSurface.map { ($0.value, $0.key) },
+            uniquingKeysWith: { first, _ in first }
+        )
+        self.isIdentity = false
     }
 
     enum DualIndex: Sendable, Equatable, Hashable {
@@ -43,7 +58,13 @@ struct LatticeDualIndexMap: Sendable {
     }
 
     func dualIndex(for latticeIndex: Lattice.LatticeIndex) -> DualIndex {
-        switch latticeIndex {
+        if self.isIdentity {
+            return switch latticeIndex {
+            case .input(let index), .surface(let index):
+                .bothIndex(inputIndex: index, surfaceIndex: index)
+            }
+        }
+        return switch latticeIndex {
         case .input(let iIndex):
             if let sIndex = self.inputIndexToSurfaceIndexMap[iIndex] {
                 .bothIndex(inputIndex: iIndex, surfaceIndex: sIndex)
@@ -51,7 +72,7 @@ struct LatticeDualIndexMap: Sendable {
                 .inputIndex(iIndex)
             }
         case .surface(let sIndex):
-            if let iIndex = self.inputIndexToSurfaceIndexMap.filter({ $0.value == sIndex}).first?.key {
+            if let iIndex = self.surfaceIndexToInputIndexMap[sIndex] {
                 .bothIndex(inputIndex: iIndex, surfaceIndex: sIndex)
             } else {
                 .surfaceIndex(sIndex)
@@ -60,6 +81,11 @@ struct LatticeDualIndexMap: Sendable {
     }
 
     func indices(inputCount: Int, surfaceCount: Int) -> [DualIndex] {
+        if self.isIdentity {
+            return (0 ..< min(inputCount, surfaceCount)).map {
+                .bothIndex(inputIndex: $0, surfaceIndex: $0)
+            }
+        }
         var indices: [DualIndex] = []
         var sIndexPointer = 0
         for i in 0 ..< inputCount {

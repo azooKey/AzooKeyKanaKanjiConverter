@@ -17,7 +17,12 @@ public final class LatticeNode {
     /// `prevs`の各要素に対応するスコアのデータ
     var values: [PValue] = []
     /// inputData.input内のrange
-    var range: Lattice.LatticeRange
+    var range: Lattice.LatticeRange {
+        didSet {
+            self.registeredNodePayload = nil
+        }
+    }
+    private var registeredNodePayload: RegisteredNodePayload?
 
     /// `EOS`に対応するノード。
     static var EOSNode: LatticeNode {
@@ -32,8 +37,24 @@ public final class LatticeNode {
 
     /// `LatticeNode`の持っている情報を反映した`RegisteredNode`を作成する
     /// `LatticeNode`は複数の過去のノードを持つことができるが、`RegisteredNode`は1つしか持たない。
-    func getRegisteredNode(_ index: Int, value: PValue) -> RegisteredNode {
-        RegisteredNode(data: self.data, registered: self.prevs[index], totalValue: value, range: self.range)
+    func getRegisteredNode(
+        _ index: Int,
+        value: PValue,
+        constraintState: (matched: Int, total: Int)? = nil
+    ) -> RegisteredNode {
+        let payload: RegisteredNodePayload
+        if let registeredNodePayload {
+            payload = registeredNodePayload
+        } else {
+            payload = RegisteredNodePayload(data: self.data, range: self.range)
+            self.registeredNodePayload = payload
+        }
+        return RegisteredNode(
+            payload: payload,
+            registered: self.prevs[index],
+            totalValue: value,
+            constraintState: constraintState
+        )
     }
 
     /// 再帰的にノードを遡り、`CandidateData`を構築する関数

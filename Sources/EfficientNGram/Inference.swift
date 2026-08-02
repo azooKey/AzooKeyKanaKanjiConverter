@@ -143,11 +143,46 @@ public struct EfficientNGram {
             let (u_xbc_abc, u_xbx_ab) = self.bulkGetValueWithSum(from: self.u_xbc, prefix: ab)
             plf_items.append((u_xbc_abc: u_xbc_abc, u_xbx_ab: u_xbx_ab, r_xbx_ab: r_xbx_ab))
         }
+        // tokenに依存しない除数とbackoff係数を、6000語のloop外で一度だけ計算する。
+        // tokenごとの加算・乗算順序は`predict`と同じに保ち、結果のbit patternを変えない。
+        let mainDenominator = c_abx_ab != 0 ? Double(c_abx_ab) : nil
+        let mainGamma = if let mainDenominator {
+            self.d * Double(u_abx_ab) / mainDenominator
+        } else {
+            1.0
+        }
+        let preparedPLFItems = plf_items.map { item in
+            let denominator = item.u_xbx_ab > 0 ? Double(item.u_xbx_ab) : nil
+            let gamma = if let denominator {
+                self.d * Double(item.r_xbx_ab) / denominator
+            } else {
+                1.0
+            }
+            return (values: item.u_xbc_abc, denominator: denominator, gamma: gamma)
+        }
+        let vocabularySize = Double(self.tokenizer.vocabSize)
         // 全候補を探索
         var results = [Double]()
         results.reserveCapacity(tokenizer.vocabSize)
         for w in 0 ..< tokenizer.vocabSize {
-            results.append(self.predict(nextWord: w, c_abx_ab: c_abx_ab, u_abx_ab: u_abx_ab, c_abc_abc: c_abc_abc[w], plf_items: plf_items))
+            let alpha = if let mainDenominator {
+                max(0, Double(c_abc_abc[w]) - self.d) / mainDenominator
+            } else {
+                0.0
+            }
+            var plf = 0.0
+            var coefficient = 1.0
+            for item in preparedPLFItems {
+                let lowerAlpha = if let denominator = item.denominator {
+                    max(0, Double(item.values[w]) - self.d) / denominator
+                } else {
+                    0.0
+                }
+                plf += lowerAlpha * coefficient
+                coefficient *= item.gamma
+            }
+            plf += coefficient / vocabularySize
+            results.append(alpha + mainGamma * plf)
         }
         return results
     }

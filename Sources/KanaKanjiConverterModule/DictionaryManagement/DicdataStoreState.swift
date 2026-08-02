@@ -25,10 +25,12 @@ package final class DicdataStoreState {
 
     private(set) var memoryHasLoaded: Bool = false
     private(set) var memoryLOUDS: LOUDS?
+    private var staticConversionCacheEligibility: Bool?
 
     func updateUserDictionaryURL(_ newURL: URL, forceReload: Bool) {
         if self.userDictionaryURL != newURL || forceReload {
             self.userDictionaryURL = newURL
+            self.staticConversionCacheEligibility = nil
             self.userDictionaryLOUDS = nil
             self.userDictionaryHasLoaded = false
             self.userShortcutsLOUDS = nil
@@ -42,6 +44,7 @@ package final class DicdataStoreState {
 
     func updateLearningConfig(_ newConfig: LearningConfig) {
         if self.learningMemoryManager.config != newConfig {
+            self.staticConversionCacheEligibility = nil
             let updated = self.learningMemoryManager.updateConfig(newConfig)
             if updated {
                 self.resetMemoryLOUDSCache()
@@ -75,6 +78,7 @@ package final class DicdataStoreState {
     }
 
     func importDynamicUserDictionary(_ dicdata: [DicdataElement], shortcuts: [DicdataElement] = []) {
+        self.staticConversionCacheEligibility = nil
         self.dynamicUserDictionary = dicdata
         self.dynamicUserDictionary.mutatingForEach {
             $0.metadata = .isFromUserDictionary
@@ -83,6 +87,39 @@ package final class DicdataStoreState {
         self.dynamicUserShortcuts.mutatingForEach {
             $0.metadata = .isFromUserDictionary
         }
+    }
+
+    /// 辞書状態を跨いで変換結果を共有しても安全かを返す。
+    ///
+    /// 学習・動的辞書・永続ユーザ辞書のいずれかが有効な場合は、同じ入力でも
+    /// 候補列が変わり得るため共有しない。
+    func canShareStaticConversionResults() -> Bool {
+        if let staticConversionCacheEligibility {
+            return staticConversionCacheEligibility
+        }
+        guard self.learningMemoryManager.config.learningType == .nothing,
+              self.dynamicUserDictionary.isEmpty,
+              self.dynamicUserShortcuts.isEmpty else {
+            self.staticConversionCacheEligibility = false
+            return false
+        }
+        guard let userDictionaryURL else {
+            self.staticConversionCacheEligibility = true
+            return true
+        }
+        let userDictionaryFiles = [
+            "user.loudschars2",
+            "user.louds",
+            "user_shortcuts.loudschars2",
+            "user_shortcuts.louds"
+        ]
+        let hasUserDictionaryFile = userDictionaryFiles.contains {
+            FileManager.default.fileExists(
+                atPath: userDictionaryURL.appendingPathComponent($0).path
+            )
+        }
+        self.staticConversionCacheEligibility = !hasUserDictionaryFile
+        return !hasUserDictionaryFile
     }
 
     private func resetMemoryLOUDSCache() {

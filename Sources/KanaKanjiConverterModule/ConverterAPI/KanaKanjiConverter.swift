@@ -56,6 +56,9 @@ public final class KanaKanjiConverter {
     private var lastData: DicdataElement?
     /// Zenzaiのためのzenzモデル
     private var zenz: Zenz?
+    /// 完全な入力・文脈・制約をキーにする純粋なメモ化結果。
+    /// compositionではなく、このConverterインスタンスの寿命に紐づける。
+    var zenzaiMemoizationCache = ZenzaiMemoizationCache()
     private var zenzaiPersonalization: (mode: ConvertRequestOptions.ZenzaiMode.PersonalizationMode, base: EfficientNGram, personal: EfficientNGram)?
     public private(set) var zenzStatus: String = ""
     private var dicdataStoreState: DicdataStoreState
@@ -91,6 +94,14 @@ public final class KanaKanjiConverter {
         self.sessions = [Self.defaultSessionID: .init()]
         self.activeSessionID = Self.defaultSessionID
         self.lastData = nil
+    }
+
+    /// Zenzaiの純粋なメモ化結果を明示的に破棄します。
+    ///
+    /// 通常の変換確定では呼ぶ必要はありません。メモリ警告を受けた場合など、
+    /// compositionを終了せずに再計算可能なキャッシュだけを解放したい場合に利用します。
+    public func purgeZenzaiMemoizationCache() {
+        self.zenzaiMemoizationCache = .init()
     }
 
     private func getZenzaiPersonalization(mode: ConvertRequestOptions.ZenzaiMode.PersonalizationMode?) -> (mode: ConvertRequestOptions.ZenzaiMode.PersonalizationMode, base: EfficientNGram, personal: EfficientNGram)? {
@@ -203,7 +214,8 @@ public final class KanaKanjiConverter {
             return model
         } else {
             do {
-                self.zenz = try Zenz(resourceURL: modelURL)
+                self.zenz = try Zenz.shared(resourceURL: modelURL)
+                self.purgeZenzaiMemoizationCache()
                 self.sessions = self.sessions.mapValues { state in
                     let next = state
                     next.zenzaiTypoCache.invalidateForModelChange()
@@ -327,6 +339,11 @@ public final class KanaKanjiConverter {
                 cache: self.currentSessionState.zenzaiTypoCache
             )
         }
+    }
+
+    /// 直前のLMベース typo correctionが行った探索量。性能テスト・診断用。
+    var latestExperimentalTypoCorrectionMetrics: ZenzaiTypoGenerationMetrics {
+        self.currentSessionState.zenzaiTypoCache.lastMetrics
     }
 
     /// 入力する言語が分かったらこの関数をなるべく早い段階で呼ぶことで、SpellCheckerの初期化が行われ、変換がスムーズになる
@@ -1030,6 +1047,7 @@ public final class KanaKanjiConverter {
                 inputData,
                 zenz: model,
                 zenzaiCache: self.currentSessionState.zenzaiCache,
+                zenzaiMemoizationCache: self.zenzaiMemoizationCache,
                 inferenceLimit: zenzaiMode.inferenceLimit,
                 requestRichCandidates: zenzaiMode.requestRichCandidates,
                 personalizationMode: self.getZenzaiPersonalization(mode: zenzaiMode.personalizationMode),
@@ -1135,7 +1153,6 @@ public final class KanaKanjiConverter {
         guard let result = self.convertToLattice(inputData, N_best: options.N_best, zenzaiMode: options.zenzaiMode, needTypoCorrection: needTypoCorrection) else {
             return ConversionResult(mainResults: [], predictionResults: [], englishPredictionResults: [], firstClauseResults: [])
         }
-
         return self.processResult(inputData: inputData, result: result, options: options)
     }
 
