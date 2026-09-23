@@ -32,42 +32,24 @@ extension StringProtocol {
         return true
     }
 
-    /// 英語辞書の検索途中のキー。語間の単一半角スペースと、入力末尾のスペースも許す。
-    /// 数字のみのprefixも許し、例えば「3」から「3M」を検索できる。
+    /// 英語辞書の検索キー。許可文字だけを確認し、記号やスペースの位置・個数は制限しない。
+    /// 英字をまだ入力していない「3」「.」「=」などからも補完できる。
     package var isEnglishDictionaryPrefix: Bool {
         guard !isEmpty else { return false }
-        let tokens = split(separator: " ", omittingEmptySubsequences: false)
-        guard tokens.dropLast().allSatisfy({ $0.isEnglishDictionaryToken }) else { return false }
-        guard let last = tokens.last else { return false }
-        return last.isEmpty || last.isEnglishDictionaryTokenPrefix
-    }
-
-    /// 登録語は全体で英字を必ず含み、先頭・末尾・連続するスペースは許さない。
-    package var isEnglishDictionaryWord: Bool {
-        isEnglishDictionaryPrefix && containsRomanAlphabet && !hasSuffix(" ") && !hasSuffix("-") && !hasSuffix("&")
-    }
-
-    /// 各語の途中。ASCII英数字と、語中または入力末尾の - / ' / ’ / & / . / ! / ? / , / : / ; / = を許す。
-    private var isEnglishDictionaryTokenPrefix: Bool {
-        guard !isEmpty else { return false }
-        var previousWasAlphanumeric = false
-        for scalar in unicodeScalars {
+        return unicodeScalars.allSatisfy { scalar in
             switch scalar.value {
-            case 0x30...0x39, 0x41...0x5a, 0x61...0x7a:
-                previousWasAlphanumeric = true
-            case 0x2d, 0x27, 0x2019, 0x26, 0x2e, 0x21, 0x3f, 0x2c, 0x3a, 0x3b, 0x3d:
-                guard previousWasAlphanumeric else { return false }
-                previousWasAlphanumeric = false
+            case 0x30...0x39, 0x41...0x5a, 0x61...0x7a,
+                 0x2d, 0x27, 0x2019, 0x26, 0x2e, 0x21, 0x3f, 0x2c, 0x3a, 0x3b, 0x3d, 0x20:
+                return true
             default:
                 return false
             }
         }
-        return true
     }
 
-    /// スペースの直前では語が完結している必要がある。語末の記号は -・& 以外を許す。
-    private var isEnglishDictionaryToken: Bool {
-        isEnglishDictionaryTokenPrefix && !hasSuffix("-") && !hasSuffix("&")
+    /// 登録語は許可文字だけで構成され、英字を1文字以上含む。
+    package var isEnglishDictionaryWord: Bool {
+        isEnglishDictionaryPrefix && containsRomanAlphabet
     }
     /// ローマ字を含むかどうか
     ///  - note: 空文字列の場合`false`を返す。

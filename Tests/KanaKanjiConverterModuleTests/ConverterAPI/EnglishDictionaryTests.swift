@@ -20,15 +20,15 @@ final class EnglishDictionaryTests: XCTestCase {
             DicdataElement(word: "key=value", ruby: "key=value", cid: CIDData.固有名詞.cid, mid: MIDData.一般.mid, value: -8),
             DicdataElement(word: "Ready! Go", ruby: "Ready! Go", cid: CIDData.固有名詞.cid, mid: MIDData.一般.mid, value: -8),
             DicdataElement(word: "Key=", ruby: "Key=", cid: CIDData.固有名詞.cid, mid: MIDData.一般.mid, value: -8),
-            DicdataElement(word: "invalid!!", ruby: "invalid!!", cid: CIDData.固有名詞.cid, mid: MIDData.一般.mid, value: -8),
+            DicdataElement(word: "invalid!!_", ruby: "invalid!!_", cid: CIDData.固有名詞.cid, mid: MIDData.一般.mid, value: -8),
             DicdataElement(word: "New York", ruby: "New York", cid: CIDData.固有名詞.cid, mid: MIDData.一般.mid, value: -8),
             DicdataElement(word: "new york", ruby: "new york", cid: CIDData.固有名詞.cid, mid: MIDData.一般.mid, value: -8),
             DicdataElement(word: "U.S. Army", ruby: "U.S. Army", cid: CIDData.固有名詞.cid, mid: MIDData.一般.mid, value: -8),
             DicdataElement(word: "dogs' food", ruby: "dogs' food", cid: CIDData.固有名詞.cid, mid: MIDData.一般.mid, value: -8),
             DicdataElement(word: "AT&T Inc.", ruby: "AT&T Inc.", cid: CIDData.固有名詞.cid, mid: MIDData.一般.mid, value: -8),
             DicdataElement(word: "3M Company", ruby: "3M Company", cid: CIDData.固有名詞.cid, mid: MIDData.一般.mid, value: -8),
-            DicdataElement(word: "New  Invalid", ruby: "New  Invalid", cid: CIDData.固有名詞.cid, mid: MIDData.一般.mid, value: -8),
-            DicdataElement(word: "New Invalid ", ruby: "New Invalid ", cid: CIDData.固有名詞.cid, mid: MIDData.一般.mid, value: -8),
+            DicdataElement(word: "New  Invalid_", ruby: "New  Invalid_", cid: CIDData.固有名詞.cid, mid: MIDData.一般.mid, value: -8),
+            DicdataElement(word: "New Invalid_", ruby: "New Invalid_", cid: CIDData.固有名詞.cid, mid: MIDData.一般.mid, value: -8),
             DicdataElement(word: "don't", ruby: "don't", cid: CIDData.固有名詞.cid, mid: MIDData.一般.mid, value: -8),
             DicdataElement(word: "Don't", ruby: "Don't", cid: CIDData.固有名詞.cid, mid: MIDData.一般.mid, value: -8),
             DicdataElement(word: "don’t", ruby: "don’t", cid: CIDData.固有名詞.cid, mid: MIDData.一般.mid, value: -8),
@@ -41,8 +41,8 @@ final class EnglishDictionaryTests: XCTestCase {
             DicdataElement(word: "U.S.", ruby: "U.S.", cid: CIDData.固有名詞.cid, mid: MIDData.一般.mid, value: -8),
             DicdataElement(word: "Node.js", ruby: "Node.js", cid: CIDData.固有名詞.cid, mid: MIDData.一般.mid, value: -8),
             DicdataElement(word: "v1.2", ruby: "v1.2", cid: CIDData.固有名詞.cid, mid: MIDData.一般.mid, value: -8),
-            DicdataElement(word: "word&", ruby: "word&", cid: CIDData.固有名詞.cid, mid: MIDData.一般.mid, value: -8),
-            DicdataElement(word: "word..x", ruby: "word..x", cid: CIDData.固有名詞.cid, mid: MIDData.一般.mid, value: -8),
+            DicdataElement(word: "word&_", ruby: "word&_", cid: CIDData.固有名詞.cid, mid: MIDData.一般.mid, value: -8),
+            DicdataElement(word: "word..x_", ruby: "word..x_", cid: CIDData.固有名詞.cid, mid: MIDData.一般.mid, value: -8),
             DicdataElement(word: "GPT-4", ruby: "GPT-4", cid: CIDData.固有名詞.cid, mid: MIDData.一般.mid, value: -7),
             DicdataElement(word: "gpt-4", ruby: "gpt-4", cid: CIDData.固有名詞.cid, mid: MIDData.一般.mid, value: -9),
             DicdataElement(word: "GPT-5", ruby: "GPT-5", cid: CIDData.固有名詞.cid, mid: MIDData.一般.mid, value: -10),
@@ -272,6 +272,39 @@ final class EnglishDictionaryTests: XCTestCase {
                 let candidate = try XCTUnwrap(result.englishPredictionResults.first { $0.text == expected })
                 XCTAssertEqual(candidate.composingCount, .inputCount(text.count))
                 XCTAssertEqual(candidate.data.first?.ruby, expected)
+            }
+        }
+    }
+
+    func testSymbolsAndSpacesAreAllowedAtAnyPosition() throws {
+        try withDictionary { url in
+            let louds = url.appendingPathComponent("louds")
+            let chars = try String(contentsOf: louds.appendingPathComponent("charID.chid"), encoding: .utf8)
+            let map = Dictionary(uniqueKeysWithValues: chars.enumerated().map { ($0.element, UInt8($0.offset)) })
+            let words = [".NET", "=LOVE", "=love", "Yahoo!!", " What!? ", "Two  Words", "R & D"]
+                + "-'’&.!?,:;= ".map { String($0) + "Brand" }
+            let entries = words.map { DicdataElement(word: $0, ruby: $0, cid: CIDData.固有名詞.cid, mid: MIDData.一般.mid, value: -8) }
+            try DictionaryBuilder.exportDictionary(entries: entries, to: louds, baseName: "", shardByFirstCharacter: true, char2UInt8: map)
+            let converter = KanaKanjiConverter(dictionaryURL: url)
+            func candidates(_ key: String) -> [Candidate] {
+                converter.getEnglishDictionaryCandidates(ruby: key, inputCount: key.count, penalty: -5)
+            }
+            for word in words {
+                XCTAssertTrue(candidates(String(word.prefix(1))).contains { $0.text == word }, word)
+                let key = word.lowercased()
+                let candidate = try XCTUnwrap(candidates(key).first { $0.text == word }, word)
+                XCTAssertEqual(candidate.data.first?.ruby, word)
+                var input = ComposingText()
+                input.insertAtCursorPosition(key, inputStyle: .direct)
+                XCTAssertEqual(input.convertTarget, key)
+                let result = converter.requestCandidates(input, options: options(at: url, english: .manualMix, roman: false))
+                let prediction = try XCTUnwrap(result.englishPredictionResults.first { $0.text == word }, word)
+                XCTAssertEqual(prediction.composingCount, .inputCount(key.count))
+            }
+            XCTAssertEqual(Set(candidates("=love").map(\.text)), ["=LOVE", "=love"])
+            XCTAssertEqual(candidates("=LOVE").map(\.text), ["=LOVE"])
+            for key in ["NET", "What!?", "Two Words", "Yahoo?", "R&D"] {
+                XCTAssertTrue(candidates(key).isEmpty, key)
             }
         }
     }

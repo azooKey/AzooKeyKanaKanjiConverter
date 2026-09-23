@@ -11,17 +11,17 @@ import XCTest
 
 final class StringTests: XCTestCase {
     func testEnglishDictionaryWordsAndPrefixes() {
-        for word in ["GitHub", "gpt4", "GPT-4", "Wi-Fi", "3M", "A-1-B", "a1b2", "don't", "don’t", "I'm", "O'Reilly", "dogs'", "dogs’", "AT&T", "R&D", "U.S.", "Node.js", "v1.2", "New York", "new york", "GPT 4", "U.S. Army", "dogs' food", "AT&T Inc.", "3M Company", "Area 51", "Yahoo!", "Who?", "Hello, World", "Key:Value", "Steins;Gate", "key=value", "Hello,", "Note:", "End;", "Key=", "Ready! Go", "Why? Not", "Data; Next", "Key= Value"] {
+        for word in ["GitHub", "gpt4", "GPT-4", "Wi-Fi", "3M", "A-1-B", "a1b2", "don't", "don’t", "I'm", "O'Reilly", "dogs'", "dogs’", "AT&T", "R&D", "U.S.", "Node.js", "v1.2", "New York", "new york", "GPT 4", "U.S. Army", "dogs' food", "AT&T Inc.", "3M Company", "Area 51", "Yahoo!", "Who?", "Hello, World", "Key:Value", "Steins;Gate", "key=value", "Hello,", "Note:", "End;", "Key=", "Ready! Go", "Why? Not", "Data; Next", "Key= Value", "-GPT", "GPT-", "GPT--4", "'word", "’word", "&word", ".word", "word&", "word..x", "word&&x", "word''x", "word’’x", "word.-x", "word.&x", "word’&x", " New York", "New York ", "New  York", "New- York", "New &York", "New .York", "!Word", "Word!!", "Word!?", "Word::Value", "Word==Value", "Word,  Next", ".NET", "=LOVE", "Yahoo!!", "!?Word", " Word ", "  Word  ", "& Word", "R & D"] {
             XCTAssertTrue(word.isEnglishDictionaryWord, word)
             XCTAssertTrue(word.isEnglishDictionaryPrefix, word)
         }
-        for word in ["", "123", "123-456", "3.14", "-GPT", "GPT-", "GPT--4", "café", "ＧＰＴ", "GPT−4", "GPT_4", "日本", "GPT-4\n", "'word", "’word", "&word", ".word", "word&", "word..x", "word&&x", "word''x", "word’’x", "word.-x", "word.&x", "word’&x", "&", "'", "’", ".", "...", " New York", "New York ", "New  York", "New\tYork", "New\nYork", "New\u{00a0}York", "New　York", "123 456", " ", "New- York", "New &York", "New .York", "!", "?", ",", ":", ";", "=", "123!", "!Word", "Word!!", "Word!?", "Word::Value", "Word==Value", "Word！", "Word？", "Word，", "Word：", "Word；", "Word＝", "Word,  Next", "Word;\tNext"] {
+        for word in ["", "123", "123-456", "3.14", "café", "ＧＰＴ", "GPT−4", "GPT_4", "日本", "GPT-4\n", "&", "'", "’", ".", "...", "New\tYork", "New\nYork", "New\u{00a0}York", "New　York", "123 456", " ", "!", "?", ",", ":", ";", "=", "123!", "Word！", "Word？", "Word，", "Word：", "Word；", "Word＝", "Word;\tNext"] {
             XCTAssertFalse(word.isEnglishDictionaryWord, word)
         }
-        for prefix in ["3", "123-", "gpt-", "Wi-", "a1-", "don'", "don’", "AT&", "u.", "new ", "U.S. ", "dogs' ", "3 ", "yahoo!", "hello, ", "note:", "steins;", "key="] {
+        for prefix in ["3", "123-", "gpt-", "don'", "AT&", "new ", "=", ".", "!", " ", "  ", "!?", "Word=="] {
             XCTAssertTrue(prefix.isEnglishDictionaryPrefix, prefix)
         }
-        for prefix in ["", "-gpt", "gpt--", "gpt_", " gpt", "gpt  ", "gpt- ", "café", "'word", "&word", ".word", "word..", "word&&", "word’&"] {
+        for prefix in ["", "café", "Word_", "New\tYork", "New\nYork", "New　York"] {
             XCTAssertFalse(prefix.isEnglishDictionaryPrefix, prefix)
         }
     }
