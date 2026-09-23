@@ -878,6 +878,7 @@ final class ConverterTests: XCTestCase {
         var mozcScore: Double = 0
         var azooKeyScore: Double = 0
         var cases = 0
+        var skippedPredictionCases = 0
         for line in content.split(separator: "\n") {
             if line.hasPrefix("#") {
                 continue
@@ -891,26 +892,10 @@ final class ConverterTests: XCTestCase {
             let input = String(items[1])
             let mozcOutput = String(items[2])
             let commandString = items[3]
-            let command: MozcCommand
-            if commandString == "Conversion Match" {
-                command = .conversionMatch
-            } else if commandString == "Conversion Not Match" {
-                command = .conversionNotMatch
-            } else if commandString == "Suggestion Not Expected" {
-                command = .suggestionNotExpected
-            } else if commandString.hasPrefix("Conversion Expected") {
-                if commandString == "Conversion Expected" {
-                    command = .conversionExpected(within: 1)
-                } else {
-                    let countString = commandString.split(separator: " ").last!
-                    command = .conversionExpected(within: Int(countString)!)
-                }
-            } else {
-                fatalError("Unknown command \(commandString)")
-            }
-
-            if command == .suggestionNotExpected {
-                // azooKeyでは扱えないため
+            let command = try MozcCommand(commandString)
+            // このテストは変換精度を比較する。予測・サジェストのケースはスコアにも含めない。
+            guard command.isConversion else {
+                skippedPredictionCases += 1
                 continue
             }
 
@@ -940,7 +925,7 @@ final class ConverterTests: XCTestCase {
                 }
             }
         }
-        print("\(#function) Result: Mozc Score: \(mozcScore), azooKeyScore \(azooKeyScore), count \(cases)")
+        print("\(#function) Result: Mozc Score: \(mozcScore), azooKeyScore \(azooKeyScore), count \(cases), skipped prediction/suggestion cases \(skippedPredictionCases)")
         XCTAssertTrue(mozcScore > 0)
         XCTAssertTrue(azooKeyScore > 0)
         XCTExpectFailure("azooKey is not as accurate as Mozc currently in this mertics, due to some reason") {
@@ -958,12 +943,51 @@ final class ConverterTests: XCTestCase {
         case conversionExpected(within: Int)
         /// サジェストに`arg`が登場しない
         case suggestionNotExpected
+        /// 予測のn番目までに`arg`が登場（変換評価では対象外）
+        case predictionExpected(within: Int)
+
+        enum ParseError: Error, Equatable {
+            case unknownCommand(String)
+            case invalidCount(String)
+        }
+
+        init(_ command: some StringProtocol) throws {
+            switch command {
+            case "Conversion Match": self = .conversionMatch
+            case "Conversion Not Match": self = .conversionNotMatch
+            case "Suggestion Not Expected": self = .suggestionNotExpected
+            default:
+                let parts = command.split(separator: " ", omittingEmptySubsequences: false)
+                guard (parts.count == 2 || parts.count == 3),
+                      parts[0] == "Conversion" || parts[0] == "Prediction",
+                      parts[1] == "Expected" else {
+                    throw ParseError.unknownCommand(String(command))
+                }
+                let count: Int
+                if parts.count == 2 {
+                    count = 1
+                } else {
+                    guard let parsed = Int(parts[2]), parsed > 0 else {
+                        throw ParseError.invalidCount(String(command))
+                    }
+                    count = parsed
+                }
+                self = parts[0] == "Conversion" ? .conversionExpected(within: count) : .predictionExpected(within: count)
+            }
+        }
+
+        var isConversion: Bool {
+            switch self {
+            case .conversionMatch, .conversionNotMatch, .conversionExpected: true
+            case .suggestionNotExpected, .predictionExpected: false
+            }
+        }
 
         var requiredCount: Int {
             switch self {
             case .conversionMatch, .conversionNotMatch, .suggestionNotExpected:
                 return 1
-            case .conversionExpected(within: let count):
+            case .conversionExpected(within: let count), .predictionExpected(within: let count):
                 return count
             }
         }
@@ -982,8 +1006,8 @@ final class ConverterTests: XCTestCase {
             if !first.text.contains(argument) {
                 return true
             }
-        case .suggestionNotExpected:
-            fatalError("mozcEvaluation does not support command \(command)")
+        case .suggestionNotExpected, .predictionExpected:
+            XCTFail("Conversion evaluation received a prediction command: \(command)")
         case .conversionExpected(within: let count):
             if results.prefix(count).contains(where: {$0.text == argument}) {
                 return true
