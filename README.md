@@ -137,7 +137,7 @@ let options = ConvertRequestOptions(
 
 AzooKeyKanaKanjiConverterのデフォルト辞書として[azooKey_dictionary_storage](https://github.com/ensan-hcl/azooKey_dictionary_storage)がサブモジュールとして指定されています。過去のバージョンの辞書データは[Google Drive](https://drive.google.com/drive/folders/1Kh7fgMFIzkpg7YwP3GhWTxFkXI-yzT9E?usp=sharing)からもダウンロードすることができます。
 
-英字readingのエントリも利用できます。例えばreadingと表記がともに `GitHub` のエントリは、`Git` の前方一致や `GitHub` の完全一致で英語候補になります。辞書のreading・表記と検索キーの大文字・小文字は保持し、`git` と `Git` は区別します。現在の英語候補検索はASCII英字のみを対象とします。
+英字readingのエントリも利用できます。例えばreadingと表記がともに `GitHub` のエントリは、`Git` の前方一致や `GitHub` の完全一致で英語候補になります。辞書のreading・表記はそのまま保持し、検索時は入力中の小文字を対応する大文字にも一致させます。大文字の入力は大文字だけに一致します。例えば `git` は `GitHub` と `github` の両方に一致し、`Git` は `github` に一致しません。この規則は語中にも適用します。現在の英語候補検索はASCII英字のみを対象とします。
 
 `requireEnglishPrediction` を有効にすると、辞書候補とOSの補完候補を統合します。`.manualMix` では `englishPredictionResults` に返し、`.autoMix` では通常の候補にも混ぜます。日本語ローマ字入力中の英語候補には `englishCandidateInRoman2KanaInput` を使います。辞書候補には登録スコアと既存の英語候補ペナルティを適用し、同じ表記の候補は重複除去します。
 

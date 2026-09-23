@@ -579,13 +579,12 @@ public final class KanaKanjiConverter {
         return result
     }
 
-    /// 英字readingを持つ辞書候補を取得する。検索キーの大文字・小文字は保持する。
+    /// 英字readingを持つ辞書候補を取得する。小文字入力は大文字にも一致する。
     func getEnglishDictionaryCandidates(ruby: String, inputCount: Int, penalty: PValue) -> [Candidate] {
         guard ruby.onlyRomanAlphabet else { return [] }
-        let entries = self.converter.dicdataStore.getPredictionLOUDSDicdata(
+        let entries = self.converter.dicdataStore.getEnglishPredictionDicdata(
             key: ruby,
-            state: self.dicdataStoreState,
-            includeExactMatch: true
+            state: self.dicdataStoreState
         )
         let candidates = entries.filter { $0.ruby.onlyRomanAlphabet && $0.word.onlyRomanAlphabet }.map { entry in
             Candidate(

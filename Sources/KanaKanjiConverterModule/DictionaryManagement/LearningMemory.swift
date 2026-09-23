@@ -597,6 +597,24 @@ struct TemporalLearningMemoryTrie {
         }
         return indices.map {self.dicdata[$0]}
     }
+
+    func prefixMatch(charOptions: [[UInt8]], maxCount: Int) -> [DicdataElement] {
+        guard maxCount > 0 else { return [] }
+        var matchingNodes = [0]
+        for options in charOptions {
+            matchingNodes = matchingNodes.flatMap { parent in
+                options.compactMap { self.nodes[parent].children[$0] }
+            }
+            if matchingNodes.isEmpty { return [] }
+        }
+        var indices = Array(matchingNodes.flatMap { self.nodes[$0].dataIndices }.prefix(maxCount))
+        var pending = matchingNodes.flatMap { self.nodes[$0].children.values }
+        while indices.count < maxCount, let index = pending.popLast() {
+            indices.append(contentsOf: self.nodes[index].dataIndices.prefix(maxCount - indices.count))
+            pending.append(contentsOf: self.nodes[index].children.values)
+        }
+        return indices.map { self.dicdata[$0] }
+    }
 }
 
 public struct LearningConfig: Sendable, Equatable {
@@ -709,6 +727,11 @@ final class LearningManager {
             return []
         }
         return self.temporaryMemory.prefixMatch(chars: charIDs)
+    }
+
+    func temporaryPrefixMatch(charOptions: [[UInt8]], maxCount: Int) -> [DicdataElement] {
+        guard self.config.learningType.needUsingMemory else { return [] }
+        return self.temporaryMemory.prefixMatch(charOptions: charOptions, maxCount: maxCount)
     }
 
     func update(data: [DicdataElement]) {
