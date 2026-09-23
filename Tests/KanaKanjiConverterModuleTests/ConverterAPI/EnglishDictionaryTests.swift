@@ -11,6 +11,14 @@ final class EnglishDictionaryTests: XCTestCase {
         let chars = try String(contentsOf: louds.appendingPathComponent("charID.chid"), encoding: .utf8)
         let map = Dictionary(uniqueKeysWithValues: chars.enumerated().map { ($0.element, UInt8($0.offset)) })
         let entries = [
+            DicdataElement(word: "New York", ruby: "New York", cid: CIDData.固有名詞.cid, mid: MIDData.一般.mid, value: -8),
+            DicdataElement(word: "new york", ruby: "new york", cid: CIDData.固有名詞.cid, mid: MIDData.一般.mid, value: -8),
+            DicdataElement(word: "U.S. Army", ruby: "U.S. Army", cid: CIDData.固有名詞.cid, mid: MIDData.一般.mid, value: -8),
+            DicdataElement(word: "dogs' food", ruby: "dogs' food", cid: CIDData.固有名詞.cid, mid: MIDData.一般.mid, value: -8),
+            DicdataElement(word: "AT&T Inc.", ruby: "AT&T Inc.", cid: CIDData.固有名詞.cid, mid: MIDData.一般.mid, value: -8),
+            DicdataElement(word: "3M Company", ruby: "3M Company", cid: CIDData.固有名詞.cid, mid: MIDData.一般.mid, value: -8),
+            DicdataElement(word: "New  Invalid", ruby: "New  Invalid", cid: CIDData.固有名詞.cid, mid: MIDData.一般.mid, value: -8),
+            DicdataElement(word: "New Invalid ", ruby: "New Invalid ", cid: CIDData.固有名詞.cid, mid: MIDData.一般.mid, value: -8),
             DicdataElement(word: "don't", ruby: "don't", cid: CIDData.固有名詞.cid, mid: MIDData.一般.mid, value: -8),
             DicdataElement(word: "Don't", ruby: "Don't", cid: CIDData.固有名詞.cid, mid: MIDData.一般.mid, value: -8),
             DicdataElement(word: "don’t", ruby: "don’t", cid: CIDData.固有名詞.cid, mid: MIDData.一般.mid, value: -8),
@@ -128,11 +136,11 @@ final class EnglishDictionaryTests: XCTestCase {
             XCTAssertEqual(words("gpt-4"), ["GPT-4", "gpt-4"])
             XCTAssertEqual(words("GPT-4"), ["GPT-4"])
             XCTAssertEqual(words("gpt4"), ["GPT4"])
-            XCTAssertEqual(words("3"), ["3M"])
-            XCTAssertEqual(words("3m"), ["3M"])
+            XCTAssertEqual(words("3"), ["3M", "3M Company"])
+            XCTAssertEqual(words("3m"), ["3M", "3M Company"])
             XCTAssertEqual(words("wi-"), ["Wi-Fi"])
             XCTAssertEqual(words("wi-fi"), ["Wi-Fi"])
-            for key in ["gpt-3", "123", "123-456", "-GPT", "GPT--", "GPT_", "GPT ", "WI-FI"] {
+            for key in ["gpt-3", "123", "123-456", "-GPT", "GPT--", "GPT_", "GPT  ", "WI-FI"] {
                 XCTAssertTrue(words(key).isEmpty, key)
             }
             for text in ["gpt-", "gpt-4"] {
@@ -155,11 +163,11 @@ final class EnglishDictionaryTests: XCTestCase {
             XCTAssertEqual(words("don’"), ["don’t"])
             XCTAssertEqual(words("i'"), ["I'm"])
             XCTAssertEqual(words("o'r"), ["O'Reilly"])
-            XCTAssertEqual(words("dogs'"), ["dogs'"])
+            XCTAssertEqual(words("dogs'"), ["dogs'", "dogs' food"])
             XCTAssertEqual(words("dogs’"), ["dogs’"])
-            XCTAssertEqual(words("at&"), ["AT&T"])
+            XCTAssertEqual(words("at&"), ["AT&T", "AT&T Inc."])
             XCTAssertEqual(words("r&d"), ["R&D"])
-            XCTAssertEqual(words("u.s."), ["U.S."])
+            XCTAssertEqual(words("u.s."), ["U.S.", "U.S. Army"])
             XCTAssertEqual(words("node."), ["Node.js"])
             XCTAssertEqual(words("v1."), ["v1.2"])
             for key in ["dont", "at-t", "us", "word", "&", "'", "’", ".", "u..", "don’’"] {
@@ -173,6 +181,59 @@ final class EnglishDictionaryTests: XCTestCase {
                 XCTAssertEqual(candidate.composingCount, .inputCount(text.count))
                 XCTAssertEqual(candidate.data.first?.ruby, expected)
             }
+        }
+    }
+
+    func testSpaceSeparatedPhrasesPreserveCaseAndReachPrediction() throws {
+        try withDictionary { url in
+            let converter = KanaKanjiConverter(dictionaryURL: url)
+            func words(_ prefix: String) -> Set<String> {
+                Set(converter.getEnglishDictionaryCandidates(ruby: prefix, inputCount: prefix.count, penalty: -5).map(\.text))
+            }
+            XCTAssertEqual(words("new"), ["New York", "new york"])
+            XCTAssertEqual(words("new "), ["New York", "new york"])
+            XCTAssertEqual(words("new y"), ["New York", "new york"])
+            XCTAssertEqual(words("new York"), ["New York"])
+            XCTAssertEqual(words("New York"), ["New York"])
+            XCTAssertEqual(words("u.s. "), ["U.S. Army"])
+            XCTAssertEqual(words("dogs' "), ["dogs' food"])
+            XCTAssertEqual(words("at&t "), ["AT&T Inc."])
+            XCTAssertEqual(words("3m "), ["3M Company"])
+            for key in [" new", "new  ", "newyork", "new\t", "new　", "NEW ", "new- "] {
+                XCTAssertTrue(words(key).isEmpty, key)
+            }
+            for (text, expected) in [("new ", "New York"), ("new york", "New York"), ("u.s. ", "U.S. Army")] {
+                var input = ComposingText()
+                input.insertAtCursorPosition(text, inputStyle: .direct)
+                XCTAssertEqual(input.convertTarget, text)
+                let result = converter.requestCandidates(input, options: options(at: url, english: .manualMix, roman: false))
+                let candidate = try XCTUnwrap(result.englishPredictionResults.first { $0.text == expected })
+                XCTAssertEqual(candidate.composingCount, .inputCount(text.count))
+                XCTAssertEqual(candidate.data.first?.ruby, expected)
+            }
+        }
+    }
+
+    func testSpaceSeparatedUserAndLearnedDictionaryEntries() throws {
+        try withDictionary { url in
+            let chars = try String(contentsOf: url.appendingPathComponent("louds/charID.chid"), encoding: .utf8)
+            let map = Dictionary(uniqueKeysWithValues: chars.enumerated().map { ($0.element, UInt8($0.offset)) })
+            let entries = ["User Phrase", "user phrase"].map {
+                DicdataElement(word: $0, ruby: $0, cid: CIDData.固有名詞.cid, mid: MIDData.一般.mid, value: -8)
+            }
+            let userURL = url.appendingPathComponent("user-dictionary")
+            try FileManager.default.createDirectory(at: userURL, withIntermediateDirectories: true)
+            try DictionaryBuilder.exportDictionary(entries: entries, to: userURL, baseName: "user", shardByFirstCharacter: false, char2UInt8: map)
+            let store = DicdataStore(dictionaryURL: url)
+            let state = store.prepareState()
+            state.updateUserDictionaryURL(userURL, forceReload: false)
+            XCTAssertEqual(Set(store.getEnglishPredictionDicdata(key: "user ", state: state).map(\.word)), ["User Phrase", "user phrase"])
+            XCTAssertEqual(store.getEnglishPredictionDicdata(key: "User P", state: state).map(\.word), ["User Phrase"])
+            state.updateLearningConfig(.init(learningType: .inputAndOutput, maxMemoryCount: 100, memoryURL: url))
+            let entry = DicdataElement(word: "Learned Phrase", ruby: "Learned Phrase", cid: CIDData.固有名詞.cid, mid: MIDData.一般.mid, value: -8)
+            state.learningMemoryManager.update(data: [entry])
+            XCTAssertEqual(store.getEnglishPredictionDicdata(key: "learned ", state: state).map(\.word), ["Learned Phrase"])
+            XCTAssertTrue(store.getEnglishPredictionDicdata(key: "learnedphrase", state: state).isEmpty)
         }
     }
 

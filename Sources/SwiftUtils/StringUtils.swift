@@ -32,9 +32,23 @@ extension StringProtocol {
         return true
     }
 
-    /// 英語辞書の検索途中のキー。ASCII英数字と、語中または入力末尾の - / ' / ’ / & / . を許す。
+    /// 英語辞書の検索途中のキー。語間の単一半角スペースと、入力末尾のスペースも許す。
     /// 数字のみのprefixも許し、例えば「3」から「3M」を検索できる。
     package var isEnglishDictionaryPrefix: Bool {
+        guard !isEmpty else { return false }
+        let tokens = split(separator: " ", omittingEmptySubsequences: false)
+        guard tokens.dropLast().allSatisfy({ $0.isEnglishDictionaryToken }) else { return false }
+        guard let last = tokens.last else { return false }
+        return last.isEmpty || last.isEnglishDictionaryTokenPrefix
+    }
+
+    /// 登録語は全体で英字を必ず含み、先頭・末尾・連続するスペースは許さない。
+    package var isEnglishDictionaryWord: Bool {
+        isEnglishDictionaryPrefix && containsRomanAlphabet && !hasSuffix(" ") && !hasSuffix("-") && !hasSuffix("&")
+    }
+
+    /// 各語の途中。ASCII英数字と、語中または入力末尾の - / ' / ’ / & / . を許す。
+    private var isEnglishDictionaryTokenPrefix: Bool {
         guard !isEmpty else { return false }
         var previousWasAlphanumeric = false
         for scalar in unicodeScalars {
@@ -51,9 +65,9 @@ extension StringProtocol {
         return true
     }
 
-    /// 登録語は英字を必ず含む。末尾のアポストロフィ・ピリオドも許す。
-    package var isEnglishDictionaryWord: Bool {
-        isEnglishDictionaryPrefix && containsRomanAlphabet && !hasSuffix("-") && !hasSuffix("&")
+    /// スペースの直前では語が完結している必要がある。語末のアポストロフィ・ピリオドは許す。
+    private var isEnglishDictionaryToken: Bool {
+        isEnglishDictionaryTokenPrefix && !hasSuffix("-") && !hasSuffix("&")
     }
     /// ローマ字を含むかどうか
     ///  - note: 空文字列の場合`false`を返す。
