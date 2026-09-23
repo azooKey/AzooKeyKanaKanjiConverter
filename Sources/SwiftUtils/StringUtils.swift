@@ -47,7 +47,7 @@ extension StringProtocol {
         isEnglishDictionaryPrefix && containsRomanAlphabet && !hasSuffix(" ") && !hasSuffix("-") && !hasSuffix("&")
     }
 
-    /// 各語の途中。ASCII英数字と、語中または入力末尾の - / ' / ’ / & / . を許す。
+    /// 各語の途中。ASCII英数字と、語中または入力末尾の - / ' / ’ / & / . / ! / ? / , / : / ; / = を許す。
     private var isEnglishDictionaryTokenPrefix: Bool {
         guard !isEmpty else { return false }
         var previousWasAlphanumeric = false
@@ -55,7 +55,7 @@ extension StringProtocol {
             switch scalar.value {
             case 0x30...0x39, 0x41...0x5a, 0x61...0x7a:
                 previousWasAlphanumeric = true
-            case 0x2d, 0x27, 0x2019, 0x26, 0x2e:
+            case 0x2d, 0x27, 0x2019, 0x26, 0x2e, 0x21, 0x3f, 0x2c, 0x3a, 0x3b, 0x3d:
                 guard previousWasAlphanumeric else { return false }
                 previousWasAlphanumeric = false
             default:
@@ -65,7 +65,7 @@ extension StringProtocol {
         return true
     }
 
-    /// スペースの直前では語が完結している必要がある。語末のアポストロフィ・ピリオドは許す。
+    /// スペースの直前では語が完結している必要がある。語末の記号は -・& 以外を許す。
     private var isEnglishDictionaryToken: Bool {
         isEnglishDictionaryTokenPrefix && !hasSuffix("-") && !hasSuffix("&")
     }

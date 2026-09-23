@@ -11,6 +11,16 @@ final class EnglishDictionaryTests: XCTestCase {
         let chars = try String(contentsOf: louds.appendingPathComponent("charID.chid"), encoding: .utf8)
         let map = Dictionary(uniqueKeysWithValues: chars.enumerated().map { ($0.element, UInt8($0.offset)) })
         let entries = [
+            DicdataElement(word: "Yahoo!", ruby: "Yahoo!", cid: CIDData.固有名詞.cid, mid: MIDData.一般.mid, value: -8),
+            DicdataElement(word: "yahoo!", ruby: "yahoo!", cid: CIDData.固有名詞.cid, mid: MIDData.一般.mid, value: -8),
+            DicdataElement(word: "Who?", ruby: "Who?", cid: CIDData.固有名詞.cid, mid: MIDData.一般.mid, value: -8),
+            DicdataElement(word: "Hello, World", ruby: "Hello, World", cid: CIDData.固有名詞.cid, mid: MIDData.一般.mid, value: -8),
+            DicdataElement(word: "Key:Value", ruby: "Key:Value", cid: CIDData.固有名詞.cid, mid: MIDData.一般.mid, value: -8),
+            DicdataElement(word: "Steins;Gate", ruby: "Steins;Gate", cid: CIDData.固有名詞.cid, mid: MIDData.一般.mid, value: -8),
+            DicdataElement(word: "key=value", ruby: "key=value", cid: CIDData.固有名詞.cid, mid: MIDData.一般.mid, value: -8),
+            DicdataElement(word: "Ready! Go", ruby: "Ready! Go", cid: CIDData.固有名詞.cid, mid: MIDData.一般.mid, value: -8),
+            DicdataElement(word: "Key=", ruby: "Key=", cid: CIDData.固有名詞.cid, mid: MIDData.一般.mid, value: -8),
+            DicdataElement(word: "invalid!!", ruby: "invalid!!", cid: CIDData.固有名詞.cid, mid: MIDData.一般.mid, value: -8),
             DicdataElement(word: "New York", ruby: "New York", cid: CIDData.固有名詞.cid, mid: MIDData.一般.mid, value: -8),
             DicdataElement(word: "new york", ruby: "new york", cid: CIDData.固有名詞.cid, mid: MIDData.一般.mid, value: -8),
             DicdataElement(word: "U.S. Army", ruby: "U.S. Army", cid: CIDData.固有名詞.cid, mid: MIDData.一般.mid, value: -8),
@@ -234,6 +244,35 @@ final class EnglishDictionaryTests: XCTestCase {
             state.learningMemoryManager.update(data: [entry])
             XCTAssertEqual(store.getEnglishPredictionDicdata(key: "learned ", state: state).map(\.word), ["Learned Phrase"])
             XCTAssertTrue(store.getEnglishPredictionDicdata(key: "learnedphrase", state: state).isEmpty)
+        }
+    }
+
+    func testAdditionalPunctuationPreservesExactCharacters() throws {
+        try withDictionary { url in
+            let converter = KanaKanjiConverter(dictionaryURL: url)
+            func words(_ prefix: String) -> Set<String> {
+                Set(converter.getEnglishDictionaryCandidates(ruby: prefix, inputCount: prefix.count, penalty: -5).map(\.text))
+            }
+            XCTAssertEqual(words("yahoo!"), ["Yahoo!", "yahoo!"])
+            XCTAssertEqual(words("Yahoo!"), ["Yahoo!"])
+            XCTAssertEqual(words("who?"), ["Who?"])
+            XCTAssertEqual(words("hello, "), ["Hello, World"])
+            XCTAssertEqual(words("key:"), ["Key:Value"])
+            XCTAssertEqual(words("steins;"), ["Steins;Gate"])
+            XCTAssertEqual(words("key="), ["key=value", "Key="])
+            XCTAssertEqual(words("Key="), ["Key="])
+            XCTAssertEqual(words("ready! "), ["Ready! Go"])
+            for key in ["yahoo?", "yahoo！", "who!", "hello;", "key;", "steins:", "key==", "!", "?", ",", ":", ";", "=", "invalid"] {
+                XCTAssertTrue(words(key).isEmpty, key)
+            }
+            for (text, expected) in [("yahoo!", "Yahoo!"), ("who?", "Who?"), ("hello, ", "Hello, World"), ("key:", "Key:Value"), ("steins;", "Steins;Gate"), ("key=", "key=value")] {
+                var input = ComposingText()
+                input.insertAtCursorPosition(text, inputStyle: .direct)
+                let result = converter.requestCandidates(input, options: options(at: url, english: .manualMix, roman: false))
+                let candidate = try XCTUnwrap(result.englishPredictionResults.first { $0.text == expected })
+                XCTAssertEqual(candidate.composingCount, .inputCount(text.count))
+                XCTAssertEqual(candidate.data.first?.ruby, expected)
+            }
         }
     }
 
