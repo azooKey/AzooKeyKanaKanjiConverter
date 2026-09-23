@@ -11,6 +11,20 @@ final class EnglishDictionaryTests: XCTestCase {
         let chars = try String(contentsOf: louds.appendingPathComponent("charID.chid"), encoding: .utf8)
         let map = Dictionary(uniqueKeysWithValues: chars.enumerated().map { ($0.element, UInt8($0.offset)) })
         let entries = [
+            DicdataElement(word: "don't", ruby: "don't", cid: CIDData.固有名詞.cid, mid: MIDData.一般.mid, value: -8),
+            DicdataElement(word: "Don't", ruby: "Don't", cid: CIDData.固有名詞.cid, mid: MIDData.一般.mid, value: -8),
+            DicdataElement(word: "don’t", ruby: "don’t", cid: CIDData.固有名詞.cid, mid: MIDData.一般.mid, value: -8),
+            DicdataElement(word: "I'm", ruby: "I'm", cid: CIDData.固有名詞.cid, mid: MIDData.一般.mid, value: -8),
+            DicdataElement(word: "O'Reilly", ruby: "O'Reilly", cid: CIDData.固有名詞.cid, mid: MIDData.一般.mid, value: -8),
+            DicdataElement(word: "dogs'", ruby: "dogs'", cid: CIDData.固有名詞.cid, mid: MIDData.一般.mid, value: -8),
+            DicdataElement(word: "dogs’", ruby: "dogs’", cid: CIDData.固有名詞.cid, mid: MIDData.一般.mid, value: -8),
+            DicdataElement(word: "AT&T", ruby: "AT&T", cid: CIDData.固有名詞.cid, mid: MIDData.一般.mid, value: -8),
+            DicdataElement(word: "R&D", ruby: "R&D", cid: CIDData.固有名詞.cid, mid: MIDData.一般.mid, value: -8),
+            DicdataElement(word: "U.S.", ruby: "U.S.", cid: CIDData.固有名詞.cid, mid: MIDData.一般.mid, value: -8),
+            DicdataElement(word: "Node.js", ruby: "Node.js", cid: CIDData.固有名詞.cid, mid: MIDData.一般.mid, value: -8),
+            DicdataElement(word: "v1.2", ruby: "v1.2", cid: CIDData.固有名詞.cid, mid: MIDData.一般.mid, value: -8),
+            DicdataElement(word: "word&", ruby: "word&", cid: CIDData.固有名詞.cid, mid: MIDData.一般.mid, value: -8),
+            DicdataElement(word: "word..x", ruby: "word..x", cid: CIDData.固有名詞.cid, mid: MIDData.一般.mid, value: -8),
             DicdataElement(word: "GPT-4", ruby: "GPT-4", cid: CIDData.固有名詞.cid, mid: MIDData.一般.mid, value: -7),
             DicdataElement(word: "gpt-4", ruby: "gpt-4", cid: CIDData.固有名詞.cid, mid: MIDData.一般.mid, value: -9),
             DicdataElement(word: "GPT-5", ruby: "GPT-5", cid: CIDData.固有名詞.cid, mid: MIDData.一般.mid, value: -10),
@@ -126,6 +140,38 @@ final class EnglishDictionaryTests: XCTestCase {
                 input.insertAtCursorPosition(text, inputStyle: .direct)
                 let result = converter.requestCandidates(input, options: options(at: url, english: .manualMix, roman: false))
                 XCTAssertTrue(result.englishPredictionResults.contains { $0.text == "GPT-4" })
+            }
+        }
+    }
+
+    func testPunctuationPreservesSpellingAndReachesPrediction() throws {
+        try withDictionary { url in
+            let converter = KanaKanjiConverter(dictionaryURL: url)
+            func words(_ prefix: String) -> Set<String> {
+                Set(converter.getEnglishDictionaryCandidates(ruby: prefix, inputCount: prefix.count, penalty: -5).map(\.text))
+            }
+            XCTAssertEqual(words("don'"), ["don't", "Don't"])
+            XCTAssertEqual(words("Don't"), ["Don't"])
+            XCTAssertEqual(words("don’"), ["don’t"])
+            XCTAssertEqual(words("i'"), ["I'm"])
+            XCTAssertEqual(words("o'r"), ["O'Reilly"])
+            XCTAssertEqual(words("dogs'"), ["dogs'"])
+            XCTAssertEqual(words("dogs’"), ["dogs’"])
+            XCTAssertEqual(words("at&"), ["AT&T"])
+            XCTAssertEqual(words("r&d"), ["R&D"])
+            XCTAssertEqual(words("u.s."), ["U.S."])
+            XCTAssertEqual(words("node."), ["Node.js"])
+            XCTAssertEqual(words("v1."), ["v1.2"])
+            for key in ["dont", "at-t", "us", "word", "&", "'", "’", ".", "u..", "don’’"] {
+                XCTAssertTrue(words(key).isEmpty, key)
+            }
+            for (text, expected) in [("don'", "don't"), ("don’", "don’t"), ("at&", "AT&T"), ("u.s.", "U.S.")] {
+                var input = ComposingText()
+                input.insertAtCursorPosition(text, inputStyle: .direct)
+                let result = converter.requestCandidates(input, options: options(at: url, english: .manualMix, roman: false))
+                let candidate = try XCTUnwrap(result.englishPredictionResults.first { $0.text == expected })
+                XCTAssertEqual(candidate.composingCount, .inputCount(text.count))
+                XCTAssertEqual(candidate.data.first?.ruby, expected)
             }
         }
     }

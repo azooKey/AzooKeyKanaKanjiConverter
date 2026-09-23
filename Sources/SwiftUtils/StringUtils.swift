@@ -32,16 +32,17 @@ extension StringProtocol {
         return true
     }
 
-    /// 英語辞書の検索途中のキー。ASCII英数字と、語中または入力末尾のハイフンを許す。
+    /// 英語辞書の検索途中のキー。ASCII英数字と、語中または入力末尾の - / ' / ’ / & / . を許す。
     /// 数字のみのprefixも許し、例えば「3」から「3M」を検索できる。
     package var isEnglishDictionaryPrefix: Bool {
         guard !isEmpty else { return false }
         var previousWasAlphanumeric = false
-        for value in utf8 {
-            switch value {
+        for scalar in unicodeScalars {
+            switch scalar.value {
             case 0x30...0x39, 0x41...0x5a, 0x61...0x7a:
                 previousWasAlphanumeric = true
-            case 0x2d where previousWasAlphanumeric:
+            case 0x2d, 0x27, 0x2019, 0x26, 0x2e:
+                guard previousWasAlphanumeric else { return false }
                 previousWasAlphanumeric = false
             default:
                 return false
@@ -50,9 +51,9 @@ extension StringProtocol {
         return true
     }
 
-    /// 登録語は英字を必ず含み、ハイフンは英数字の間だけに許す。
+    /// 登録語は英字を必ず含む。末尾のアポストロフィ・ピリオドも許す。
     package var isEnglishDictionaryWord: Bool {
-        isEnglishDictionaryPrefix && containsRomanAlphabet && !hasSuffix("-")
+        isEnglishDictionaryPrefix && containsRomanAlphabet && !hasSuffix("-") && !hasSuffix("&")
     }
     /// ローマ字を含むかどうか
     ///  - note: 空文字列の場合`false`を返す。

@@ -11,17 +11,17 @@ import XCTest
 
 final class StringTests: XCTestCase {
     func testEnglishDictionaryWordsAndPrefixes() {
-        for word in ["GitHub", "gpt4", "GPT-4", "Wi-Fi", "3M", "A-1-B", "a1b2"] {
+        for word in ["GitHub", "gpt4", "GPT-4", "Wi-Fi", "3M", "A-1-B", "a1b2", "don't", "don’t", "I'm", "O'Reilly", "dogs'", "dogs’", "AT&T", "R&D", "U.S.", "Node.js", "v1.2"] {
             XCTAssertTrue(word.isEnglishDictionaryWord, word)
             XCTAssertTrue(word.isEnglishDictionaryPrefix, word)
         }
-        for word in ["", "123", "123-456", "-GPT", "GPT-", "GPT--4", "don't", "café", "ＧＰＴ", "GPT−4", "GPT_4", "GPT 4", "日本", "GPT-4\n"] {
+        for word in ["", "123", "123-456", "3.14", "-GPT", "GPT-", "GPT--4", "café", "ＧＰＴ", "GPT−4", "GPT_4", "GPT 4", "日本", "GPT-4\n", "'word", "’word", "&word", ".word", "word&", "word..x", "word&&x", "word''x", "word’’x", "word.-x", "word.&x", "word’&x", "&", "'", "’", ".", "..."] {
             XCTAssertFalse(word.isEnglishDictionaryWord, word)
         }
-        for prefix in ["3", "123-", "gpt-", "Wi-", "a1-"] {
+        for prefix in ["3", "123-", "gpt-", "Wi-", "a1-", "don'", "don’", "AT&", "u."] {
             XCTAssertTrue(prefix.isEnglishDictionaryPrefix, prefix)
         }
-        for prefix in ["", "-gpt", "gpt--", "gpt_", "gpt ", "café"] {
+        for prefix in ["", "-gpt", "gpt--", "gpt_", "gpt ", "café", "'word", "&word", ".word", "word..", "word&&", "word’&"] {
             XCTAssertFalse(prefix.isEnglishDictionaryPrefix, prefix)
         }
     }
