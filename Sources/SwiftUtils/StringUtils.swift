@@ -31,6 +31,26 @@ extension StringProtocol {
         }
         return true
     }
+
+    /// 英語辞書の検索キー。許可文字だけを確認し、記号やスペースの位置・個数は制限しない。
+    /// 英字をまだ入力していない「3」「.」「=」などからも補完できる。
+    package var isEnglishDictionaryPrefix: Bool {
+        guard !isEmpty else { return false }
+        return unicodeScalars.allSatisfy { scalar in
+            switch scalar.value {
+            case 0x30...0x39, 0x41...0x5a, 0x61...0x7a,
+                 0x2d, 0x27, 0x2019, 0x26, 0x2e, 0x21, 0x3f, 0x2c, 0x3a, 0x3b, 0x3d, 0x20:
+                return true
+            default:
+                return false
+            }
+        }
+    }
+
+    /// 登録語は許可文字だけで構成され、英字を1文字以上含む。
+    package var isEnglishDictionaryWord: Bool {
+        isEnglishDictionaryPrefix && containsRomanAlphabet
+    }
     /// ローマ字を含むかどうか
     ///  - note: 空文字列の場合`false`を返す。
     /// 以前は正規表現ベースで実装していたが、パフォーマンス上良くなかったので以下のような実装にしたところ40倍程度高速化した。
