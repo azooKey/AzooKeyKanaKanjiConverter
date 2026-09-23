@@ -579,6 +579,29 @@ public final class KanaKanjiConverter {
         return result
     }
 
+    /// 英字readingを持つ辞書候補を取得する。検索キーの大文字・小文字は保持する。
+    func getEnglishDictionaryCandidates(ruby: String, inputCount: Int, penalty: PValue) -> [Candidate] {
+        guard ruby.onlyRomanAlphabet else { return [] }
+        let entries = self.converter.dicdataStore.getPredictionLOUDSDicdata(
+            key: ruby,
+            state: self.dicdataStoreState,
+            includeExactMatch: true
+        )
+        let candidates = entries.filter { $0.ruby.onlyRomanAlphabet && $0.word.onlyRomanAlphabet }.map { entry in
+            Candidate(
+                text: entry.word,
+                value: entry.value() + penalty,
+                composingCount: .inputCount(inputCount),
+                lastMid: entry.mid,
+                data: [entry]
+            )
+        }
+        return self.getUniqueCandidate(candidates).sorted {
+            if $0.value != $1.value { return $0.value > $1.value }
+            return $0.text < $1.text
+        }
+    }
+
     /// 外国語への予測変換候補を生成する関数
     /// - Parameters:
     ///   - inputData: 変換対象のデータ。
@@ -596,6 +619,7 @@ public final class KanaKanjiConverter {
             if !ruby.onlyRomanAlphabet {
                 return result
             }
+            result = self.getEnglishDictionaryCandidates(ruby: ruby, inputCount: inputData.input.count, penalty: penalty)
             if let completions = checker.completions(forPartialWordRange: range, in: ruby, language: language) {
                 if !completions.isEmpty {
                     let data = [DicdataElement(ruby: ruby, cid: CIDData.固有名詞.cid, mid: MIDData.一般.mid, value: penalty)]
@@ -623,7 +647,10 @@ public final class KanaKanjiConverter {
                     value += delta
                 }
             }
-            return result
+            return self.getUniqueCandidate(result).sorted {
+                if $0.value != $1.value { return $0.value > $1.value }
+                return $0.text < $1.text
+            }
         case "el":
             var result: [Candidate] = []
             let ruby = String(inputData.input.compactMap {

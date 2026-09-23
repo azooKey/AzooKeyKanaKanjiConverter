@@ -6,9 +6,10 @@ import OrderedCollections
 extension Subcommands.Dict {
     struct Build: ParsableCommand {
         static let configuration = CommandConfiguration(commandName: "build", abstract: "Build louds dictionary files and cost files from source files.")
+        private static let romanChars = Array("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz").map(String.init)
         private static let targetChars = [
             "￣", "‐", "―", "〜", "・", "、", "…", "‥", "。", "‘", "’", "“", "”", "〈", "〉", "《", "》", "「", "」", "『", "』", "【", "】", "〔", "〕", "‖", "*", "′", "〃", "※", "´", "¨", "゛", "゜", "←", "→", "↑", "↓", "─", "■", "□", "▲", "△", "▼", "▽", "◆", "◇", "○", "◎", "●", "★", "☆", "々", "ゝ", "ヽ", "ゞ", "ヾ", "ー", "〇", "ァ", "ア", "ィ", "イ", "ゥ", "ウ", "ヴ", "ェ", "エ", "ォ", "オ", "ヵ", "カ", "ガ", "キ", "ギ", "ク", "グ", "ヶ", "ケ", "ゲ", "コ", "ゴ", "サ", "ザ", "シ", "ジ", "〆", "ス", "ズ", "セ", "ゼ", "ソ", "ゾ", "タ", "ダ", "チ", "ヂ", "ッ", "ツ", "ヅ", "テ", "デ", "ト", "ド", "ナ", "ニ", "ヌ", "ネ", "ノ", "ハ", "バ", "パ", "ヒ", "ビ", "ピ", "フ", "ブ", "プ", "ヘ", "ベ", "ペ", "ホ", "ボ", "ポ", "マ", "ミ", "ム", "メ", "モ", "ヤ", "ユ", "ョ", "ヨ", "ラ", "リ", "ル", "レ", "ロ", "ヮ", "ワ", "ヰ", "ヱ", "ヲ", "ン", "仝", "0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "！", "？", "(", ")", "#", "%", "&", "^", "_", "'", "\"", "=", "ㇻ"
-        ]
+        ] + romanChars
 
         @Option(name: [.customLong("work_dir")], help: "Work directory that contains (1) `c/` which contains csv file named 'cid.csv' for each cid, and mm.csv which is a csv file of mid-mid bigram matrix; (2) `worddict/`, which contains tsv formatted file of the dictionary; (3) mm.csv which is a csv file of mid-mid bigram matrix.")
         var workingDirectory: String = ""
@@ -39,7 +40,9 @@ extension Subcommands.Dict.Build {
         print("Generates LOUDS files into \(targetDirectoryURL.path) via unified API...")
         var allEntries: [DicdataElement] = []
         for target in Self.targetChars {
-            let sourceURL = sourceDirectoryURL.appendingPathComponent("\(target).tsv", isDirectory: false)
+            // ASCII英字は大小文字を区別しないファイルシステムでも衝突しない名前を使う。
+            let filename = Self.romanChars.contains(target) ? DictionaryBuilder.escapedIdentifier(target) : target
+            let sourceURL = sourceDirectoryURL.appendingPathComponent("\(filename).tsv", isDirectory: false)
             guard FileManager.default.fileExists(atPath: sourceURL.path) else {
                 continue
             }
