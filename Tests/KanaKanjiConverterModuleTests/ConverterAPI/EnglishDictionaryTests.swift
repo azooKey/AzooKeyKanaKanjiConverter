@@ -11,6 +11,13 @@ final class EnglishDictionaryTests: XCTestCase {
         let chars = try String(contentsOf: louds.appendingPathComponent("charID.chid"), encoding: .utf8)
         let map = Dictionary(uniqueKeysWithValues: chars.enumerated().map { ($0.element, UInt8($0.offset)) })
         let entries = [
+            DicdataElement(word: "GPT-4", ruby: "GPT-4", cid: CIDData.固有名詞.cid, mid: MIDData.一般.mid, value: -7),
+            DicdataElement(word: "gpt-4", ruby: "gpt-4", cid: CIDData.固有名詞.cid, mid: MIDData.一般.mid, value: -9),
+            DicdataElement(word: "GPT-5", ruby: "GPT-5", cid: CIDData.固有名詞.cid, mid: MIDData.一般.mid, value: -10),
+            DicdataElement(word: "GPT4", ruby: "GPT4", cid: CIDData.固有名詞.cid, mid: MIDData.一般.mid, value: -11),
+            DicdataElement(word: "3M", ruby: "3M", cid: CIDData.固有名詞.cid, mid: MIDData.一般.mid, value: -8),
+            DicdataElement(word: "Wi-Fi", ruby: "Wi-Fi", cid: CIDData.固有名詞.cid, mid: MIDData.一般.mid, value: -10),
+            DicdataElement(word: "123", ruby: "123", cid: CIDData.固有名詞.cid, mid: MIDData.一般.mid, value: -1),
             DicdataElement(word: "GitHub", ruby: "GitHub", cid: CIDData.固有名詞.cid, mid: MIDData.一般.mid, value: -8),
             DicdataElement(word: "GitLab", ruby: "GitLab", cid: CIDData.固有名詞.cid, mid: MIDData.一般.mid, value: -10),
             DicdataElement(word: "github", ruby: "github", cid: CIDData.固有名詞.cid, mid: MIDData.一般.mid, value: -9),
@@ -35,8 +42,8 @@ final class EnglishDictionaryTests: XCTestCase {
             XCTAssertEqual(converter.getEnglishDictionaryCandidates(ruby: "GitHub", inputCount: 6, penalty: -5).map(\.text), ["GitHub"])
             XCTAssertEqual(converter.getEnglishDictionaryCandidates(ruby: "git", inputCount: 3, penalty: -5).map(\.text), ["GitHub", "github", "GitLab"])
             XCTAssertTrue(converter.getEnglishDictionaryCandidates(ruby: "GIT", inputCount: 3, penalty: -5).isEmpty)
-            XCTAssertEqual(converter.getEnglishDictionaryCandidates(ruby: "g", inputCount: 1, penalty: -5).map(\.text), ["GitHub", "github", "GitLab"])
-            XCTAssertEqual(converter.getEnglishDictionaryCandidates(ruby: "G", inputCount: 1, penalty: -5).map(\.text), ["GitHub", "GitLab"])
+            XCTAssertEqual(converter.getEnglishDictionaryCandidates(ruby: "gi", inputCount: 2, penalty: -5).map(\.text), ["GitHub", "github", "GitLab"])
+            XCTAssertEqual(converter.getEnglishDictionaryCandidates(ruby: "Gi", inputCount: 2, penalty: -5).map(\.text), ["GitHub", "GitLab"])
             XCTAssertEqual(converter.getEnglishDictionaryCandidates(ruby: "github", inputCount: 6, penalty: -5).map(\.text), ["GitHub", "github"])
             XCTAssertEqual(converter.getEnglishDictionaryCandidates(ruby: "gitH", inputCount: 4, penalty: -5).map(\.text), ["GitHub"])
             XCTAssertTrue(converter.getEnglishDictionaryCandidates(ruby: "gIt", inputCount: 3, penalty: -5).isEmpty)
@@ -93,6 +100,33 @@ final class EnglishDictionaryTests: XCTestCase {
             for entry in entries { memory.memorize(dicdataElement: entry, chars: entry.ruby.map { map[$0]! }) }
             XCTAssertEqual(memory.prefixMatch(charOptions: options, maxCount: 1).map(\.word), [word])
             XCTAssertEqual(Set(memory.prefixMatch(charOptions: options, maxCount: 700).map(\.word)), Set(entries.map(\.word)))
+        }
+    }
+
+    func testAlphanumericAndHyphenatedDictionaryCandidates() throws {
+        try withDictionary { url in
+            let converter = KanaKanjiConverter(dictionaryURL: url)
+            func words(_ prefix: String) -> [String] {
+                converter.getEnglishDictionaryCandidates(ruby: prefix, inputCount: prefix.count, penalty: -5).map(\.text)
+            }
+            XCTAssertEqual(words("gpt-"), ["GPT-4", "gpt-4", "GPT-5"])
+            XCTAssertEqual(words("GPT-"), ["GPT-4", "GPT-5"])
+            XCTAssertEqual(words("gpt-4"), ["GPT-4", "gpt-4"])
+            XCTAssertEqual(words("GPT-4"), ["GPT-4"])
+            XCTAssertEqual(words("gpt4"), ["GPT4"])
+            XCTAssertEqual(words("3"), ["3M"])
+            XCTAssertEqual(words("3m"), ["3M"])
+            XCTAssertEqual(words("wi-"), ["Wi-Fi"])
+            XCTAssertEqual(words("wi-fi"), ["Wi-Fi"])
+            for key in ["gpt-3", "123", "123-456", "-GPT", "GPT--", "GPT_", "GPT ", "WI-FI"] {
+                XCTAssertTrue(words(key).isEmpty, key)
+            }
+            for text in ["gpt-", "gpt-4"] {
+                var input = ComposingText()
+                input.insertAtCursorPosition(text, inputStyle: .direct)
+                let result = converter.requestCandidates(input, options: options(at: url, english: .manualMix, roman: false))
+                XCTAssertTrue(result.englishPredictionResults.contains { $0.text == "GPT-4" })
+            }
         }
     }
 

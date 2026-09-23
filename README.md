@@ -137,7 +137,7 @@ let options = ConvertRequestOptions(
 
 AzooKeyKanaKanjiConverterのデフォルト辞書として[azooKey_dictionary_storage](https://github.com/ensan-hcl/azooKey_dictionary_storage)がサブモジュールとして指定されています。過去のバージョンの辞書データは[Google Drive](https://drive.google.com/drive/folders/1Kh7fgMFIzkpg7YwP3GhWTxFkXI-yzT9E?usp=sharing)からもダウンロードすることができます。
 
-英字readingのエントリも利用できます。例えばreadingと表記がともに `GitHub` のエントリは、`Git` の前方一致や `GitHub` の完全一致で英語候補になります。辞書のreading・表記はそのまま保持し、検索時は入力中の小文字を対応する大文字にも一致させます。大文字の入力は大文字だけに一致します。例えば `git` は `GitHub` と `github` の両方に一致し、`Git` は `github` に一致しません。この規則は語中にも適用します。現在の英語候補検索はASCII英字のみを対象とします。
+英字readingのエントリも利用できます。例えばreadingと表記がともに `GitHub` のエントリは、`Git` の前方一致や `GitHub` の完全一致で英語候補になります。辞書のreading・表記はそのまま保持し、検索時は入力中の小文字を対応する大文字にも一致させます。大文字の入力は大文字だけに一致します。例えば `git` は `GitHub` と `github` の両方に一致し、`Git` は `github` に一致しません。この規則は語中にも適用します。登録語は英字を含むASCII英数字列と語中ハイフンに対応します（`GPT-4`、`GPT4`、`Wi-Fi`、`3M` など）。数字だけの語、先頭・末尾・連続ハイフン、空白、アポストロフィ、アクセント付き文字は対象外です。入力途中の `gpt-` や `3` からの補完は可能で、数字・ハイフンは完全一致で照合します。OSへの補完問い合わせは従来どおり英字だけの入力に限定します。
 
 `requireEnglishPrediction` を有効にすると、辞書候補とOSの補完候補を統合します。`.manualMix` では `englishPredictionResults` に返し、`.autoMix` では通常の候補にも混ぜます。日本語ローマ字入力中の英語候補には `englishCandidateInRoman2KanaInput` を使います。辞書候補には登録スコアと既存の英語候補ペナルティを適用し、同じ表記の候補は重複除去します。
 

@@ -581,12 +581,12 @@ public final class KanaKanjiConverter {
 
     /// 英字readingを持つ辞書候補を取得する。小文字入力は大文字にも一致する。
     func getEnglishDictionaryCandidates(ruby: String, inputCount: Int, penalty: PValue) -> [Candidate] {
-        guard ruby.onlyRomanAlphabet else { return [] }
+        guard ruby.isEnglishDictionaryPrefix else { return [] }
         let entries = self.converter.dicdataStore.getEnglishPredictionDicdata(
             key: ruby,
             state: self.dicdataStoreState
         )
-        let candidates = entries.filter { $0.ruby.onlyRomanAlphabet && $0.word.onlyRomanAlphabet }.map { entry in
+        let candidates = entries.filter { $0.ruby.isEnglishDictionaryWord && $0.word.isEnglishDictionaryWord }.map { entry in
             Candidate(
                 text: entry.word,
                 value: entry.value() + penalty,
@@ -615,11 +615,11 @@ public final class KanaKanjiConverter {
                 if case let .character(c) = $0.piece { c } else { nil }
             })
             let range = NSRange(location: 0, length: ruby.utf16.count)
-            if !ruby.onlyRomanAlphabet {
+            if !ruby.isEnglishDictionaryPrefix {
                 return result
             }
             result = self.getEnglishDictionaryCandidates(ruby: ruby, inputCount: inputData.input.count, penalty: penalty)
-            if let completions = checker.completions(forPartialWordRange: range, in: ruby, language: language) {
+            if ruby.onlyRomanAlphabet, let completions = checker.completions(forPartialWordRange: range, in: ruby, language: language) {
                 if !completions.isEmpty {
                     let data = [DicdataElement(ruby: ruby, cid: CIDData.固有名詞.cid, mid: MIDData.一般.mid, value: penalty)]
                     let candidate: Candidate = Candidate(

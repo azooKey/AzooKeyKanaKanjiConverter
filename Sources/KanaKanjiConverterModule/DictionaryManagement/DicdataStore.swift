@@ -698,7 +698,7 @@ public final class DicdataStore {
 
     /// 英字入力では小文字を対応する大文字にも一致させる。大文字は厳密一致。
     func getEnglishPredictionDicdata(key: String, state: DicdataStoreState) -> [DicdataElement] {
-        guard key.onlyRomanAlphabet else { return [] }
+        guard key.isEnglishDictionaryPrefix else { return [] }
         let characterOptions: [[Character]] = key.map { character in
             if ("a"..."z").contains(character) {
                 return [character, Character(String(character).uppercased())]

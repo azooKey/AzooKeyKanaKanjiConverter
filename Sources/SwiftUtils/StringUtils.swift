@@ -31,6 +31,29 @@ extension StringProtocol {
         }
         return true
     }
+
+    /// 英語辞書の検索途中のキー。ASCII英数字と、語中または入力末尾のハイフンを許す。
+    /// 数字のみのprefixも許し、例えば「3」から「3M」を検索できる。
+    package var isEnglishDictionaryPrefix: Bool {
+        guard !isEmpty else { return false }
+        var previousWasAlphanumeric = false
+        for value in utf8 {
+            switch value {
+            case 0x30...0x39, 0x41...0x5a, 0x61...0x7a:
+                previousWasAlphanumeric = true
+            case 0x2d where previousWasAlphanumeric:
+                previousWasAlphanumeric = false
+            default:
+                return false
+            }
+        }
+        return true
+    }
+
+    /// 登録語は英字を必ず含み、ハイフンは英数字の間だけに許す。
+    package var isEnglishDictionaryWord: Bool {
+        isEnglishDictionaryPrefix && containsRomanAlphabet && !hasSuffix("-")
+    }
     /// ローマ字を含むかどうか
     ///  - note: 空文字列の場合`false`を返す。
     /// 以前は正規表現ベースで実装していたが、パフォーマンス上良くなかったので以下のような実装にしたところ40倍程度高速化した。
