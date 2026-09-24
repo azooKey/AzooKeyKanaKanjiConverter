@@ -13,7 +13,8 @@ extension LOUDS {
     // MARK: - Unaligned-safe little-endian readers
     @inline(__always)
     private static func byte(_ data: borrowing Data, _ offset: Int) -> UInt8 {
-        data[data.index(data.startIndex, offsetBy: offset)]
+        guard offset >= 0, offset < data.count else { return 0 }
+        return data[data.index(data.startIndex, offsetBy: offset)]
     }
 
     @inline(__always)
@@ -132,6 +133,13 @@ extension LOUDS {
                     let isFirstField = (rangeStart == strStart)
                     let isEmptyField = (length == 0)
 
+                    // Corrupted files may contain more tab-separated fields than
+                    // declared entries. Writing to dicdata[i] out of bounds traps
+                    // (SIGILL); stop parsing instead.
+                    guard i < dicdata.count else {
+                        return
+                    }
+
                     if isFirstField {
                         let rb = UnsafeBufferPointer(start: ptr + startInt, count: length)
                         ruby = String(decoding: rb, as: UTF8.self)
@@ -218,12 +226,18 @@ extension LOUDS {
         var out: [DicdataElement] = []
         out.reserveCapacity(indices.count * 2) // rough guess
         for idx in indices {
+            // Guard against corrupted / out-of-range entries:
+            // An out-of-bounds subscript on Data traps (SIGILL via ud2) and kills
+            // the whole process (e.g. hazkey-server), so skip invalid indices and
+            // inverted ranges instead of trapping.
+            guard idx >= 0, idx < lc else { continue }
             let start = Int(readUInt32LE(binary, 2 + idx * 4))
             let end: Int = if idx == (lc - 1) {
                 binary.endIndex
             } else {
                 Int(readUInt32LE(binary, 2 + (idx + 1) * 4))
             }
+            guard start < end, end <= binary.count, start >= 2 + lc * 4 else { continue }
             out.append(contentsOf: parseBinary(binary: binary[start ..< end]))
         }
         return out
