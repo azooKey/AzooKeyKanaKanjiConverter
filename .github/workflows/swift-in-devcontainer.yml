@@ -28,5 +28,5 @@ jobs:
         push: never
         runCmd: |
           swift build -c release -Xswiftc -strict-concurrency=complete -Xlinker -L./ -v
-          cp llama-cpp-bin/build/bin/lib*.so .build/*/release/
+          export LD_LIBRARY_PATH="$PWD${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
           swift test -c release -Xswiftc -strict-concurrency=complete -Xlinker -L./ -v
