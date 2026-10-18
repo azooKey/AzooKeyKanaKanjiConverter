@@ -32,10 +32,6 @@ extension LOUDS {
         return b0 | (b1 << 8) | (b2 << 16) | (b3 << 24)
     }
 
-    @inline(__always)
-    private static func readFloat32LE(_ data: borrowing Data, _ offset: Int) -> Float32 {
-        Float32(bitPattern: readUInt32LE(data, offset))
-    }
     private static func loadLOUDSBinary(from url: URL) -> [UInt64]? {
         do {
             let binaryData = try Data(contentsOf: url, options: [.uncached, .mappedIfSafe]) // 2度読み込むことはないのでキャッシュ不要
@@ -96,68 +92,61 @@ extension LOUDS {
         return nil
     }
 
+    /// Reject the whole ruby group if its fields cannot be matched to the numeric rows.
     @inlinable
     static func parseBinary(binary: borrowing Data) -> [DicdataElement] {
-        // Fast parse without intermediate toArray allocations
-        let count = Int(readUInt16LE(binary, 0))
-        var offset = 2
-        var dicdata: [DicdataElement] = []
-        dicdata.reserveCapacity(count)
-        if count > 0 {
-            // Each entry: 2B*3 (UInt16) + 4B (Float32) = 10B
-            for _ in 0 ..< count {
-                let lcid = Int(readUInt16LE(binary, offset + 0))
-                let rcid = Int(readUInt16LE(binary, offset + 2))
-                let mid = Int(readUInt16LE(binary, offset + 4))
-                let value = PValue(readFloat32LE(binary, offset + 6))
-                dicdata.append(DicdataElement(word: "", ruby: "", lcid: lcid, rcid: rcid, mid: mid, value: value))
-                offset += 10
-            }
+        guard binary.count >= 2 else {
+            return []
         }
+        let count = Int(readUInt16LE(binary, 0))
+        // Each row contains three UInt16 IDs and one Float32 score.
+        guard count > 0, count <= (binary.count - 2) / 10 else {
+            return []
+        }
+        let textStart = 2 + count * 10
 
-        let strStart = binary.index(binary.startIndex, offsetBy: offset)
-        var rangeStart = strStart
-        var ruby: String = ""
-        var i = dicdata.startIndex
-
-        binary.withUnsafeBytes { (rawBuffer: UnsafeRawBufferPointer) in
-            let ptr = rawBuffer.bindMemory(to: UInt8.self).baseAddress!
-            let count = binary.count
-            var offset = strStart + 1 - binary.startIndex
-            while offset <= count {
-                if offset == count || ptr[offset] == UInt8(ascii: "\t") {
-                    // Compute numeric start relative to base
-                    let startInt = rangeStart - binary.startIndex
-                    let length = offset - startInt
-                    let isFirstField = (rangeStart == strStart)
-                    let isEmptyField = (length == 0)
-
-                    if isFirstField {
-                        let rb = UnsafeBufferPointer(start: ptr + startInt, count: length)
-                        ruby = String(decoding: rb, as: UTF8.self)
-                    } else if isEmptyField {
-                        withMutableValue(&dicdata[i]) {
-                            $0.ruby = ruby
-                            $0.word = ruby
-                        }
-                        i = dicdata.index(after: i)
-                    } else {
-                        let wb = UnsafeBufferPointer(start: ptr + startInt, count: length)
-                        let word = String(decoding: wb, as: UTF8.self)
-                        withMutableValue(&dicdata[i]) {
-                            $0.ruby = ruby
-                            $0.word = word
-                        }
-                        i = dicdata.index(after: i)
+        return binary.withUnsafeBytes { (rawBuffer: UnsafeRawBufferPointer) in
+            let bytes = rawBuffer.bindMemory(to: UInt8.self)
+            var fieldStart = textStart
+            var ruby: String?
+            var dicdata: [DicdataElement] = []
+            dicdata.reserveCapacity(count)
+            // Include the end position so a trailing empty word is preserved.
+            for offset in textStart ... bytes.count {
+                if offset == bytes.count || bytes[offset] == UInt8(ascii: "\t") {
+                    // Use Swift's contiguous-buffer decoder. Byte equality detects
+                    // repaired UTF-8 while accepting a genuine replacement character.
+                    let fieldBytes = UnsafeBufferPointer(rebasing: bytes[fieldStart ..< offset])
+                    // swiftlint:disable:next optional_data_string_conversion
+                    let field = String(decoding: fieldBytes, as: UTF8.self)
+                    guard field.utf8.elementsEqual(fieldBytes) else {
+                        return []
                     }
-                    rangeStart = binary.startIndex + offset + 1
-                    offset += 1
-                } else {
-                    offset += 1
+                    if let ruby {
+                        guard dicdata.count < count else {
+                            return []
+                        }
+                        let rowOffset = 2 + dicdata.count * 10
+                        // The numeric region is checked above; slices may be unaligned.
+                        dicdata.append(DicdataElement(
+                            word: field.isEmpty ? ruby : field,
+                            ruby: ruby,
+                            lcid: Int(rawBuffer.loadUnaligned(fromByteOffset: rowOffset, as: UInt16.self).littleEndian),
+                            rcid: Int(rawBuffer.loadUnaligned(fromByteOffset: rowOffset + 2, as: UInt16.self).littleEndian),
+                            mid: Int(rawBuffer.loadUnaligned(fromByteOffset: rowOffset + 4, as: UInt16.self).littleEndian),
+                            value: PValue(Float32(bitPattern: rawBuffer.loadUnaligned(fromByteOffset: rowOffset + 6, as: UInt32.self).littleEndian))
+                        ))
+                    } else {
+                        guard !field.isEmpty else {
+                            return []
+                        }
+                        ruby = field
+                    }
+                    fieldStart = offset + 1
                 }
             }
+            return dicdata.count == count ? dicdata : []
         }
-        return dicdata
     }
 
     static func getUserDictionaryDataForLoudstxt3(_ identifier: String, indices: [Int], cache: Data? = nil, userDictionaryURL: URL) -> [DicdataElement] {
@@ -212,19 +201,32 @@ extension LOUDS {
         }
     }
 
-    private static func parseLoudstxt3Binary(binary: borrowing Data, indices: [Int]) -> [DicdataElement] {
-        let lc: Int = Int(readUInt16LE(binary, 0))
-        // Header table of UInt32 offsets starts at byte 2
+    /// Validate the complete offset table before any entry is read.
+    static func loudstxt3EntryCount(binary: borrowing Data) -> Int? {
+        guard binary.count >= 2 else {
+            return nil
+        }
+        let count = Int(readUInt16LE(binary, 0))
+        guard count <= (binary.count - 2) / 4 else {
+            return nil
+        }
+        return count
+    }
+
+    static func parseLoudstxt3Binary(binary: borrowing Data, indices: [Int]) -> [DicdataElement] {
+        guard let count = loudstxt3EntryCount(binary: binary) else {
+            return []
+        }
+        let headerSize = 2 + count * 4
         var out: [DicdataElement] = []
-        out.reserveCapacity(indices.count * 2) // rough guess
+        out.reserveCapacity(indices.count * 2)
         for idx in indices {
+            guard idx >= 0, idx < count else { continue }
             let start = Int(readUInt32LE(binary, 2 + idx * 4))
-            let end: Int = if idx == (lc - 1) {
-                binary.endIndex
-            } else {
-                Int(readUInt32LE(binary, 2 + (idx + 1) * 4))
-            }
-            out.append(contentsOf: parseBinary(binary: binary[start ..< end]))
+            let end = idx == count - 1 ? binary.count : Int(readUInt32LE(binary, 2 + (idx + 1) * 4))
+            guard start >= headerSize, start < end, end <= binary.count else { continue }
+            let base = binary.startIndex
+            out.append(contentsOf: parseBinary(binary: binary[(base + start) ..< (base + end)]))
         }
         return out
     }

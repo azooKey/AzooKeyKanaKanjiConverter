@@ -14,6 +14,17 @@ final class TemporalLearningMemoryTrieTests: XCTestCase {
         LearningManager.keyToChars(string, char2UInt8: Self.loadCharMap())!
     }
 
+    func testMemorizeRejectsUnrepresentableText() {
+        var trie = TemporalLearningMemoryTrie()
+        for (ruby, word) in [("テスト", "テ\tスト"), ("テ\tスト", "テスト"), ("", "テスト")] {
+            let element = DicdataElement(word: word, ruby: ruby, cid: CIDData.一般名詞.cid, mid: MIDData.一般.mid, value: -10)
+            // Supply IDs even for tab so rejection does not depend on the character map.
+            trie.memorize(dicdataElement: element, chars: [1, 2, 3])
+            XCTAssertTrue(trie.isEmpty)
+            XCTAssertTrue(trie.perfectMatch(chars: [1, 2, 3]).isEmpty)
+        }
+    }
+
     func testMemorizeAndMatch() throws {
         var trie = TemporalLearningMemoryTrie()
         let element1 = DicdataElement(word: "テスト", ruby: "テスト", cid: CIDData.一般名詞.cid, mid: MIDData.一般.mid, value: -10)
