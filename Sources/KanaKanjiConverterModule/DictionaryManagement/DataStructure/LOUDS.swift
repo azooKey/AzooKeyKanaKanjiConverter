@@ -191,6 +191,27 @@ package struct LOUDS: Sendable {
         return childNodeIndices
     }
 
+    /// 各位置で許容する文字IDを指定して検索する。存在する枝だけを辿る。
+    func prefixNodeIndices(charOptions: [[UInt8]], maxCount: Int) -> [Int] {
+        guard maxCount > 0 else { return [] }
+        var matchingNodes = [1]
+        for options in charOptions {
+            matchingNodes = matchingNodes.flatMap { parent in
+                options.compactMap { self.searchCharNodeIndex(from: parent, char: $0) }
+            }
+            if matchingNodes.isEmpty { return [] }
+        }
+        // 完全一致するノードを優先して確保した上で、その子孫も返す。
+        var result = Array(matchingNodes.prefix(maxCount))
+        for node in matchingNodes {
+            guard result.count < maxCount else { break }
+            result.append(contentsOf: self.prefixNodeIndices(
+                nodeIndex: node, maxDepth: .max, maxCount: maxCount - result.count
+            ).prefix(maxCount - result.count))
+        }
+        return result
+    }
+
     /// 前方一致検索を実行する
     ///
     /// 「しかい」を入力した場合、そこから先の「しかいし」「しかいしゃ」「しかいいん」なども探す。

@@ -696,6 +696,35 @@ public final class DicdataStore {
         return result
     }
 
+    /// 英字入力では小文字を対応する大文字にも一致させる。大文字は厳密一致。
+    func getEnglishPredictionDicdata(key: String, state: DicdataStoreState) -> [DicdataElement] {
+        guard key.isEnglishDictionaryPrefix else { return [] }
+        let characterOptions: [[Character]] = key.map { character in
+            if ("a"..."z").contains(character) {
+                return [character, Character(String(character).uppercased())]
+            }
+            return [character]
+        }
+        let charOptions = characterOptions.map { $0.compactMap { self.charsID[$0] } }
+        var queries = characterOptions[0].map(String.init)
+        queries.append("user")
+        if state.learningMemoryManager.enabled { queries.append("memory") }
+        let maxCount = 700
+        var result: [DicdataElement] = []
+        for query in queries {
+            guard let louds = self.loadLOUDS(query: query, state: state) else { continue }
+            let indices = louds.prefixNodeIndices(charOptions: charOptions, maxCount: maxCount)
+            let entries = self.getDicdataFromLoudstxt3(identifier: query, indices: indices, state: state)
+            result.append(contentsOf: entries.filter {
+                query == "user" || query == "memory" || Self.predictionUsable[$0.rcid]
+            })
+        }
+        if state.learningMemoryManager.enabled {
+            result.append(contentsOf: state.learningMemoryManager.temporaryPrefixMatch(charOptions: charOptions, maxCount: maxCount))
+        }
+        return result
+    }
+
     private func parseLoudstxt2FormattedEntry(from dataString: [some StringProtocol]) -> DicdataElement {
         let ruby = String(dataString[0])
         let word = dataString[1].isEmpty ? ruby : String(dataString[1])

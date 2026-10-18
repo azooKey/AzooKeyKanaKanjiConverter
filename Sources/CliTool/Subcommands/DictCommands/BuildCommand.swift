@@ -6,9 +6,12 @@ import OrderedCollections
 extension Subcommands.Dict {
     struct Build: ParsableCommand {
         static let configuration = CommandConfiguration(commandName: "build", abstract: "Build louds dictionary files and cost files from source files.")
-        private static let targetChars = [
-            "￣", "‐", "―", "〜", "・", "、", "…", "‥", "。", "‘", "’", "“", "”", "〈", "〉", "《", "》", "「", "」", "『", "』", "【", "】", "〔", "〕", "‖", "*", "′", "〃", "※", "´", "¨", "゛", "゜", "←", "→", "↑", "↓", "─", "■", "□", "▲", "△", "▼", "▽", "◆", "◇", "○", "◎", "●", "★", "☆", "々", "ゝ", "ヽ", "ゞ", "ヾ", "ー", "〇", "ァ", "ア", "ィ", "イ", "ゥ", "ウ", "ヴ", "ェ", "エ", "ォ", "オ", "ヵ", "カ", "ガ", "キ", "ギ", "ク", "グ", "ヶ", "ケ", "ゲ", "コ", "ゴ", "サ", "ザ", "シ", "ジ", "〆", "ス", "ズ", "セ", "ゼ", "ソ", "ゾ", "タ", "ダ", "チ", "ヂ", "ッ", "ツ", "ヅ", "テ", "デ", "ト", "ド", "ナ", "ニ", "ヌ", "ネ", "ノ", "ハ", "バ", "パ", "ヒ", "ビ", "ピ", "フ", "ブ", "プ", "ヘ", "ベ", "ペ", "ホ", "ボ", "ポ", "マ", "ミ", "ム", "メ", "モ", "ヤ", "ユ", "ョ", "ヨ", "ラ", "リ", "ル", "レ", "ロ", "ヮ", "ワ", "ヰ", "ヱ", "ヲ", "ン", "仝", "0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "！", "？", "(", ")", "#", "%", "&", "^", "_", "'", "\"", "=", "ㇻ"
-        ]
+        private static let romanChars = Array("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz").map(String.init)
+        // 取り込み対象をcharID表から導き、対応文字の追加時にTSVを読み落とさないようにする。
+        private static let targetChars: [String] = Self.char2UInt8
+            .filter { !Self.skipCharacters.contains($0.key) }
+            .sorted { $0.value < $1.value }
+            .map { String($0.key) }
 
         @Option(name: [.customLong("work_dir")], help: "Work directory that contains (1) `c/` which contains csv file named 'cid.csv' for each cid, and mm.csv which is a csv file of mid-mid bigram matrix; (2) `worddict/`, which contains tsv formatted file of the dictionary; (3) mm.csv which is a csv file of mid-mid bigram matrix.")
         var workingDirectory: String = ""
@@ -39,7 +42,9 @@ extension Subcommands.Dict.Build {
         print("Generates LOUDS files into \(targetDirectoryURL.path) via unified API...")
         var allEntries: [DicdataElement] = []
         for target in Self.targetChars {
-            let sourceURL = sourceDirectoryURL.appendingPathComponent("\(target).tsv", isDirectory: false)
+            // ASCII英字は大小文字を区別しないファイルシステムでも衝突しない名前を使う。
+            let filename = Self.romanChars.contains(target) ? DictionaryBuilder.escapedIdentifier(target) : target
+            let sourceURL = sourceDirectoryURL.appendingPathComponent("\(filename).tsv", isDirectory: false)
             guard FileManager.default.fileExists(atPath: sourceURL.path) else {
                 continue
             }
@@ -201,7 +206,7 @@ struct CostBuilder {
 
 extension Subcommands.Dict.Build {
     static let char2UInt8 = [Character: UInt8](
-        uniqueKeysWithValues: ["\0", "　", "￣", "‐", "―", "〜", "・", "、", "…", "‥", "。", "‘", "’", "“", "”", "〈", "〉", "《", "》", "「", "」", "『", "』", "【", "】", "〔", "〕", "‖", "*", "′", "〃", "※", "´", "¨", "゛", "゜", "←", "→", "↑", "↓", "─", "■", "□", "▲", "△", "▼", "▽", "◆", "◇", "○", "◎", "●", "★", "☆", "々", "ゝ", "ヽ", "ゞ", "ヾ", "ー", "〇", "Q", "ァ", "ア", "ィ", "イ", "ゥ", "ウ", "ヴ", "ェ", "エ", "ォ", "オ", "ヵ", "カ", "ガ", "キ", "ギ", "ク", "グ", "ヶ", "ケ", "ゲ", "コ", "ゴ", "サ", "ザ", "シ", "ジ", "〆", "ス", "ズ", "セ", "ゼ", "ソ", "ゾ", "タ", "ダ", "チ", "ヂ", "ッ", "ツ", "ヅ", "テ", "デ", "ト", "ド", "ナ", "ニ", "ヌ", "ネ", "ノ", "ハ", "バ", "パ", "ヒ", "ビ", "ピ", "フ", "ブ", "プ", "ヘ", "ベ", "ペ", "ホ", "ボ", "ポ", "マ", "ミ", "ム", "メ", "モ", "ャ", "ヤ", "ュ", "ユ", "ョ", "ヨ", "ラ", "リ", "ル", "レ", "ロ", "ヮ", "ワ", "ヰ", "ヱ", "ヲ", "ン", "仝", "&", "A", "！", "0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "？", "a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k", "l", "m", "n", "o", "p", "q", "r", "s", "t", "u", "v", "w", "x", "y", "z", "B", "C", "D", "E", "F", "G", "H", "I", "J", "K", "L", "M", "N", "O", "P", "R", "S", "T", "U", "V", "W", "X", "Y", "Z", "^", "_", "=", "ㇻ", "(", ")", "#", "%", "'", "\"", "+", "-", "ㇼ"]
+        uniqueKeysWithValues: ["\0", "　", "￣", "‐", "―", "〜", "・", "、", "…", "‥", "。", "‘", "’", "“", "”", "〈", "〉", "《", "》", "「", "」", "『", "』", "【", "】", "〔", "〕", "‖", "*", "′", "〃", "※", "´", "¨", "゛", "゜", "←", "→", "↑", "↓", "─", "■", "□", "▲", "△", "▼", "▽", "◆", "◇", "○", "◎", "●", "★", "☆", "々", "ゝ", "ヽ", "ゞ", "ヾ", "ー", "〇", "Q", "ァ", "ア", "ィ", "イ", "ゥ", "ウ", "ヴ", "ェ", "エ", "ォ", "オ", "ヵ", "カ", "ガ", "キ", "ギ", "ク", "グ", "ヶ", "ケ", "ゲ", "コ", "ゴ", "サ", "ザ", "シ", "ジ", "〆", "ス", "ズ", "セ", "ゼ", "ソ", "ゾ", "タ", "ダ", "チ", "ヂ", "ッ", "ツ", "ヅ", "テ", "デ", "ト", "ド", "ナ", "ニ", "ヌ", "ネ", "ノ", "ハ", "バ", "パ", "ヒ", "ビ", "ピ", "フ", "ブ", "プ", "ヘ", "ベ", "ペ", "ホ", "ボ", "ポ", "マ", "ミ", "ム", "メ", "モ", "ャ", "ヤ", "ュ", "ユ", "ョ", "ヨ", "ラ", "リ", "ル", "レ", "ロ", "ヮ", "ワ", "ヰ", "ヱ", "ヲ", "ン", "仝", "&", "A", "！", "0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "？", "a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k", "l", "m", "n", "o", "p", "q", "r", "s", "t", "u", "v", "w", "x", "y", "z", "B", "C", "D", "E", "F", "G", "H", "I", "J", "K", "L", "M", "N", "O", "P", "R", "S", "T", "U", "V", "W", "X", "Y", "Z", "^", "_", "=", "ㇻ", "(", ")", "#", "%", "'", "\"", "+", "-", "ㇼ", ".", " ", "!", "?", ",", ":", ";"]
             .enumerated()
             .map {
                 (Character($0.element), UInt8($0.offset))
@@ -210,7 +215,7 @@ extension Subcommands.Dict.Build {
 
     /// これらの文字を含む単語はスキップする
     static let skipCharacters: Set<Character> = [
-        "ヷ", "ヸ", "!", "　", "\0"
+        "ヷ", "ヸ", "　", "\0"
     ]
 
     static func writeCharID(targetDirectory: URL) throws {

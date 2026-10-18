@@ -62,6 +62,26 @@ final class WarekiConversionTests: XCTestCase {
 
         do {
             let converter = KanaKanjiConverter.withoutDictionary()
+            let input = makeDirectInput(direct: "1869ねん")
+            let result = converter.toWarekiCandidates(input)
+            XCTAssertEqual(result.count, 1)
+            if result.count == 1 {
+                XCTAssertEqual(result[0].text, "明治2年")
+            }
+        }
+
+        do {
+            let converter = KanaKanjiConverter.withoutDictionary()
+            let input = makeDirectInput(direct: "1911ねん")
+            let result = converter.toWarekiCandidates(input)
+            XCTAssertEqual(result.count, 1)
+            if result.count == 1 {
+                XCTAssertEqual(result[0].text, "明治44年")
+            }
+        }
+
+        do {
+            let converter = KanaKanjiConverter.withoutDictionary()
             let input = makeDirectInput(direct: "9999ねん")
             let result = converter.toWarekiCandidates(input)
             XCTAssertEqual(result.count, 1)

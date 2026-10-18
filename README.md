@@ -137,6 +137,12 @@ let options = ConvertRequestOptions(
 
 AzooKeyKanaKanjiConverterのデフォルト辞書として[azooKey_dictionary_storage](https://github.com/ensan-hcl/azooKey_dictionary_storage)がサブモジュールとして指定されています。過去のバージョンの辞書データは[Google Drive](https://drive.google.com/drive/folders/1Kh7fgMFIzkpg7YwP3GhWTxFkXI-yzT9E?usp=sharing)からもダウンロードすることができます。
 
+英字readingのエントリも利用できます。例えばreadingと表記がともに `GitHub` のエントリは、`Git` の前方一致や `GitHub` の完全一致で英語候補になります。辞書のreading・表記はそのまま保持し、検索時は入力中の小文字を対応する大文字にも一致させます。大文字の入力は大文字だけに一致します。例えば `git` は `GitHub` と `github` の両方に一致し、`Git` は `github` に一致しません。この規則は語中にも適用します。登録条件は、ASCII英数字・半角スペース・`- ' ’ & . ! ? , : ; =` だけで構成され、英字を1文字以上含むことです。記号・スペースの位置や連続回数は制限せず、大小文字を含めて元の表記を保持します。`.NET`、`=LOVE`、`Yahoo!!`、`New York`、`R & D` などに対応します。タブ・改行・全角文字・アクセント付き文字など、許可文字以外を含む表記は対象外です。検索キーは英字をまだ含まない `.`・`=`・半角スペースなども許可し、登録語を前方一致で補完します。数字・記号・スペースは完全一致で照合し、`'` と `’` は区別します。OSへの補完問い合わせは従来どおり英字だけの入力に限定します。
+
+`requireEnglishPrediction` を有効にすると、辞書候補とOSの補完候補を統合します。`.manualMix` では `englishPredictionResults` に返し、`.autoMix` では通常の候補にも混ぜます。日本語ローマ字入力中の英語候補には `englishCandidateInRoman2KanaInput` を使います。辞書候補には登録スコアと既存の英語候補ペナルティを適用し、同じ表記の候補は重複除去します。
+
+`anco dict build` の入力は従来の6列TSV（reading・表記・左品詞ID・右品詞ID・意味ID・スコア）です。取り込み対象の先頭文字はcharID表から自動生成し、明示的な除外文字のみ除きます。英字で始まる入力ファイルは、大小文字を区別しないファイルシステムでの衝突を避け、`worddict/[0047].tsv`（G）、`worddict/[0067].tsv`（g）のように先頭文字のコードを4桁の大文字16進数で表します。カタカナ等の既存ファイル名は変更しません。charIDの対応表には末尾に `.`（ID 227）、半角スペース（ID 228）、`! ? , : ;`（順にID 229〜233）を追加し、既存IDとバイナリ形式は維持します。`=` は既存IDを使用し、CLIの `!` を含むreadingの除外も解除します。ピリオド・半角スペース・`! ? , : ;` を含むreadingを使うには、新しいビルド結果の `charID.chid` と辞書ファイルを一緒に配布してください。
+
 また、以下のフォーマットであれば自前で用意した辞書データを利用することもできます。カスタム辞書データのサポートは限定的なので、ソースコードを確認の上ご利用ください。
 
 ```

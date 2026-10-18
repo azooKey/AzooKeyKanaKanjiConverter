@@ -579,6 +579,28 @@ public final class KanaKanjiConverter {
         return result
     }
 
+    /// 英字readingを持つ辞書候補を取得する。小文字入力は大文字にも一致する。
+    func getEnglishDictionaryCandidates(ruby: String, inputCount: Int, penalty: PValue) -> [Candidate] {
+        guard ruby.isEnglishDictionaryPrefix else { return [] }
+        let entries = self.converter.dicdataStore.getEnglishPredictionDicdata(
+            key: ruby,
+            state: self.dicdataStoreState
+        )
+        let candidates = entries.filter { $0.ruby.isEnglishDictionaryWord && $0.word.isEnglishDictionaryWord }.map { entry in
+            Candidate(
+                text: entry.word,
+                value: entry.value() + penalty,
+                composingCount: .inputCount(inputCount),
+                lastMid: entry.mid,
+                data: [entry]
+            )
+        }
+        return self.getUniqueCandidate(candidates).sorted {
+            if $0.value != $1.value { return $0.value > $1.value }
+            return $0.text < $1.text
+        }
+    }
+
     /// 外国語への予測変換候補を生成する関数
     /// - Parameters:
     ///   - inputData: 変換対象のデータ。
@@ -593,10 +615,11 @@ public final class KanaKanjiConverter {
                 if case let .character(c) = $0.piece { c } else { nil }
             })
             let range = NSRange(location: 0, length: ruby.utf16.count)
-            if !ruby.onlyRomanAlphabet {
+            if !ruby.isEnglishDictionaryPrefix {
                 return result
             }
-            if let completions = checker.completions(forPartialWordRange: range, in: ruby, language: language) {
+            result = self.getEnglishDictionaryCandidates(ruby: ruby, inputCount: inputData.input.count, penalty: penalty)
+            if ruby.onlyRomanAlphabet, let completions = checker.completions(forPartialWordRange: range, in: ruby, language: language) {
                 if !completions.isEmpty {
                     let data = [DicdataElement(ruby: ruby, cid: CIDData.固有名詞.cid, mid: MIDData.一般.mid, value: penalty)]
                     let candidate: Candidate = Candidate(
@@ -623,7 +646,10 @@ public final class KanaKanjiConverter {
                     value += delta
                 }
             }
-            return result
+            return self.getUniqueCandidate(result).sorted {
+                if $0.value != $1.value { return $0.value > $1.value }
+                return $0.text < $1.text
+            }
         case "el":
             var result: [Candidate] = []
             let ruby = String(inputData.input.compactMap {
