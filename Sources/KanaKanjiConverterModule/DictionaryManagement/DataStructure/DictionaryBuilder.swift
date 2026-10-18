@@ -10,6 +10,7 @@ public enum DictionaryBuilder {
     /// Bit mask for local index (only valid if entriesPerShard is power of two).
     public static let localMask: Int = entriesPerShard - 1
     /// Export a dictionary from DicdataElement entries into LOUDS and loudstxt3 files.
+    /// Entries with an empty ruby or a tab in their ruby/word are omitted.
     /// - Parameters:
     ///   - entries: DicdataElement list (ruby must be consistent form, typically Katakana).
     ///   - directoryURL: Target directory for outputs.
@@ -24,6 +25,8 @@ public enum DictionaryBuilder {
         char2UInt8: [Character: UInt8],
         shardShift customShardShift: Int? = nil
     ) throws {
+        // Tab is the field separator in loudstxt3 and cannot occur in stored text.
+        let entries = entries.filter { Loudstxt3Builder.isValidText(ruby: $0.ruby, word: $0.word) }
         let effectiveShardShift = customShardShift ?? Self.shardShift
         let effectiveEntriesPerShard = 1 << effectiveShardShift
         let effectiveLocalMask = effectiveEntriesPerShard - 1
@@ -286,35 +289,36 @@ enum Loudstxt3Builder {
         public var score: Float32
     }
 
-    /// Make loudstxt3 binary from grouped entries per ruby key.
-    /// Each element represents one node (one ruby string) and its rows.
+    static func isValidText(ruby: String, word: String) -> Bool {
+        !ruby.isEmpty && !ruby.contains("\t") && !word.contains("\t")
+    }
+
+    private static func makeEntryBinary(ruby: String, rows: [Row]) -> Data {
+        let rows = rows.filter { isValidText(ruby: ruby, word: $0.word) }
+        var count = UInt16(rows.count)
+        var data = Data(bytes: &count, count: MemoryLayout<UInt16>.size)
+        guard !rows.isEmpty else {
+            return data
+        }
+        for row in rows {
+            var lcid = UInt16(row.lcid)
+            var rcid = UInt16(row.rcid)
+            var mid = UInt16(row.mid)
+            var score = Float32(row.score)
+            data.append(Data(bytes: &lcid, count: MemoryLayout<UInt16>.size))
+            data.append(Data(bytes: &rcid, count: MemoryLayout<UInt16>.size))
+            data.append(Data(bytes: &mid, count: MemoryLayout<UInt16>.size))
+            data.append(Data(bytes: &score, count: MemoryLayout<Float32>.size))
+        }
+        let text = ([ruby] + rows.map { $0.word == ruby ? "" : $0.word }).joined(separator: "\t")
+        data.append(contentsOf: text.utf8)
+        return data
+    }
+
+    /// Make loudstxt3 binary, preserving node slots while omitting unrepresentable rows.
     static func makeBinary(entries: [(ruby: String, rows: [Row])]) -> Data {
         let lc = entries.count
-        var body = Data()
-        body.reserveCapacity(lc * 64)
-        // Build per-entry payloads
-        var payloads: [Data] = []
-        payloads.reserveCapacity(lc)
-        for entry in entries {
-            var d = Data()
-            var count = UInt16(entry.rows.count)
-            d.append(Data(bytes: &count, count: MemoryLayout<UInt16>.size))
-            // numeric rows
-            for row in entry.rows {
-                var lcid = UInt16(row.lcid)
-                var rcid = UInt16(row.rcid)
-                var mid = UInt16(row.mid)
-                var score = Float32(row.score)
-                d.append(Data(bytes: &lcid, count: MemoryLayout<UInt16>.size))
-                d.append(Data(bytes: &rcid, count: MemoryLayout<UInt16>.size))
-                d.append(Data(bytes: &mid, count: MemoryLayout<UInt16>.size))
-                d.append(Data(bytes: &score, count: MemoryLayout<Float32>.size))
-            }
-            // text area: ruby + words (empty string when equals ruby), separated by tab
-            let text = ([entry.ruby] + entry.rows.map { $0.word == entry.ruby ? "" : $0.word }).joined(separator: "\t")
-            d.append(text.data(using: .utf8, allowLossyConversion: false)!)
-            payloads.append(d)
-        }
+        let payloads = entries.map { makeEntryBinary(ruby: $0.ruby, rows: $0.rows) }
         // header count (UInt16)
         var count16 = UInt16(lc)
         var result = Data()
@@ -342,22 +346,7 @@ enum Loudstxt3Builder {
             guard (0 ..< entriesPerShard).contains(item.local) else {
                 continue
             }
-            var d = Data()
-            var count = UInt16(item.rows.count)
-            d.append(Data(bytes: &count, count: MemoryLayout<UInt16>.size))
-            for row in item.rows {
-                var lcid = UInt16(row.lcid)
-                var rcid = UInt16(row.rcid)
-                var mid = UInt16(row.mid)
-                var score = Float32(row.score)
-                d.append(Data(bytes: &lcid, count: MemoryLayout<UInt16>.size))
-                d.append(Data(bytes: &rcid, count: MemoryLayout<UInt16>.size))
-                d.append(Data(bytes: &mid, count: MemoryLayout<UInt16>.size))
-                d.append(Data(bytes: &score, count: MemoryLayout<Float32>.size))
-            }
-            let text = ([item.ruby] + item.rows.map { $0.word == item.ruby ? "" : $0.word }).joined(separator: "\t")
-            d.append(text.data(using: .utf8, allowLossyConversion: false)!)
-            payloads[item.local] = d
+            payloads[item.local] = makeEntryBinary(ruby: item.ruby, rows: item.rows)
         }
         // Build header
         var result = Data()

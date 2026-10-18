@@ -206,50 +206,48 @@ struct LongTermLearningMemory {
         let ltMetadata = (try? Data(contentsOf: metadataFileURL(asTemporaryFile: false, directoryURL: directoryURL))) ?? Data([.zero, .zero, .zero, .zero])
         var metadataOffset = 0
         // 最初の4byteはentry countに対応する
-        let entryCount = ltMetadata[metadataOffset ..< metadataOffset + 4].toArray(of: UInt32.self)[0]
+        let entryCount = ltMetadata.count >= 4 ? ltMetadata[0 ..< 4].toArray(of: UInt32.self)[0] : 0
         metadataOffset += 4
 
         debug("LongTermLearningMemory merge entryCount", entryCount, ltMetadata.count)
 
         let forgetTargetWords = Set(forgetTargets.map { $0.word })
         // それぞれのloudstxt3ファイルに対して処理を行う
-        for loudstxtIndex in 0 ..< Int(entryCount) / txtFileSplit + 1 {
-            let loudstxtData: Data
-            do {
-                loudstxtData = try Data(contentsOf: loudsTxt3FileURL("\(loudstxtIndex)", asTemporaryFile: false, directoryURL: directoryURL))
-            } catch {
-                debug("LongTermLearningMemory merge failed to read \(loudstxtIndex)", error)
-                continue
-            }
-            // loudstxt3の数
-            let count = Int(loudstxtData[0 ..< 2].toArray(of: UInt16.self)[0])
-            let indices = loudstxtData[2 ..< 2 + 4 * count].toArray(of: UInt32.self)
+        shards: for loudstxtIndex in 0 ..< (Int(entryCount) + txtFileSplit - 1) / txtFileSplit {
+            let url = loudsTxt3FileURL("\(loudstxtIndex)", asTemporaryFile: false, directoryURL: directoryURL)
+            let loudstxtData = (try? Data(contentsOf: url)) ?? Data()
+            // Advance metadata even for a missing or malformed shard so subsequent
+            // shards retain their correspondence with the metadata stream.
+            let count = min(txtFileSplit, Int(entryCount) - loudstxtIndex * txtFileSplit)
+            let hasValidHeader = LOUDS.loudstxt3EntryCount(binary: loudstxtData) == count
             for i in 0 ..< count {
                 guard metadataOffset < ltMetadata.endIndex else {
-                    break
+                    break shards
                 }
                 // メタデータの読み取り
                 // 1byteで項目数
                 let itemCount = Int(ltMetadata[metadataOffset ..< metadataOffset + 1].toArray(of: UInt8.self)[0])
                 metadataOffset += 1
+                guard itemCount <= (ltMetadata.endIndex - metadataOffset) / MemoryLayout<MetadataElement>.size else {
+                    break shards
+                }
                 let metadata = (0 ..< itemCount).map {
                     let range = metadataOffset + $0 * MemoryLayout<MetadataElement>.size ..< metadataOffset + ($0 + 1) * MemoryLayout<MetadataElement>.size
                     return ltMetadata[range].toArray(of: MetadataElement.self)[0]
                 }
                 metadataOffset += itemCount * MemoryLayout<MetadataElement>.size
 
+                guard hasValidHeader else { continue }
                 // バイナリ内部でのindex
-                let startIndex = Int(indices[i])
-                let endIndex = i == (indices.endIndex - 1) ? loudstxtData.endIndex : Int(indices[i + 1])
-                let elements = LOUDS.parseBinary(binary: loudstxtData[startIndex ..< endIndex])
+                let elements = LOUDS.parseLoudstxt3Binary(binary: loudstxtData, indices: [i])
                 // 該当部分を取り出してメタデータに従ってフィルター、trieに追加
-                guard let ruby = elements.first?.ruby,
+                guard elements.count == metadata.count,
+                      let ruby = elements.first?.ruby,
                       let chars = LearningManager.keyToChars(ruby, char2UInt8: char2UInt8) else {
                     continue
                 }
                 var newDicdata: [DicdataElement] = []
                 var newMetadata: [MetadataElement] = []
-                assert(elements.count == metadata.count, "elements count and metadata count must be equal.")
                 for (dicdataElement, metadataElement) in zip(elements, metadata) {
                     // 忘却対象である場合は弾く（粗いチェック）
                     if forgetTargetWords.contains(dicdataElement.word) {
@@ -497,6 +495,10 @@ struct TemporalLearningMemoryTrie {
     }
 
     mutating func memorize(dicdataElement: DicdataElement, chars: [UInt8]) {
+        // Reject before creating nodes or metadata, including synthesized phrase entries.
+        guard Loudstxt3Builder.isValidText(ruby: dicdataElement.ruby, word: dicdataElement.word) else {
+            return
+        }
         var index = 0
         for char in chars {
             if let nextIndex = nodes[index].children[char] {

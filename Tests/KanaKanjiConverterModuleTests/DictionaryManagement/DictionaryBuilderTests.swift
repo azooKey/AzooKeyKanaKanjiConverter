@@ -182,6 +182,60 @@ final class DictionaryBuilderTests: XCTestCase {
         }
     }
 
+    func testLoudstxt3WritersOmitTabRowsWithoutMovingSlots() throws {
+        let invalidWord = Loudstxt3Builder.Row(word: "表\t記", lcid: 1, rcid: 1, mid: 1, score: -1)
+        let valid = Loudstxt3Builder.Row(word: "表記", lcid: 2, rcid: 3, mid: 4, score: -2)
+        let groups: [(ruby: String, rows: [Loudstxt3Builder.Row])] = [
+            (ruby: "ヨ\tミ", rows: [valid]),
+            (ruby: "ヨミ", rows: [invalidWord, valid]),
+            (ruby: "ツギ", rows: [valid])
+        ]
+        let data = Loudstxt3Builder.makeBinary(entries: groups)
+        XCTAssertEqual(headerCount(data), 3)
+        XCTAssertTrue(LOUDS.parseBinary(binary: entrySlice(data, 0)).isEmpty)
+        for index in [1, 2] {
+            let rows = LOUDS.parseBinary(binary: entrySlice(data, index))
+            XCTAssertEqual(rows.map { $0.word }, ["表記"])
+            XCTAssertEqual(rows.map { $0.ruby }, [groups[index].ruby])
+            XCTAssertEqual(rows.map { $0.lcid }, [2])
+            XCTAssertEqual(rows.map { $0.rcid }, [3])
+            XCTAssertEqual(rows.map { $0.mid }, [4])
+        }
+
+        let dir = try tmpDir("tab-rows")
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let url = dir.appendingPathComponent("user0.loudstxt3")
+        try Loudstxt3Builder.writeAligned(items: [
+            (local: 1, ruby: groups[0].ruby, rows: groups[0].rows),
+            (local: 3, ruby: groups[1].ruby, rows: groups[1].rows),
+            (local: 5, ruby: groups[2].ruby, rows: groups[2].rows)
+        ], to: url, entriesPerShard: 8)
+        let aligned = try Data(contentsOf: url)
+        XCTAssertTrue(LOUDS.parseLoudstxt3Binary(binary: aligned, indices: [1]).isEmpty)
+        let parsed = LOUDS.parseLoudstxt3Binary(binary: aligned, indices: [3, 5])
+        XCTAssertEqual(parsed.map { $0.word }, ["表記", "表記"])
+        XCTAssertEqual(parsed.map { $0.ruby }, ["ヨミ", "ツギ"])
+    }
+
+    func testExportOmitsTabsInRubyAndWord() throws {
+        let dir = try tmpDir("export-tabs")
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let entries = [
+            DicdataElement(word: "愛", ruby: "アイ", cid: 1, mid: 1, value: -1),
+            DicdataElement(word: "あ\tい", ruby: "アイ", cid: 2, mid: 2, value: -2),
+            DicdataElement(word: "藍", ruby: "ア\tイ", cid: 3, mid: 3, value: -3)
+        ]
+        let cmap = charMap(["ア", "イ", "\t"])
+        try DictionaryBuilder.exportDictionary(entries: entries, to: dir, baseName: "user", shardByFirstCharacter: false, char2UInt8: cmap)
+        let louds = try XCTUnwrap(LOUDS.loadUserDictionary(userDictionaryURL: dir))
+        XCTAssertNil(louds.searchNodeIndex(chars: toIDs("ア\tイ", cmap)))
+        let index = try XCTUnwrap(louds.searchNodeIndex(chars: toIDs("アイ", cmap)))
+        let (shard, local) = shardComponents(index)
+        let parsed = LOUDS.getUserDictionaryDataForLoudstxt3("user\(shard)", indices: [local], userDictionaryURL: dir)
+        XCTAssertEqual(parsed.map { $0.word }, ["愛"])
+        XCTAssertEqual(parsed.map { $0.lcid }, [1])
+    }
+
     func testWordOmissionExactMatchOnly() throws {
         // When word == ruby (exact), writer should omit the word (empty field).
         // When word == ruby.toKatakana(), current behavior should NOT omit.
