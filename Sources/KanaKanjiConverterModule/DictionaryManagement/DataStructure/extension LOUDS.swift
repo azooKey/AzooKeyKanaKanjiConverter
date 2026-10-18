@@ -32,10 +32,6 @@ extension LOUDS {
         return b0 | (b1 << 8) | (b2 << 16) | (b3 << 24)
     }
 
-    @inline(__always)
-    private static func readFloat32LE(_ data: borrowing Data, _ offset: Int) -> Float32 {
-        Float32(bitPattern: readUInt32LE(data, offset))
-    }
     private static func loadLOUDSBinary(from url: URL) -> [UInt64]? {
         do {
             let binaryData = try Data(contentsOf: url, options: [.uncached, .mappedIfSafe]) // 2度読み込むことはないのでキャッシュ不要
@@ -118,7 +114,12 @@ extension LOUDS {
             // Include the end position so a trailing empty word is preserved.
             for offset in textStart ... bytes.count {
                 if offset == bytes.count || bytes[offset] == UInt8(ascii: "\t") {
-                    guard let field = String(bytes: bytes[fieldStart ..< offset], encoding: .utf8) else {
+                    // Use Swift's contiguous-buffer decoder. Byte equality detects
+                    // repaired UTF-8 while accepting a genuine replacement character.
+                    let fieldBytes = UnsafeBufferPointer(rebasing: bytes[fieldStart ..< offset])
+                    // swiftlint:disable:next optional_data_string_conversion
+                    let field = String(decoding: fieldBytes, as: UTF8.self)
+                    guard field.utf8.elementsEqual(fieldBytes) else {
                         return []
                     }
                     if let ruby {
@@ -126,13 +127,14 @@ extension LOUDS {
                             return []
                         }
                         let rowOffset = 2 + dicdata.count * 10
+                        // The numeric region is checked above; slices may be unaligned.
                         dicdata.append(DicdataElement(
                             word: field.isEmpty ? ruby : field,
                             ruby: ruby,
-                            lcid: Int(readUInt16LE(binary, rowOffset)),
-                            rcid: Int(readUInt16LE(binary, rowOffset + 2)),
-                            mid: Int(readUInt16LE(binary, rowOffset + 4)),
-                            value: PValue(readFloat32LE(binary, rowOffset + 6))
+                            lcid: Int(rawBuffer.loadUnaligned(fromByteOffset: rowOffset, as: UInt16.self).littleEndian),
+                            rcid: Int(rawBuffer.loadUnaligned(fromByteOffset: rowOffset + 2, as: UInt16.self).littleEndian),
+                            mid: Int(rawBuffer.loadUnaligned(fromByteOffset: rowOffset + 4, as: UInt16.self).littleEndian),
+                            value: PValue(Float32(bitPattern: rawBuffer.loadUnaligned(fromByteOffset: rowOffset + 6, as: UInt32.self).littleEndian))
                         ))
                     } else {
                         guard !field.isEmpty else {

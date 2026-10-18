@@ -53,9 +53,26 @@ final class LOUDSParsingTests: XCTestCase {
     }
 
     func testInvalidUTF8RejectsWholeRubyGroup() {
-        var data = payload(count: 1, text: "ヨミ\t")
-        data.append(255)
-        XCTAssertTrue(LOUDS.parseBinary(binary: data).isEmpty)
+        let invalidBytes: [[UInt8]] = [[255], [0xc0, 0xaf], [0xe3, 0x81], [0xed, 0xa0, 0x80], [0xf4, 0x90, 0x80, 0x80]]
+        for bytes in invalidBytes {
+            var invalidWord = payload(count: 1, text: "ヨミ\t")
+            invalidWord.append(contentsOf: bytes)
+            XCTAssertTrue(LOUDS.parseBinary(binary: invalidWord).isEmpty)
+            var invalidRuby = payload(count: 1, text: "")
+            invalidRuby.append(contentsOf: bytes)
+            invalidRuby.append(contentsOf: "\t表記".utf8)
+            XCTAssertTrue(LOUDS.parseBinary(binary: invalidRuby).isEmpty)
+        }
+    }
+
+    func testValidUTF8BytesArePreserved() throws {
+        // Decomposed characters, embedded NUL and a genuine U+FFFD are valid UTF-8.
+        let ruby = "カ\u{3099}\u{0000}\u{fffd}"
+        let word = "か\u{3099}\u{0000}\u{fffd}"
+        let parsed = LOUDS.parseBinary(binary: payload(count: 1, text: "\(ruby)\t\(word)"))
+        let entry = try XCTUnwrap(parsed.first)
+        XCTAssertEqual(Array(entry.ruby.utf8), Array(ruby.utf8))
+        XCTAssertEqual(Array(entry.word.utf8), Array(word.utf8))
     }
 
     func testMalformedEntryDoesNotDiscardOtherEntries() {
