@@ -181,7 +181,7 @@ extension KanaKanjiConverter {
             ]
         }
         if (1869...1911).contains(seireki) {
-            let i = seireki - 1967
+            let i = seireki - 1867
             return [
                 makeResult0("明治\(i)年")
             ]
