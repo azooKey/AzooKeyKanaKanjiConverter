@@ -33,6 +33,8 @@ jobs:
         os: [ubuntu-24.04]
         swift-version: ["6.4.1"]
     steps:
+      - name: Import Swift signing keys
+        run: curl --fail --silent --show-error --location --compressed https://www.swift.org/keys/all-keys.asc | gpg --batch --import
       - uses: swift-actions/setup-swift@v3
         with:
           swift-version: ${{ matrix.swift-version }}
