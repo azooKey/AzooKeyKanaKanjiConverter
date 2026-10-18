@@ -193,15 +193,11 @@ extension DicdataStore {
                     return tokens
                 }
             case "シ":
-                if let u1 = nextScalar() {
-                    if u1 == "チ" {
-                        tokens.append(.なな)
-                    } else {
-                        tokens.append(.よん)
-                        // reprocess this lookahead on next loop
-                        lookahead = u1
-                    }
+                if lookahead == "チ" {
+                    _ = nextScalar()
+                    tokens.append(.なな)
                 } else {
+                    // 「シ」だけで四。後続文字は次のループで処理する。
                     tokens.append(.よん)
                 }
             case "ジ":

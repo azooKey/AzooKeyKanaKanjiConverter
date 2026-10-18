@@ -25,6 +25,19 @@ final class JapaneseNumberConversionTests: XCTestCase {
             XCTAssertTrue(result.contains(where: {$0.word == "264000009"}))
         }
         do {
+            // 「シ」の先読みで後続文字を消費しないことと、「シチ」の分岐を確認する。
+            for (reading, kanji, number) in [
+                ("シ", "四", "4"),
+                ("シチ", "七", "7"),
+                ("シマル", "四〇", "40"),
+                ("シジュウ", "四十", "40")
+            ] {
+                let result = dicdataStore.getJapaneseNumberDicdata(head: reading)
+                XCTAssertEqual(result.map(\.word), [kanji, number], reading)
+            }
+            XCTAssertTrue(dicdataStore.getJapaneseNumberDicdata(head: "シマエル").isEmpty)
+        }
+        do {
             XCTAssertEqual(dicdataStore.getJapaneseNumberDicdata(head: "マルマン").count, 0)
             XCTAssertEqual(dicdataStore.getJapaneseNumberDicdata(head: "アマン").count, 0)
             XCTAssertEqual(dicdataStore.getJapaneseNumberDicdata(head: "イチリン").count, 0)
