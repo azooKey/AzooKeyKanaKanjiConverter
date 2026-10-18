@@ -86,10 +86,11 @@ jobs:
           Copy-Item -Path "llama-cpp-bin/llama.lib" -Destination "./"
           Copy-Item -Path "llama-cpp-bin/ggml.dll" -Destination "./"
           Copy-Item -Path "llama-cpp-bin/ggml-*.dll" -Destination "./"
+      # Swift Build currently fails to touch resource bundles on Windows (file lock).
       - name: Build
-        run: swift build -Xswiftc -strict-concurrency=complete -v
+        run: swift build --build-system native -Xswiftc -strict-concurrency=complete -v
       - name: Run tests
-        run: swift test -c release -Xswiftc -strict-concurrency=complete -v
+        run: swift test --build-system native -c release -Xswiftc -strict-concurrency=complete -v
   android-build:
     # Keep all three architectures on the latest release of this Android SDK.
     # The host toolchain version must match the SDK.
