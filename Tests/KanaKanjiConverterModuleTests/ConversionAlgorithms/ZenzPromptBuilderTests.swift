@@ -191,6 +191,50 @@ final class ZenzPromptBuilderTests: XCTestCase {
         XCTAssertEqual(result, [trailingElement])
     }
 
+    func testUserWordContinuationsMarksTokensInsideUserWords() {
+        let userWord = DicdataElement(
+            word: "桐谷奏",
+            ruby: "キリタニカナデ",
+            cid: CIDData.固有名詞.cid,
+            mid: MIDData.一般.mid,
+            value: 0,
+            metadata: .isFromUserDictionary
+        )
+        let learnedWord = DicdataElement(
+            word: "莉央",
+            ruby: "リオ",
+            cid: CIDData.固有名詞.cid,
+            mid: MIDData.一般.mid,
+            value: 0,
+            metadata: .isLearned
+        )
+        let trailingElement = DicdataElement(
+            word: "と",
+            ruby: "ト",
+            cid: CIDData.一般名詞.cid,
+            mid: MIDData.一般.mid,
+            value: 0
+        )
+
+        // 桐 / 谷奏 / と / 莉 / 央
+        let result = ZenzCandidateEvaluator.userWordContinuations(
+            data: [userWord, trailingElement, learnedWord],
+            text: "桐谷奏と莉央",
+            tokenByteCounts: [3, 6, 3, 3, 3],
+            normalize: { $0 }
+        )
+        XCTAssertEqual(result, [false, true, false, false, true])
+
+        // 単語の表記を連結したものが候補の表記と一致しない場合は判定しない
+        let mismatched = ZenzCandidateEvaluator.userWordContinuations(
+            data: [userWord],
+            text: "←桐谷奏",
+            tokenByteCounts: [3, 3, 6],
+            normalize: { $0 }
+        )
+        XCTAssertEqual(mismatched, [false, false, false])
+    }
+
     func testZenzaiLatticeInputDataUsesPrefixForNonEndCursor() {
         let input = ComposingText(
             convertTargetCursorPosition: 1,
