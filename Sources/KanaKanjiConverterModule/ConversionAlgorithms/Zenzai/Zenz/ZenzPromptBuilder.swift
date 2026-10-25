@@ -87,15 +87,16 @@ enum ZenzPromptBuilder {
         versionDependentConfig: ConvertRequestOptions.ZenzaiVersionDependentMode
     ) -> String {
         var conditions: [String] = []
-        if !userDictionaryPrompt.isEmpty {
-            conditions.append("辞書:\(userDictionaryPrompt)")
-        }
 
         let leftSideContext: String
         let rightSideContext: String
         let enableAlignmentSeparator: Bool
         switch versionDependentConfig {
         case .v2(let mode):
+            // ユーザ辞書の条件はv2のみ。v3には対応するタグがなく、入力前の余分な文字列として扱われる
+            if !userDictionaryPrompt.isEmpty {
+                conditions.append("辞書:\(userDictionaryPrompt)")
+            }
             if let profile = mode.profile, !profile.isEmpty {
                 let pf = profile.suffix(25)
                 conditions.append("プロフィール:\(pf)")

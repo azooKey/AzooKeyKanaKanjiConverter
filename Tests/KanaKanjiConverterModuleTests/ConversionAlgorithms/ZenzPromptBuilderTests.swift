@@ -107,6 +107,19 @@ final class ZenzPromptBuilderTests: XCTestCase {
         )
     }
 
+    func testCandidateEvaluationPromptV3OmitsDictionary() {
+        let prompt = ZenzPromptBuilder.candidateEvaluationPrompt(
+            input: "ヘンカン",
+            userDictionaryPrompt: "単語(たんご)",
+            versionDependentConfig: .v3(.init(profile: "profile"))
+        )
+
+        XCTAssertEqual(
+            prompt,
+            "\u{EE03}profile\u{EE00}ヘンカン\u{EE01}"
+        )
+    }
+
     func testCandidateTextForEvaluationV3DoesNotAppendAlignmentSeparatorByDefault() {
         let text = ZenzCandidateEvaluator.candidateTextForEvaluation(
             candidateText: "葉",
