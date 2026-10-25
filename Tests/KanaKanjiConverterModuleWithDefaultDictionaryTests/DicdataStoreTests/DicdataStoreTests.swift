@@ -390,6 +390,27 @@ final class DicdataStoreTests: XCTestCase {
         }
     }
 
+    func testDynamicUserDictWordLongerThanDictionaryPrefixes() throws {
+        let dicdataStore = DicdataStore.withDefaultDictionary()
+        // 辞書の前方一致はキリタニ（桐谷）までで、その先に読みが続く単語
+        let state = dicdataStore.prepareState()
+        state.importDynamicUserDictionary([
+            DicdataElement(word: "桐谷奏", ruby: "キリタニカナデ", lcid: CIDData.固有名詞.cid, rcid: CIDData.固有名詞.cid, mid: MIDData.一般.mid, value: -5)
+        ])
+
+        // 終端を指定しない検索（Zenzaiのようにラティスを一括で構築する場合）でも見つかることのテスト
+        var c = ComposingText()
+        c.insertAtCursorPosition("キリタニカナデサン", inputStyle: .direct)
+        let result = dicdataStore.lookupDicdata(
+            composingText: c,
+            inputRange: (0, nil),
+            surfaceRange: (0, nil),
+            needTypoCorrection: false,
+            state: state
+        )
+        XCTAssertTrue(result.contains(where: {$0.data.word == "桐谷奏"}))
+    }
+
     func testPossibleNexts() throws {
         let possibleNexts = InputStyleManager.shared.table(for: .defaultRomanToKana).possibleNexts
         XCTAssertEqual(Set(possibleNexts["f", default: []]).symmetricDifference(["ファ", "フィ", "フ", "フェ", "フォ", "フャ", "フュ", "フョ", "フゥ", "ッf"]), [])

@@ -372,6 +372,11 @@ public final class DicdataStore {
                 let katakanaString = String(characters).toKatakana()
                 let dynamicUserDictResult = self.getMatchDynamicUserDict(katakanaString, state: state)
                 updated = updated || !dynamicUserDictResult.isEmpty
+                // 辞書の前方一致が途切れた先まで読みが続く単語がある場合、探索を打ち切らない
+                if state.dynamicUserDictionary.contains(where: { $0.ruby.count > katakanaString.count && $0.ruby.hasPrefix(katakanaString) }) {
+                    updated = true
+                    availableMaxIndex = max(availableMaxIndex, characters.endIndex - 1)
+                }
                 for data in dynamicUserDictResult {
                     let depth = characters.endIndex
                     if info.penalty.isZero {
