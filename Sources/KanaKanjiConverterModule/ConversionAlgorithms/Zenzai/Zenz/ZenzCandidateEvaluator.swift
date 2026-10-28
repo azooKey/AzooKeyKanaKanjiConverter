@@ -24,6 +24,7 @@ struct ZenzEvaluationCacheKey: Sendable, Equatable, Hashable {
         var word: String
         var ruby: String
         var isLearned: Bool
+        var isFromUserDictionary: Bool = false
     }
 
     var prompt: String
@@ -175,7 +176,8 @@ struct ZenzCandidateEvaluator {
                     .init(
                         word: $0.word,
                         ruby: $0.ruby,
-                        isLearned: $0.metadata.contains(.isLearned)
+                        isLearned: $0.metadata.contains(.isLearned),
+                        isFromUserDictionary: $0.metadata.contains(.isFromUserDictionary)
                     )
                 }
             )
@@ -214,13 +216,24 @@ struct ZenzCandidateEvaluator {
         }
 
         let tokens = promptTokens + candidateTokens
+        // 学習・ユーザ辞書の単語は先頭のtokenで採否を判断し、以降のtokenは表記のまま残す
+        let userWordContinuations: [Bool]? = if candidate.data.contains(where: { !$0.metadata.isDisjoint(with: Self.userWordMetadata) }) {
+            self.userWordContinuations(
+                data: candidate.data,
+                text: candidate.text,
+                tokenByteCounts: candidateTokens.map { context.tokenToPiece(token: $0).count },
+                normalize: context.normalizeForModel
+            )
+        } else {
+            nil
+        }
         let startOffset = promptTokens.count - 1 + addressedTokens.count
         let n_vocab = Int(context.vocabSize)
         let learnedTokenPriorities: [Float]?
-        if candidate.data.contains(where: { $0.metadata.contains(.isLearned) }) {
+        if candidate.data.contains(where: { !$0.metadata.isDisjoint(with: Self.userWordMetadata) }) {
             let candidateLearnedTokens = candidate.data.flatMap {
                 Array(
-                    repeating: $0.metadata.contains(.isLearned) ? logf(self.learningPriority(data: $0)) : 0,
+                    repeating: !$0.metadata.isDisjoint(with: Self.userWordMetadata) ? logf(self.learningPriority(data: $0)) : 0,
                     count: context.encode($0.word, addBOS: false).count
                 )
             }
@@ -346,7 +359,11 @@ struct ZenzCandidateEvaluator {
                     )
                 }
 
-                if maxItem.token != tokenID {
+                let candidateTokenIndex = i - promptTokens.count
+                let continuesUserWord = userWordContinuations.map {
+                    candidateTokenIndex < $0.count && $0[candidateTokenIndex]
+                } ?? false
+                if maxItem.token != tokenID, !continuesUserWord {
                     if maxItem.token == context.eosToken {
                         let cchars = tokens[..<i].reduce(into: []) {
                             $0.append(contentsOf: context.tokenToPiece(token: $1))
@@ -356,7 +373,6 @@ struct ZenzCandidateEvaluator {
                         let wholeResult = String(string.dropFirst(normalizedPrompt.count))
                         return finish(.wholeResult(wholeResult))
                     } else {
-                        let candidateTokenIndex = i - promptTokens.count
                         let learnedPriority = learnedTokenPriorities.map {
                             candidateTokenIndex < $0.count ? $0[candidateTokenIndex] : 0
                         } ?? 0
@@ -374,7 +390,7 @@ struct ZenzCandidateEvaluator {
                             )
                         }
                     }
-                } else if requestRichCandidates {
+                } else if !continuesUserWord, requestRichCandidates {
                     tokenHeap.removeMax()
                     let prefix = tokens[..<i].reduce(into: []) {
                         $0.append(contentsOf: context.tokenToPiece(token: $1))
@@ -443,6 +459,37 @@ struct ZenzCandidateEvaluator {
                 return candidateText + ZenzPromptBuilder.alignmentSeparator
             }
             return candidateText
+        }
+    }
+
+    private static let userWordMetadata: DicdataElementMetadata = [.isLearned, .isFromUserDictionary]
+
+    /// 候補の各tokenが、学習・ユーザ辞書の単語の途中から始まるかどうかを返す
+    /// - note: 単語の表記を連結したものが候補の表記と一致しない場合は判定しない
+    static func userWordContinuations(
+        data: [DicdataElement],
+        text: String,
+        tokenByteCounts: [Int],
+        normalize: (String) -> String
+    ) -> [Bool] {
+        guard data.map(\.word).joined() == text else {
+            return Array(repeating: false, count: tokenByteCounts.count)
+        }
+        var userWordRanges: [Range<Int>] = []
+        var wordOffset = 0
+        for element in data {
+            let byteCount = normalize(element.word).utf8.count
+            if !element.metadata.isDisjoint(with: self.userWordMetadata) {
+                userWordRanges.append(wordOffset ..< wordOffset + byteCount)
+            }
+            wordOffset += byteCount
+        }
+        var tokenOffset = 0
+        return tokenByteCounts.map { byteCount in
+            defer {
+                tokenOffset += byteCount
+            }
+            return userWordRanges.contains { $0.lowerBound < tokenOffset && tokenOffset < $0.upperBound }
         }
     }
 
