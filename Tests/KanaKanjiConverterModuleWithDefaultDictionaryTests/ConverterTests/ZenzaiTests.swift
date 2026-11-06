@@ -322,6 +322,25 @@ final class ZenzaiTests: XCTestCase {
     }
 
     @MainActor
+    func testGradualConversionDoesNotReusePrefixEvaluatedForPrediction() throws {
+        let options = self.desktopPredictiveInputOptions(leftSideContext: nil)
+        try XCTSkipUnless(FileManager.default.fileExists(atPath: options.zenzaiMode.weightURL.path))
+
+        let converter = KanaKanjiConverter.withDefaultDictionary()
+        var composingText = ComposingText()
+        var result: ConversionResult?
+        // At the pending "m", prediction evaluates みずをのむ in its scratch session.
+        // When "u" arrives, the live conversion must still evaluate its own prefix.
+        for character in "mizuwonomunda" {
+            composingText.insertAtCursorPosition(String(character), inputStyle: .mapped(id: .defaultRomanToKana))
+            result = converter.requestCandidates(composingText, options: options)
+        }
+
+        XCTAssertEqual(composingText.convertTarget, "みずをのむんだ")
+        XCTAssertEqual(result?.mainResults.first?.text, "水を飲むんだ")
+    }
+
+    @MainActor
     func testGradualConversion() throws {
         // 辞書は先に読み込んでおく（純粋な比較のため）
         let dicdataStore = DicdataStore.withDefaultDictionary(preloadDictionary: true)
