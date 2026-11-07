@@ -101,7 +101,8 @@ jobs:
       fail-fast: false
       matrix:
         arch: [x86_64, aarch64, armv7]
-        os: [ubuntu-latest]
+        # Swift 6.2 requires libxml2.so.2, which is available on Ubuntu 24.04.
+        os: [ubuntu-24.04]
         # You may find the checksum at: https://github.com/finagolfin/swift-android-sdk/blob/main/README.md#swift-cross-compilation-sdk-bundle-for-android
         swift-version:
           [{
