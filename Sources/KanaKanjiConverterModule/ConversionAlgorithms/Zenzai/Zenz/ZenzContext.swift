@@ -344,7 +344,6 @@ final class ZenzContext {
     private var context: OpaquePointer
     private var batch: llama_batch
     private var prevInputBySeq: [llama_seq_id: [llama_token]] = [:]
-    private var prevPromptBySeq: [llama_seq_id: String] = [:]
 
     private let n_len: Int32 = 512
     private let evalSeqId: llama_seq_id = 0
@@ -459,7 +458,6 @@ final class ZenzContext {
         }
         self.context = context
         self.prevInputBySeq = [:]
-        self.prevPromptBySeq = [:]
     }
 
     private func getLogits(tokens: [llama_token], logits_start_index: Int = 0, seqId: llama_seq_id = 0) -> UnsafeMutablePointer<Float>? {
@@ -516,14 +514,6 @@ final class ZenzContext {
         // update cached input for next call (for KV cache management)
         self.prevInputBySeq[seqId] = tokens
         return llama_get_logits(context)
-    }
-
-    func previousEvaluationPrompt() -> String {
-        self.prevPromptBySeq[evalSeqId] ?? ""
-    }
-
-    func setPreviousEvaluationPrompt(_ prompt: String) {
-        self.prevPromptBySeq[evalSeqId] = prompt
     }
 
     func normalizeForModel(_ text: String) -> String {

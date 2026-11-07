@@ -88,7 +88,8 @@ struct ZenzCandidateEvaluator {
         prefixConstraint: Kana2Kanji.PrefixConstraint,
         personalizationMode: (mode: ConvertRequestOptions.ZenzaiMode.PersonalizationMode, base: EfficientNGram, personal: EfficientNGram)?,
         versionDependentConfig: ConvertRequestOptions.ZenzaiVersionDependentMode,
-        memoizationCache: ZenzaiMemoizationCache
+        memoizationCache: ZenzaiMemoizationCache,
+        previousEvaluationPrompt: inout String?
     ) -> CandidateEvaluationResult {
         // 固定された部分は、表記を左文脈に移し、読みを入力から除いて、残りだけを評価する。
         // モデルは固定された表記が読みを消費したことを知らないので、残したまま評価すると続きの判断がずれる。
@@ -104,7 +105,8 @@ struct ZenzCandidateEvaluator {
                 prefixConstraint: prefixConstraint,
                 personalizationMode: personalizationMode,
                 versionDependentConfig: versionDependentConfig,
-                memoizationCache: memoizationCache
+                memoizationCache: memoizationCache,
+                previousEvaluationPrompt: &previousEvaluationPrompt
             )
         }
         let fixed = Array(prefixConstraint.constraint.prefix(fixedPrefix.byteCount))
@@ -123,7 +125,8 @@ struct ZenzCandidateEvaluator {
             prefixConstraint: remainingConstraint,
             personalizationMode: personalizationMode,
             versionDependentConfig: self.appendingLeftSideContext(String(decoding: fixed, as: UTF8.self), to: versionDependentConfig),
-            memoizationCache: memoizationCache
+            memoizationCache: memoizationCache,
+            previousEvaluationPrompt: &previousEvaluationPrompt
         )
         return self.prepending(fixed, to: result)
     }
@@ -137,7 +140,8 @@ struct ZenzCandidateEvaluator {
         prefixConstraint: Kana2Kanji.PrefixConstraint,
         personalizationMode: (mode: ConvertRequestOptions.ZenzaiMode.PersonalizationMode, base: EfficientNGram, personal: EfficientNGram)?,
         versionDependentConfig: ConvertRequestOptions.ZenzaiVersionDependentMode,
-        memoizationCache: ZenzaiMemoizationCache
+        memoizationCache: ZenzaiMemoizationCache,
+        previousEvaluationPrompt: inout String?
     ) -> CandidateEvaluationResult {
         debug("Evaluate", candidate)
         var userDictionaryPrompt = ""
@@ -157,12 +161,11 @@ struct ZenzCandidateEvaluator {
             versionDependentConfig: versionDependentConfig
         )
         let normalizedPrompt = context.normalizeForModel(prompt)
-        let prevPrompt = context.previousEvaluationPrompt()
-        let reusesAddressedPrefix = prevPrompt == normalizedPrompt && !requestRichCandidates
+        let reusesAddressedPrefix = previousEvaluationPrompt == normalizedPrompt && !requestRichCandidates
         // A cache hit must produce the same subsequent incremental-evaluation state
         // as a model evaluation.
         defer {
-            context.setPreviousEvaluationPrompt(normalizedPrompt)
+            previousEvaluationPrompt = normalizedPrompt
         }
         let cacheKey: ZenzEvaluationCacheKey? = if personalizationMode == nil {
             ZenzEvaluationCacheKey(
