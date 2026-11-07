@@ -92,90 +92,77 @@ jobs:
       - name: Run tests
         run: swift test --build-system native -c release -Xswiftc -strict-concurrency=complete -v
   android-build:
-    # Keep all three architectures on the latest release of this Android SDK.
-    # The host toolchain version must match the SDK.
-    # from: finagolfin/swift-android-sdk
     name: Swift on android
-    runs-on: ${{ matrix.os }}
+    runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
       matrix:
         arch: [x86_64, aarch64, armv7]
-        os: [ubuntu-latest]
-        # You may find the checksum at: https://github.com/finagolfin/swift-android-sdk/blob/main/README.md#swift-cross-compilation-sdk-bundle-for-android
-        swift-version:
-          [{
-            version: "6.2",
-            android: "24",
-            checksum: "c26ebfd4e32c0ca1beabcc45729b62042da57ee76d7d043f63f2235da90dc491"
-          }]
+    env:
+      SWIFT_VERSION: "6.4.2"
+      ANDROID_API_LEVEL: "28"
+      ANDROID_NDK_VERSION: "30.0.16248370"
 
     steps:
-      - name: Setup Swift toolchain
+      - name: Import Swift signing keys
+        run: curl --fail --silent --show-error --location --compressed https://www.swift.org/keys/all-keys.asc | gpg --batch --import
+      - uses: swift-actions/setup-swift@v3
+        with:
+          swift-version: ${{ env.SWIFT_VERSION }}
+      - name: Set up the official Swift SDK for Android
         run: |
-          curl -sL https://download.swift.org/swift-${{ matrix.swift-version.version }}-release/ubuntu2204/swift-${{ matrix.swift-version.version }}-RELEASE/swift-${{ matrix.swift-version.version }}-RELEASE-ubuntu22.04.tar.gz -o swift-toolchain.tar.gz
-          tar xf swift-toolchain.tar.gz
-          TOOLCHAIN=${PWD}/swift-${{ matrix.swift-version.version }}-RELEASE-ubuntu22.04/usr
-          echo "TOOLCHAIN=${TOOLCHAIN}" >> $GITHUB_ENV
-          ${TOOLCHAIN}/bin/swift --version
+          ndk="$ANDROID_HOME/ndk/$ANDROID_NDK_VERSION"
+          if [[ ! -d "$ndk" ]]; then
+            sdkmanager "ndk;$ANDROID_NDK_VERSION"
+          fi
+          export ANDROID_NDK_HOME="$ndk"
+          export ANDROID_NDK_ROOT="$ndk"
 
-      - name: Setup Swift release Android SDK
-        run: |
-          # The SDK bundle configures its own NDK; the runner-provided ANDROID_NDK_ROOT breaks that setup.
-          env -u ANDROID_NDK_ROOT ${TOOLCHAIN}/bin/swift sdk install https://github.com/finagolfin/swift-android-sdk/releases/download/${{ matrix.swift-version.version }}/swift-${{ matrix.swift-version.version }}-RELEASE-android-${{ matrix.swift-version.android }}-0.1.artifactbundle.tar.gz --checksum ${{ matrix.swift-version.checksum }}
-          ${TOOLCHAIN}/bin/swift sdk list
+          sdk_name="swift-${SWIFT_VERSION}-RELEASE_android"
+          sdk_url="https://download.swift.org/swift-${SWIFT_VERSION}-release/android-sdk/swift-${SWIFT_VERSION}-RELEASE/${sdk_name}.artifactbundle.tar.gz"
+          swift sdk install "$sdk_url" --checksum 4d6ad63ea74becd58e123ff58b1b48c3be5ec0db0dff0ea5abe37ac007dd3233
+          sdk_dir="$HOME/.config/swiftpm/swift-sdks/${sdk_name}.artifactbundle/swift-android"
+          bash "$sdk_dir/scripts/setup-android-sdk.sh"
+
+          {
+            echo "ANDROID_NDK_HOME=$ANDROID_NDK_HOME"
+            echo "ANDROID_NDK_ROOT=$ANDROID_NDK_ROOT"
+            echo "ANDROID_SWIFT_SDK=$sdk_dir"
+          } >> "$GITHUB_ENV"
 
       - uses: actions/checkout@v6
         with:
-          path: AzooKeyKanaKanjiConverter
           submodules: true
       - name: Build
+        env:
+          ANDROID_ARCH: ${{ matrix.arch }}
         run: |
-          cd AzooKeyKanaKanjiConverter
-          ARCH_TARGET="${{ matrix.arch }}-unknown-linux-android${{ matrix.swift-version.android }}"
-          if ${{ matrix.arch == 'armv7' }}; then
-              ARCH_TARGET="armv7-unknown-linux-androideabi${{ matrix.swift-version.android }}"
-          fi
-          env -u ANDROID_NDK_ROOT ${TOOLCHAIN}/bin/swift sdk configure --show-configuration swift-${{ matrix.swift-version.version }}-RELEASE-android-${{ matrix.swift-version.android }}-0.1 $ARCH_TARGET
-          env -u ANDROID_NDK_ROOT ${TOOLCHAIN}/bin/swift build --build-tests --swift-sdk $ARCH_TARGET
-      - name: Get cached Termux app
-        if: ${{ matrix.arch == 'x86_64' }}
-        id: cache-termux
-        uses: actions/cache@v4
-        with:
-          path: ~/termux-debug.apk
-          key: termux-app
-      - name: Get Termux debug app if not cached
-        if: ${{ (matrix.arch == 'x86_64') && (steps.cache-termux.outputs.cache-hit != 'true') }}
-        run: wget -O ~/termux-debug.apk https://github.com/termux/termux-app/releases/download/v0.118.0/termux-app_v0.118.0+github-debug_x86_64.apk
+          target="${ANDROID_ARCH}-unknown-linux-android${ANDROID_API_LEVEL}"
+          # Keep the SwiftPM XCTest executable and resource bundle layout used by the emulator.
+          build_options=(--build-system native --build-tests --swift-sdk "$target")
+          swift build "${build_options[@]}"
+          build_dir=$(swift build "${build_options[@]}" --show-bin-path)
+          echo "ANDROID_BUILD_DIR=$build_dir" >> "$GITHUB_ENV"
+
       - name: Prepare Android emulator
         if: ${{ matrix.arch == 'x86_64' }}
         run: |
-          set -x
-          # create the test runner script
-          cat > ~/test-toolchain.sh << EOF
-          adb install ~/termux-debug.apk
-          adb push pack /data/local/tmp
+          test_bundle="$RUNNER_TEMP/azkkc-tests"
+          mkdir -p "$test_bundle"
+          cp "$ANDROID_BUILD_DIR/AzooKeyKanaKanjiConverterPackageTests.xctest" "$test_bundle/"
+          cp -R "$ANDROID_BUILD_DIR/AzooKeyKanaKanjiConverter_KanaKanjiConverterModuleTests.resources" "$test_bundle/"
+          cp -R "$ANDROID_BUILD_DIR/AzooKeyKanaKanjiConverter_KanaKanjiConverterModuleWithDefaultDictionary.resources" "$test_bundle/"
+          cp "$ANDROID_SWIFT_SDK"/swift-resources/usr/lib/swift-x86_64/android/lib*.so "$test_bundle/"
+          cp "$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/lib/x86_64-linux-android/libc++_shared.so" "$test_bundle/"
+
+          cat > "$RUNNER_TEMP/run-android-tests.sh" <<'EOF'
+          #!/usr/bin/env bash
+          set -e
+          adb push "$RUNNER_TEMP/azkkc-tests" /data/local/tmp/
+          adb shell 'cd /data/local/tmp/azkkc-tests && LD_LIBRARY_PATH=. ./AzooKeyKanaKanjiConverterPackageTests.xctest'
           EOF
+          chmod +x "$RUNNER_TEMP/run-android-tests.sh"
 
-          mkdir -p pack
-          TARGET="x86_64-unknown-linux-android${{ matrix.swift-version.android }}"
-
-          cp AzooKeyKanaKanjiConverter/.build/$TARGET/debug/AzooKeyKanaKanjiConverterPackageTests.xctest pack
-          echo 'adb shell "cd /data/local/tmp/pack && export LD_LIBRARY_PATH=\$LD_LIBRARY_PATH:/data/local/tmp/pack && ./AzooKeyKanaKanjiConverterPackageTests.xctest"' >> ~/test-toolchain.sh
-
-          cp -r AzooKeyKanaKanjiConverter/.build/$TARGET/debug/AzooKeyKanaKanjiConverter_KanaKanjiConverterModuleTests.resources pack
-          cp -r AzooKeyKanaKanjiConverter/.build/$TARGET/debug/AzooKeyKanaKanjiConverter_KanaKanjiConverterModuleWithDefaultDictionary.resources pack
-          cp ~/.config/swiftpm/swift-sdks/swift-${{ matrix.swift-version.version }}-RELEASE-android-${{ matrix.swift-version.android }}-*.artifactbundle/swift*sdk/android*sysroot/usr/lib/$(echo ${{ matrix.arch }} | sed "s/v7//")-linux-android/lib*so pack
-          cp ~/.config/swiftpm/swift-sdks/swift-${{ matrix.swift-version.version }}-RELEASE-android-${{ matrix.swift-version.android }}-*.artifactbundle/swift*sdk/android*sysroot/usr/lib/$(echo ${{ matrix.arch }} | sed "s/v7//")-linux-android*/${{ matrix.swift-version.android }}/lib*so pack
-          rm pack/lib{c,dl,log,m}.so
-          # Keep the system libc++.so; only bundle the Swift/SDK-shipped shared libraries.
-          rm -f pack/libc++.so
-
-          chmod +x ~/test-toolchain.sh
-
-          echo "TEST SCRIPT:"
-          cat ~/test-toolchain.sh
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
@@ -184,6 +171,6 @@ jobs:
         if: ${{ matrix.arch == 'x86_64' }}
         uses: reactivecircus/android-emulator-runner@v2
         with:
-          api-level: 29
+          api-level: ${{ env.ANDROID_API_LEVEL }}
           arch: x86_64
-          script: ~/test-toolchain.sh
+          script: ${{ runner.temp }}/run-android-tests.sh

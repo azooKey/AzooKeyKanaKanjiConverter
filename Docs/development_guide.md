@@ -18,10 +18,6 @@ sh install_cli.sh
 
 詳しくは[cli.md](./cli.md)をお読みください。
 
-## DevContainer
-
-開発にDevContainerを利用できます。詳しくは[devcontainer.md](./devcontainer.md)をお読みください。
-
 ## コントリビュート
 
 コントリビュートは歓迎です！

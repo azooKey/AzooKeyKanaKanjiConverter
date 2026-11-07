@@ -19,8 +19,3 @@ updates:
     directory: "/" # Location of package manifests
     schedule:
       interval: "daily"
-
-  - package-ecosystem: "devcontainers" # See documentation for possible values
-    directory: "/.devcontainer" # Location of package manifests
-    schedule:
-      interval: "daily"
