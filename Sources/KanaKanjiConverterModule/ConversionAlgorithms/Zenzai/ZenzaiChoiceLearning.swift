@@ -5,6 +5,7 @@ import SwiftUtils
 struct ZenzaiChoiceLearning {
     private static let capacity = 256
     private static let maxReadingLength = 16
+    private static let maxComparedSurfaces = 4
     private static let maxFileSize = 1 << 20
 
     struct Word: Codable, Equatable {
@@ -154,20 +155,53 @@ struct ZenzaiChoiceLearning {
         }
     }
 
-    /// Align by shared reading boundaries. One selection supplies at most one vote for each pair.
-    mutating func record(from original: Candidate, to selected: Candidate) -> Bool {
-        guard original.text != selected.text,
-              original.isLearningTarget, selected.isLearningTarget,
-              original.actions.isEmpty, selected.actions.isEmpty,
+    private func matchingPrefix(of original: Candidate, reading: String) -> ArraySlice<DicdataElement>? {
+        guard original.isLearningTarget, original.actions.isEmpty,
               original.data.map(\.word).joined() == original.text,
+              original.data.allSatisfy({ !$0.ruby.isEmpty }) else { return nil }
+        var unread = reading[...]
+        let prefix = original.data.prefix { element in
+            guard !unread.isEmpty, unread.hasPrefix(element.ruby) else { return false }
+            unread = unread.dropFirst(element.ruby.count)
+            return true
+        }
+        return !prefix.isEmpty && unread.isEmpty ? prefix : nil
+    }
+
+    mutating func record(from original: Candidate, to selected: Candidate) -> Bool {
+        self.record(from: [original], to: selected)
+    }
+
+    mutating func record(from originals: [Candidate], to selected: Candidate) -> Bool {
+        guard let first = originals.first, selected.isLearningTarget, selected.actions.isEmpty,
               selected.data.map(\.word).joined() == selected.text,
-              original.data.map(\.ruby).joined() == selected.data.map(\.ruby).joined(),
-              original.data.allSatisfy({ !$0.ruby.isEmpty }),
               selected.data.allSatisfy({ !$0.ruby.isEmpty }) else { return false }
-        let a = original.data
-        let b = selected.data
-        var i = 0, j = 0
+        let reading = selected.data.map(\.ruby).joined()
+        // The first candidate is the ordinary conversion. A selection that keeps
+        // its surface in the chosen span supplies no correction.
+        guard let prefix = self.matchingPrefix(of: first, reading: reading) else { return false }
+        let surface = prefix.map(\.word).joined()
+        guard surface != selected.text else { return false }
+
         var seen: Set<[String]> = []
+        self.recordAligned(from: prefix, to: selected.data, seen: &seen)
+        var compared: Set<String> = [surface]
+        for alternative in originals.dropFirst() {
+            guard let prefix = self.matchingPrefix(of: alternative, reading: reading) else { continue }
+            let surface = prefix.map(\.word).joined()
+            guard surface != selected.text, compared.insert(surface).inserted else { continue }
+            self.recordAligned(from: prefix, to: selected.data, seen: &seen)
+            if compared.count == Self.maxComparedSurfaces { break }
+        }
+        guard !seen.isEmpty else { return false }
+        self.dirty = true
+        self.reindex()
+        return true
+    }
+
+    /// Align by shared reading boundaries. One selection supplies at most one vote for each pair.
+    private mutating func recordAligned(from a: ArraySlice<DicdataElement>, to b: [DicdataElement], seen: inout Set<[String]>) {
+        var i = 0, j = 0
         while i < a.count && j < b.count {
             let startI = i
             let startJ = j
@@ -183,7 +217,7 @@ struct ZenzaiChoiceLearning {
                     right += b[j].ruby.count
                     j += 1
                 } else {
-                    return false
+                    return
                 }
             }
             guard left <= Self.maxReadingLength else { continue }
@@ -211,10 +245,6 @@ struct ZenzaiChoiceLearning {
                 self.records.append(choice)
             }
         }
-        guard !seen.isEmpty else { return false }
-        self.dirty = true
-        self.reindex()
-        return true
     }
 
     private mutating func reindex() {

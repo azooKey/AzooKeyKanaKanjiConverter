@@ -519,12 +519,19 @@ public final class KanaKanjiConverter {
     }
 
     /// 明示的な候補の選び直しを Zenzai の学習に記録します。
-    /// 同じ読みを消費する、直前の先頭候補と選択した候補を、確定処理の前に渡してください。
+    /// 直前の先頭候補と選択した候補を、確定処理の前に渡してください。
+    /// 部分候補を選んだ場合、先頭候補の辞書要素の境界で揃う同じ読みの接頭部分を比較します。
     /// 予測の受理やライブ変換の自動確定からは呼び出さないでください。
     public func recordZenzaiCorrection(from original: Candidate, to selected: Candidate) {
+        self.recordZenzaiCorrection(from: [original], to: selected)
+    }
+
+    /// 先頭の全文候補と、選択候補より上に表示された全文候補を順に渡します。
+    /// 各表記の対立には一度の選択につき最大1票を記録します。
+    public func recordZenzaiCorrection(from originals: [Candidate], to selected: Candidate) {
         guard let directory = self.currentSessionState.zenzaiChoiceDirectoryForCommit,
               self.zenzaiChoices.configure(directory: directory),
-              self.zenzaiChoices.record(from: original, to: selected) else { return }
+              self.zenzaiChoices.record(from: originals, to: selected) else { return }
         self.updateCurrentSessionState { $0.zenzaiChoiceDirectoryForCommit = nil }
     }
 

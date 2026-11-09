@@ -70,6 +70,48 @@ final class ZenzaiChoiceLearningTests: XCTestCase {
         XCTAssertLessThan(ZenzaiChoiceLearning.Contrast.maximumLogitGap(votes: 4), 5.33)
     }
 
+    func testPrefixSelectionUsesTheSameReadingInTheFullCandidate() throws {
+        let name = entry("アライ", "アライ")
+        let honorific = entry("さん", "サン")
+        let selected = candidate([entry("荒居", "アライ")])
+        let original = candidate([name, honorific])
+        var store = ZenzaiChoiceLearning()
+        for _ in 0..<2 {
+            XCTAssertTrue(store.record(from: original, to: selected))
+        }
+        let preference = try XCTUnwrap(store.preferences["ア"]?.first)
+        XCTAssertEqual(preference.reading, "アライ")
+        XCTAssertEqual(preference.preferredText, "荒居")
+        XCTAssertEqual(preference.contrasts.map(\.rejected), ["アライ"])
+    }
+
+    func testPrefixSelectionCountsDistinctAlternativesOncePerSelection() throws {
+        let honorific = entry("さん", "サン")
+        let primary = candidate([entry("アライ", "アライ"), honorific])
+        let alternative = candidate([entry("荒井", "アライ"), honorific])
+        let samePrefix = candidate([entry("アライ", "アライ"), entry("サン", "サン")])
+        let selected = candidate([entry("荒居", "アライ")])
+        let alternatives = [primary, samePrefix, alternative, alternative]
+        var store = ZenzaiChoiceLearning()
+        XCTAssertTrue(store.record(from: alternatives, to: selected))
+        XCTAssertTrue(store.preferences.isEmpty)
+        XCTAssertTrue(store.record(from: alternatives, to: selected))
+        let contrasts = try XCTUnwrap(store.preferences["ア"]?.first?.contrasts)
+        XCTAssertEqual(Set(contrasts.map(\.rejected)), ["アライ", "荒井"])
+        for contrast in contrasts {
+            XCTAssertEqual(contrast.maximumLogitGap, logf(7.0 / 3.0), accuracy: 0.0001)
+        }
+    }
+
+    func testPrefixSelectionRequiresABoundaryBeforeRecordingVotes() {
+        let original = candidate([entry("は", "ハ"), entry("書かない", "カカナイ")])
+        let selected = candidate([entry("葉", "ハ"), entry("可", "カ")])
+        var store = ZenzaiChoiceLearning()
+        XCTAssertFalse(store.record(from: original, to: selected))
+        XCTAssertFalse(store.record(from: original, to: selected))
+        XCTAssertTrue(store.preferences.isEmpty)
+    }
+
     func testAReadingPrefixDoesNotMatchAnUnobservedAlternative() {
         let rejected = entry("は書", "ハカ")
         let preferred = entry("は可", "ハカ")
