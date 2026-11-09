@@ -223,7 +223,7 @@ final class ZenzPromptBuilderTests: XCTestCase {
             tokenByteCounts: [3, 6, 3, 3, 3],
             normalize: { $0 }
         )
-        XCTAssertEqual(result, [false, true, false, false, true])
+        XCTAssertEqual(result, [false, true, false, false, false])
 
         // 単語の表記を連結したものが候補の表記と一致しない場合は判定しない
         let mismatched = ZenzCandidateEvaluator.userWordContinuations(

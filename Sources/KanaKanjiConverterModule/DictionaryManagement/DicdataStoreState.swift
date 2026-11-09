@@ -9,6 +9,12 @@ package final class DicdataStoreState {
     var keyboardLanguage: KeyboardLanguage = .ja_JP
     private(set) var dynamicUserDictionary: [DicdataElement] = []
     private(set) var dynamicUserShortcuts: [DicdataElement] = []
+    var legacyLearningEnabled = true {
+        didSet {
+            if oldValue != legacyLearningEnabled { self.staticConversionCacheEligibility = nil }
+        }
+    }
+    var usesLegacyMemory: Bool { self.legacyLearningEnabled && self.learningMemoryManager.enabled }
     var learningMemoryManager: LearningManager
 
     var userDictionaryURL: URL?
@@ -97,7 +103,7 @@ package final class DicdataStoreState {
         if let staticConversionCacheEligibility {
             return staticConversionCacheEligibility
         }
-        guard self.learningMemoryManager.config.learningType == .nothing,
+        guard !self.usesLegacyMemory,
               self.dynamicUserDictionary.isEmpty,
               self.dynamicUserShortcuts.isEmpty else {
             self.staticConversionCacheEligibility = false
