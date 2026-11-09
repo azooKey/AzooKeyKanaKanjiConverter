@@ -127,6 +127,40 @@ final class ZenzaiChoiceLearningTests: XCTestCase {
         XCTAssertNil(converter.choiceDraft(from: path, reading: "ハカカナイ", preferences: store.preferences))
     }
 
+    func testSurnameLearningRespectsAnAttachedVerbEnding() throws {
+        let dictionary = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let connections = dictionary.appendingPathComponent("cb")
+        try FileManager.default.createDirectory(at: connections, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dictionary) }
+
+        let verbCID = 832
+        let masuCID = 491
+        let surnameCID = CIDData.人名姓.cid
+        func saveConnections(from cid: Int, toMasu value: Float) throws {
+            var entries: [(Int32, Float)] = [(-1, -5), (Int32(masuCID), value)]
+            let data = entries.withUnsafeMutableBytes { Data($0) }
+            try data.write(to: connections.appendingPathComponent("\(cid).binary"))
+        }
+        try saveConnections(from: verbCID, toMasu: -1)
+        try saveConnections(from: surnameCID, toMasu: -12)
+
+        let verb = DicdataElement(word: "洗い", ruby: "アライ", cid: verbCID, mid: MIDData.一般.mid, value: -5)
+        let surname = DicdataElement(word: "荒居", ruby: "アライ", cid: surnameCID, mid: MIDData.一般.mid, value: -5)
+        let masu = DicdataElement(word: "ます", ruby: "マス", cid: masuCID, mid: MIDData.一般.mid, value: -5)
+        let honorific = DicdataElement(word: "さん", ruby: "サン", cid: 1302, mid: MIDData.一般.mid, value: -5)
+        var store = ZenzaiChoiceLearning()
+        for _ in 0..<8 {
+            XCTAssertTrue(store.record(from: candidate([verb]), to: candidate([surname])))
+        }
+        let converter = Kana2Kanji(dicdataStore: .init(dictionaryURL: dictionary))
+        let prefix = RegisteredNode(data: verb, registered: .BOSNode(), totalValue: 0, range: .surface(from: 0, to: 3))
+        let verbPath = RegisteredNode(data: masu, registered: prefix, totalValue: 0, range: .surface(from: 3, to: 5))
+        XCTAssertNil(converter.choiceDraft(from: verbPath, reading: "アライマス", preferences: store.preferences))
+        let namePath = RegisteredNode(data: honorific, registered: prefix, totalValue: 0, range: .surface(from: 3, to: 5))
+        let (preferred, _) = try XCTUnwrap(converter.choiceDraft(from: namePath, reading: "アライサン", preferences: store.preferences))
+        XCTAssertEqual(preferred.getCandidateData().data.map(\.word), ["荒居", "さん"])
+    }
+
     func testPersistenceAndForget() throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: directory) }

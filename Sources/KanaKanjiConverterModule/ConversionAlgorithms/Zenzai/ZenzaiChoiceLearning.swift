@@ -304,6 +304,17 @@ extension Kana2Kanji {
                     if !preference.reading.hasPrefix(reading) { break }
                 }
                 guard reading == preference.reading, surface != preference.preferredText else { continue }
+                // Keep a tightly attached continuation when the replacement makes its
+                // dictionary connection much less likely, such as a surname before ます.
+                if end < path.count, let preferredLast = preference.preferred.last {
+                    let originalRCID = path[end - 1].data.rcid
+                    let nextLCID = path[end].data.lcid
+                    if !DicdataStore.isClause(originalRCID, nextLCID),
+                       self.dicdataStore.getCCValue(originalRCID, nextLCID)
+                           - self.dicdataStore.getCCValue(preferredLast.rcid, nextLCID) > 8 {
+                        continue
+                    }
+                }
                 replacements.append((start..<end, preference))
                 i = end
                 break
