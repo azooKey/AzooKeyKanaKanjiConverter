@@ -530,9 +530,31 @@ public final class KanaKanjiConverter {
     /// 各表記の対立には一度の選択につき最大1票を記録します。
     public func recordZenzaiCorrection(from originals: [Candidate], to selected: Candidate) {
         guard let directory = self.currentSessionState.zenzaiChoiceDirectoryForCommit,
-              self.zenzaiChoices.configure(directory: directory),
-              self.zenzaiChoices.record(from: originals, to: selected) else { return }
-        self.updateCurrentSessionState { $0.zenzaiChoiceDirectoryForCommit = nil }
+              self.zenzaiChoices.configure(directory: directory) else { return }
+        let recorded = self.zenzaiChoices.record(from: originals, to: selected)
+        let updatedWholeInput = originals.first.map {
+            self.zenzaiChoices.recordWholeInput(from: $0, to: selected, existingOnly: true)
+        } ?? false
+        if recorded || updatedWholeInput {
+            self.updateCurrentSessionState { $0.zenzaiChoiceDirectoryForCommit = nil }
+        }
+    }
+
+    /// 入力のすべてを明示的に確定した一連の選び直しを、全文の対立として記録します。
+    public func recordZenzaiWholeInputCorrection(
+        from original: Candidate,
+        to selected: Candidate,
+        prefix: (originals: [Candidate], selected: Candidate)? = nil
+    ) {
+        guard let directory = self.currentSessionState.zenzaiChoiceDirectoryForCommit,
+              self.zenzaiChoices.configure(directory: directory) else { return }
+        let recordedPrefix = prefix.map {
+            self.zenzaiChoices.record(from: $0.originals, to: $0.selected)
+        } ?? false
+        let recordedWholeInput = self.zenzaiChoices.recordWholeInput(from: original, to: selected)
+        if recordedPrefix || recordedWholeInput {
+            self.updateCurrentSessionState { $0.zenzaiChoiceDirectoryForCommit = nil }
+        }
     }
 
     /// 確定操作後の学習メモリの更新を確定させます。
@@ -1273,7 +1295,8 @@ public final class KanaKanjiConverter {
                 personalizationMode: self.getZenzaiPersonalization(mode: zenzaiMode.personalizationMode),
                 versionDependentConfig: zenzaiMode.versionDependentMode,
                 dicdataStoreState: self.dicdataStoreState,
-                choicePreferences: useZenzaiChoices ? self.zenzaiChoices.preferences : [:]
+                choicePreferences: useZenzaiChoices ? self.zenzaiChoices.preferences : [:],
+                wholeInputPreferences: useZenzaiChoices ? self.zenzaiChoices.wholeInputPreferences : [:]
             )
             self.updateCurrentSessionState {
                 $0.previousInputData = inputData

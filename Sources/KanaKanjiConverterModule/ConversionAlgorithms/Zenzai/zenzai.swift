@@ -195,16 +195,17 @@ extension Kana2Kanji {
         personalizationMode: (mode: ConvertRequestOptions.ZenzaiMode.PersonalizationMode, base: EfficientNGram, personal: EfficientNGram)?,
         versionDependentConfig: ConvertRequestOptions.ZenzaiVersionDependentMode,
         dicdataStoreState: DicdataStoreState,
-        choicePreferences: [Character: [ZenzaiChoiceLearning.Preference]] = [:]
+        choicePreferences: [Character: [ZenzaiChoiceLearning.Preference]] = [:],
+        wholeInputPreferences: [String: [String: ZenzaiChoiceLearning.Preference]] = [:]
     ) -> (result: LatticeNode, lattice: Lattice, cache: ZenzaiCache) {
         let latticeInputData = Self.zenzaiLatticeInputData(for: inputData)
         let zenzInputCursorPosition = Self.zenzaiInputCursorPosition(for: inputData)
-        let choiceReading: String? = if choicePreferences.isEmpty {
+        let choiceReading: String? = if choicePreferences.isEmpty && wholeInputPreferences.isEmpty {
             nil
         } else {
             latticeInputData.convertTarget.toKatakana()
         }
-        let hasApplicableChoice = choiceReading.map { reading in
+        let hasApplicableWordChoice = choiceReading.map { reading in
             reading.indices.contains { index in
                 choicePreferences[reading[index]]?.contains {
                     reading[index...].hasPrefix($0.reading)
@@ -220,6 +221,14 @@ extension Kana2Kanji {
             ).droppedSuffixCount > 0
         var constraint = zenzaiCache?.getNewConstraint(for: latticeInputData) ?? PrefixConstraint([])
         let prefixCandidate = zenzaiCache?.prefixCandidate(remainingIn: latticeInputData)
+        let exactChoices: [String: ZenzaiChoiceLearning.Preference]? =
+            if inputData.isAtEndIndex, constraint.fixedPrefix == nil,
+               personalizationMode == nil, !defersEvaluationForPendingInput, let choiceReading {
+                wholeInputPreferences[choiceReading]
+            } else {
+                nil
+            }
+        let hasApplicableChoice = hasApplicableWordChoice || exactChoices != nil
         let resolvedConversionCacheKey: ZenzResolvedConversionCacheKey? =
             if !requestRichCandidates,
                !hasApplicableChoice,
@@ -294,7 +303,11 @@ extension Kana2Kanji {
         }
         defer {
             eosNode.prevs = insertedCandidates.map(\.0)
-            if let wholeInputChoice, let ordinary = insertedCandidates.first?.1,
+            if let (node, ordinary) = insertedCandidates.first, let choiceReading,
+               let preference = exactChoices?[ordinary.text], let firstKana = choiceReading.first,
+               let (preferred, _) = self.choiceDraft(from: node, reading: choiceReading, preferences: [firstKana: [preference]]) {
+                eosNode.prevs.insert(preferred, at: 0)
+            } else if let wholeInputChoice, let ordinary = insertedCandidates.first?.1,
                wholeInputChoice.rejected.contains(ordinary.text),
                ordinary.data.map(\.ruby).joined() == choiceReading {
                 eosNode.prevs.insert(wholeInputChoice.preferred, at: 0)
@@ -422,7 +435,7 @@ extension Kana2Kanji {
             // normal constrained search, which can revise the unverified suffix.
             let learnedDraft: (RegisteredNode, [ZenzaiChoiceLearning.Edit])? =
                 if draftIteration == 1, inferenceLimit > 0, !defersEvaluationForPendingInput,
-                   constraint.fixedPrefix == nil, personalizationMode == nil, hasApplicableChoice,
+                   constraint.fixedPrefix == nil, personalizationMode == nil, hasApplicableWordChoice,
                    let choiceReading {
                     self.choiceDraft(from: draftResult.result.prevs[index], reading: choiceReading, preferences: choicePreferences)
                 } else {

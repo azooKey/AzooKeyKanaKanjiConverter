@@ -41,6 +41,7 @@ struct ZenzaiChoiceLearning {
         let first: [Word]
         let second: [Word]
         var votes: Int
+        let wholeInputOnly: Bool?
 
         var firstText: String { first.map(\.text).joined() }
         var secondText: String { second.map(\.text).joined() }
@@ -92,6 +93,7 @@ struct ZenzaiChoiceLearning {
 
     private var records: [Choice] = []
     private(set) var preferences: [Character: [Preference]] = [:]
+    private(set) var wholeInputPreferences: [String: [String: Preference]] = [:]
     private var file: URL?
     private var dirty = false
 
@@ -127,6 +129,7 @@ struct ZenzaiChoiceLearning {
     mutating func reset() {
         self.records = []
         self.preferences = [:]
+        self.wholeInputPreferences = [:]
         if self.file != nil {
             self.dirty = true
             self.save()
@@ -232,28 +235,80 @@ struct ZenzaiChoiceLearning {
                   originalPart.allSatisfy({ $0.metadata.isEmpty }),
                   selectedPart.allSatisfy({ $0.metadata.isEmpty }) else { continue }
             let reading = originalPart.map(\.ruby).joined()
-            let forward = rejectedText < selectedText
-            let originalWords = originalPart.map(Word.init)
-            let selectedWords = selectedPart.map(Word.init)
-            var choice = Choice(reading: reading, first: forward ? originalWords : selectedWords,
-                                second: forward ? selectedWords : originalWords, votes: forward ? 1 : -1)
-            guard choice.isValid, seen.insert([reading, choice.firstText, choice.secondText]).inserted else { continue }
-            if let index = self.records.firstIndex(where: {
-                $0.reading == reading && $0.firstText == choice.firstText && $0.secondText == choice.secondText
-            }) {
-                choice.votes = min(8, max(-8, self.records.remove(at: index).votes + choice.votes))
+            let key = [reading, min(rejectedText, selectedText), max(rejectedText, selectedText)]
+            guard !seen.contains(key),
+                  self.recordPair(reading: reading, original: originalPart, selected: selectedPart, wholeInputOnly: false) else {
+                continue
             }
-            if choice.votes != 0 {
-                if self.records.count == Self.capacity { self.records.removeFirst() }
-                self.records.append(choice)
-            }
+            seen.insert(key)
         }
+    }
+
+    mutating func recordWholeInput(from original: Candidate, to selected: Candidate, existingOnly: Bool = false) -> Bool {
+        guard original.isLearningTarget, selected.isLearningTarget, original.actions.isEmpty, selected.actions.isEmpty,
+              original.text != selected.text, original.data.map(\.word).joined() == original.text,
+              selected.data.map(\.word).joined() == selected.text,
+              original.data.allSatisfy({ $0.metadata.isEmpty }), selected.data.allSatisfy({ $0.metadata.isEmpty }) else {
+            return false
+        }
+        let reading = selected.data.map(\.ruby).joined()
+        guard original.data.map(\.ruby).joined() == reading,
+              self.recordPair(reading: reading, original: original.data[...], selected: selected.data[...],
+                              wholeInputOnly: true, existingOnly: existingOnly) else {
+            return false
+        }
+        self.dirty = true
+        self.reindex()
+        return true
+    }
+
+    @discardableResult
+    private mutating func recordPair(
+        reading: String,
+        original: ArraySlice<DicdataElement>,
+        selected: ArraySlice<DicdataElement>,
+        wholeInputOnly: Bool,
+        existingOnly: Bool = false
+    ) -> Bool {
+        let forward = original.map(\.word).joined() < selected.map(\.word).joined()
+        let originalWords = original.map(Word.init)
+        let selectedWords = selected.map(Word.init)
+        var choice = Choice(reading: reading, first: forward ? originalWords : selectedWords,
+                            second: forward ? selectedWords : originalWords, votes: forward ? 1 : -1,
+                            wholeInputOnly: wholeInputOnly ? true : nil)
+        guard choice.isValid else { return false }
+        if let index = self.records.firstIndex(where: {
+            $0.reading == reading && $0.firstText == choice.firstText && $0.secondText == choice.secondText
+                && $0.wholeInputOnly == choice.wholeInputOnly
+        }) {
+            choice.votes = min(8, max(-8, self.records.remove(at: index).votes + choice.votes))
+        } else if existingOnly {
+            return false
+        }
+        if choice.votes != 0 {
+            if self.records.count == Self.capacity { self.records.removeFirst() }
+            self.records.append(choice)
+        }
+        return true
     }
 
     private mutating func reindex() {
         self.preferences = [:]
+        self.wholeInputPreferences = [:]
         var indexedCounts: [Character: Int] = [:]
         for record in self.records.reversed() where abs(record.votes) >= 2 {
+            if record.wholeInputOnly == true {
+                let rejected = record.votes > 0 ? record.firstText : record.secondText
+                if abs(record.votes) >= 5, self.wholeInputPreferences[record.reading]?[rejected] == nil {
+                    self.wholeInputPreferences[record.reading, default: [:]][rejected] = Preference(
+                        preferred: record.votes > 0 ? record.second : record.first,
+                        preferredText: record.votes > 0 ? record.secondText : record.firstText,
+                        reading: record.reading,
+                        contrasts: []
+                    )
+                }
+                continue
+            }
             guard let firstKana = record.reading.first, indexedCounts[firstKana, default: 0] < 8 else { continue }
             indexedCounts[firstKana, default: 0] += 1
             let preferredText = record.votes > 0 ? record.secondText : record.firstText

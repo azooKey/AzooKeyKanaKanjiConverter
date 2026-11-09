@@ -84,6 +84,28 @@ final class ZenzaiChoiceLearningTests: XCTestCase {
         XCTAssertEqual(store.preferences["シ"]?.first?.contrasts.first?.canRerankWholeInput, false)
     }
 
+    func testWholeInputChoiceKeepsAnAlignedPhraseTogetherAfterReloading() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let comparison = entry("比較", "ヒカク")
+        let original = candidate([entry("アライ", "アライ"), comparison])
+        let selected = candidate([entry("粗い", "アライ"), comparison])
+        var store = ZenzaiChoiceLearning()
+        XCTAssertTrue(store.configure(directory: directory))
+        for _ in 0..<5 {
+            XCTAssertTrue(store.recordWholeInput(from: original, to: selected))
+        }
+        XCTAssertTrue(store.preferences.isEmpty)
+        XCTAssertEqual(store.wholeInputPreferences["アライヒカク"]?["アライ比較"]?.preferredText, "粗い比較")
+        store.save()
+
+        var reloaded = ZenzaiChoiceLearning()
+        XCTAssertTrue(reloaded.configure(directory: directory))
+        XCTAssertEqual(reloaded.wholeInputPreferences["アライヒカク"]?["アライ比較"]?.preferredText, "粗い比較")
+        XCTAssertTrue(reloaded.recordWholeInput(from: selected, to: original, existingOnly: true))
+        XCTAssertTrue(reloaded.wholeInputPreferences.isEmpty)
+    }
+
     func testPrefixSelectionUsesTheSameReadingInTheFullCandidate() throws {
         let name = entry("アライ", "アライ")
         let honorific = entry("さん", "サン")
