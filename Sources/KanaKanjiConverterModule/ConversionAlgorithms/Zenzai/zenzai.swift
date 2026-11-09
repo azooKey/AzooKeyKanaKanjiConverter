@@ -452,12 +452,24 @@ extension Kana2Kanji {
                     ordinaryChoiceDraft = candidate
                     constraint = reviewedConstraint
                     if self.candidate(candidate, satisfies: reviewedConstraint) {
-                        // This ordinary path is already a valid fallback for the verified
-                        // prefix, so reuse it without walking the lattice again.
                         previousEvaluationPrompt = trialPrompt
-                    } else {
+                    } else if let alternative = candidates.indices.first(where: {
+                        self.candidate(candidates[$0], satisfies: reviewedConstraint)
+                            && self.heuristicRetryValidation(candidates[$0].text)
+                    }) {
+                        // An ordinary path already satisfies the verified prefix.
+                        insertedCandidates.append((draftResult.result.prevs[index], candidate))
+                        index = alternative
+                        candidate = candidates[alternative]
+                        previousEvaluationPrompt = trialPrompt
+                    } else if inferenceLimit > 0 {
                         insertedCandidates.append((draftResult.result.prevs[index], candidate))
                         continue
+                    } else {
+                        // A speculative history draft must not trigger a second lattice
+                        // search after the inference budget has run out.
+                        insertedCandidates.append((draftResult.result.prevs[index], candidate))
+                        return (eosNode, lattice, makeCache(constraint: constraint, satisfyingCandidate: nil))
                     }
                 }
             }
