@@ -277,6 +277,7 @@ extension Kana2Kanji {
         var constructedCandidates: [(RegisteredNode, Candidate)] = []
         var insertedCandidates: [(RegisteredNode, Candidate)] = []
         var choiceHint: (constraint: PrefixConstraint, ordinaryDraft: Candidate?)?
+        var wholeInputChoice: (preferred: RegisteredNode, rejected: [String])?
         func makeCache(
             constraint: PrefixConstraint,
             satisfyingCandidate: Candidate?,
@@ -293,6 +294,11 @@ extension Kana2Kanji {
         }
         defer {
             eosNode.prevs = insertedCandidates.map(\.0)
+            if let wholeInputChoice, let ordinary = insertedCandidates.first?.1,
+               wholeInputChoice.rejected.contains(ordinary.text),
+               ordinary.data.map(\.ruby).joined() == choiceReading {
+                eosNode.prevs.insert(wholeInputChoice.preferred, at: 0)
+            }
         }
         var inferenceLimit = inferenceLimit
         var draftIteration = 0
@@ -414,14 +420,24 @@ extension Kana2Kanji {
             // Keep the ordinary draft as fallback. One preferred draft may use the existing
             // inference budget. A rejection still provides a verified prefix for the
             // normal constrained search, which can revise the unverified suffix.
-            if draftIteration == 1, inferenceLimit > 0, !defersEvaluationForPendingInput,
-               constraint.fixedPrefix == nil, personalizationMode == nil, hasApplicableChoice,
-               let choiceReading,
-               let (preferredNode, edits) = self.choiceDraft(
-                   from: draftResult.result.prevs[index],
-                   reading: choiceReading,
-                   preferences: choicePreferences
-               ) {
+            let learnedDraft: (RegisteredNode, [ZenzaiChoiceLearning.Edit])? =
+                if draftIteration == 1, inferenceLimit > 0, !defersEvaluationForPendingInput,
+                   constraint.fixedPrefix == nil, personalizationMode == nil, hasApplicableChoice,
+                   let choiceReading {
+                    self.choiceDraft(from: draftResult.result.prevs[index], reading: choiceReading, preferences: choicePreferences)
+                } else {
+                    nil
+                }
+            if inputData.isAtEndIndex, let (preferredNode, edits) = learnedDraft, edits.count == 1,
+               let edit = edits.first, edit.coversWholeInput {
+                let rejected = edit.contrasts.filter(\.canRerankWholeInput).map(\.rejected)
+                if !rejected.isEmpty {
+                    // A strong correction across word boundaries compares two whole results.
+                    // Let the model produce the ordinary result before applying that choice.
+                    wholeInputChoice = (preferredNode, rejected)
+                }
+            }
+            if wholeInputChoice == nil, let (preferredNode, edits) = learnedDraft {
                 let preferred = self.processClauseCandidate(preferredNode.getCandidateData())
                 var trialPrompt: String?
                 let trialConstraint = PrefixConstraint([])

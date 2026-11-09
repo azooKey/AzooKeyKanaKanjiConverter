@@ -70,6 +70,20 @@ final class ZenzaiChoiceLearningTests: XCTestCase {
         XCTAssertLessThan(ZenzaiChoiceLearning.Contrast.maximumLogitGap(votes: 4), 5.33)
     }
 
+    func testWholeInputRerankingRequiresRepeatedCorrectionsAcrossWordBoundaries() throws {
+        let original = candidate([entry("史実", "シジツ"), entry("移住", "イジュウ")])
+        let preferred = candidate([entry("指示", "シジ"), entry("追従", "ツイジュウ")])
+        var store = ZenzaiChoiceLearning()
+        for _ in 0..<4 {
+            XCTAssertTrue(store.record(from: original, to: preferred))
+        }
+        XCTAssertEqual(store.preferences["シ"]?.first?.contrasts.first?.canRerankWholeInput, false)
+        XCTAssertTrue(store.record(from: original, to: preferred))
+        XCTAssertEqual(store.preferences["シ"]?.first?.contrasts.first?.canRerankWholeInput, true)
+        XCTAssertTrue(store.record(from: preferred, to: original))
+        XCTAssertEqual(store.preferences["シ"]?.first?.contrasts.first?.canRerankWholeInput, false)
+    }
+
     func testPrefixSelectionUsesTheSameReadingInTheFullCandidate() throws {
         let name = entry("アライ", "アライ")
         let honorific = entry("さん", "サン")

@@ -58,10 +58,12 @@ struct ZenzaiChoiceLearning {
     struct Contrast {
         let rejected: String
         let maximumLogitGap: Float
+        let canRerankWholeInput: Bool
 
-        init(rejected: String, votes: Int) {
+        init(rejected: String, votes: Int, changesWordBoundaries: Bool) {
             self.rejected = rejected
             self.maximumLogitGap = Self.maximumLogitGap(votes: votes)
+            self.canRerankWholeInput = changesWordBoundaries && self.maximumLogitGap.isInfinite
         }
 
         static func maximumLogitGap(votes: Int) -> Float {
@@ -84,6 +86,7 @@ struct ZenzaiChoiceLearning {
     /// Offsets refer to the preferred draft's surface in UTF-8.
     struct Edit {
         let range: Range<Int>
+        let coversWholeInput: Bool
         let contrasts: [Contrast]
     }
 
@@ -254,7 +257,12 @@ struct ZenzaiChoiceLearning {
             guard let firstKana = record.reading.first, indexedCounts[firstKana, default: 0] < 8 else { continue }
             indexedCounts[firstKana, default: 0] += 1
             let preferredText = record.votes > 0 ? record.secondText : record.firstText
-            let contrast = Contrast(rejected: record.votes > 0 ? record.firstText : record.secondText, votes: abs(record.votes))
+            let contrast = Contrast(
+                rejected: record.votes > 0 ? record.firstText : record.secondText,
+                votes: abs(record.votes),
+                changesWordBoundaries: record.first.count > 1 && record.second.count > 1
+                    && record.first.map(\.ruby) != record.second.map(\.ruby)
+            )
             var bucket = self.preferences[firstKana, default: []]
             if let index = bucket.firstIndex(where: { $0.reading == record.reading && $0.preferredText == preferredText }) {
                 bucket[index].contrasts.append(contrast)
@@ -343,7 +351,11 @@ extension Kana2Kanji {
             for word in preference.preferred {
                 append(word.element, range: .surface(from: surface, to: surface + word.ruby.count))
             }
-            edits.append(.init(range: startOffset..<offset, contrasts: preference.contrasts))
+            edits.append(.init(
+                range: startOffset..<offset,
+                coversWholeInput: range == path.indices,
+                contrasts: preference.contrasts
+            ))
             index = range.upperBound
         }
         for existing in path[index...] {
