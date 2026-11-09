@@ -54,19 +54,36 @@ struct ZenzaiChoiceLearning {
         }
     }
 
-    struct Preference {
+    struct Contrast {
         let rejected: String
+        let maximumLogitGap: Float
+
+        init(rejected: String, votes: Int) {
+            self.rejected = rejected
+            self.maximumLogitGap = Self.maximumLogitGap(votes: votes)
+        }
+
+        static func maximumLogitGap(votes: Int) -> Float {
+            // Give the model five prior votes. A net preference of v wins when
+            // v > prior * (1 - 2 * modelProbability). Solve for the logit gap
+            // here so the evaluator only compares floats in its token loop.
+            let prior: Float = 5
+            let netVotes = Float(votes)
+            return netVotes >= prior ? .infinity : logf((prior + netVotes) / (prior - netVotes))
+        }
+    }
+
+    struct Preference {
         let preferred: [Word]
         let preferredText: String
         let reading: String
-        let bonus: Float
+        var contrasts: [Contrast]
     }
 
     /// Offsets refer to the preferred draft's surface in UTF-8.
     struct Edit {
         let range: Range<Int>
-        let rejected: String
-        let bonus: Float
+        let contrasts: [Contrast]
     }
 
     private var records: [Choice] = []
@@ -202,15 +219,24 @@ struct ZenzaiChoiceLearning {
 
     private mutating func reindex() {
         self.preferences = [:]
+        var indexedCounts: [Character: Int] = [:]
         for record in self.records.reversed() where abs(record.votes) >= 2 {
-            guard let firstKana = record.reading.first, self.preferences[firstKana, default: []].count < 8 else { continue }
-            self.preferences[firstKana, default: []].append(Preference(
-                rejected: record.votes > 0 ? record.firstText : record.secondText,
-                preferred: record.votes > 0 ? record.second : record.first,
-                preferredText: record.votes > 0 ? record.secondText : record.firstText,
-                reading: record.reading,
-                bonus: min(2, Float(abs(record.votes) - 1) * 0.5)
-            ))
+            guard let firstKana = record.reading.first, indexedCounts[firstKana, default: 0] < 8 else { continue }
+            indexedCounts[firstKana, default: 0] += 1
+            let preferredText = record.votes > 0 ? record.secondText : record.firstText
+            let contrast = Contrast(rejected: record.votes > 0 ? record.firstText : record.secondText, votes: abs(record.votes))
+            var bucket = self.preferences[firstKana, default: []]
+            if let index = bucket.firstIndex(where: { $0.reading == record.reading && $0.preferredText == preferredText }) {
+                bucket[index].contrasts.append(contrast)
+            } else {
+                bucket.append(Preference(
+                    preferred: record.votes > 0 ? record.second : record.first,
+                    preferredText: preferredText,
+                    reading: record.reading,
+                    contrasts: [contrast]
+                ))
+            }
+            self.preferences[firstKana] = bucket
         }
     }
 }
@@ -276,7 +302,7 @@ extension Kana2Kanji {
             for word in preference.preferred {
                 append(word.element, range: .surface(from: surface, to: surface + word.ruby.count))
             }
-            edits.append(.init(range: startOffset..<offset, rejected: preference.rejected, bonus: preference.bonus))
+            edits.append(.init(range: startOffset..<offset, contrasts: preference.contrasts))
             index = range.upperBound
         }
         for existing in path[index...] {

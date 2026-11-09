@@ -34,7 +34,7 @@ final class ZenzaiChoiceLearningTests: XCTestCase {
         let converter = Kana2Kanji(dicdataStore: .init(dictionaryURL: URL(fileURLWithPath: "/dev/null")))
         let (preferred, edits) = try XCTUnwrap(converter.choiceDraft(from: draft, reading: reading, preferences: store.preferences))
         XCTAssertEqual(preferred.getCandidateData().data.map(\.word), ["齋", "藤", "と", "髙橋"])
-        XCTAssertEqual(edits.map(\.rejected), ["斎藤", "高橋"])
+        XCTAssertEqual(edits.flatMap(\.contrasts).map(\.rejected), ["斎藤", "高橋"])
         XCTAssertEqual(edits.map(\.range), [0..<6, 9..<15])
     }
 
@@ -45,16 +45,36 @@ final class ZenzaiChoiceLearningTests: XCTestCase {
         XCTAssertTrue(store.record(from: candidate([standard, standard]), to: candidate([variant, variant])))
         XCTAssertTrue(store.preferences.isEmpty)
         XCTAssertTrue(store.record(from: candidate([standard]), to: candidate([variant])))
-        XCTAssertEqual(store.preferences["サ"]?.first?.bonus, 0.5)
+        XCTAssertEqual(store.preferences["サ"]?.first?.contrasts.count, 1)
         XCTAssertTrue(store.record(from: candidate([variant]), to: candidate([standard])))
         XCTAssertTrue(store.preferences.isEmpty)
     }
 
+    func testSameSurfaceKeepsTheVotesAgainstEachAlternative() throws {
+        let first = candidate([entry("新井", "アライ")])
+        let second = candidate([entry("荒井", "アライ")])
+        let preferred = candidate([entry("荒居", "アライ")])
+        var store = ZenzaiChoiceLearning()
+        for _ in 0..<3 {
+            XCTAssertTrue(store.record(from: first, to: preferred))
+        }
+        for _ in 0..<5 {
+            XCTAssertTrue(store.record(from: second, to: preferred))
+        }
+        let preferences = try XCTUnwrap(store.preferences["ア"])
+        XCTAssertEqual(preferences.count, 1)
+        XCTAssertEqual(preferences[0].preferredText, "荒居")
+        let gaps = Dictionary(uniqueKeysWithValues: preferences[0].contrasts.map { ($0.rejected, $0.maximumLogitGap) })
+        XCTAssertEqual(try XCTUnwrap(gaps["新井"]), logf(4), accuracy: 0.0001)
+        XCTAssertEqual(gaps["荒井"], .infinity)
+        XCTAssertLessThan(ZenzaiChoiceLearning.Contrast.maximumLogitGap(votes: 4), 5.33)
+    }
+
     func testAReadingPrefixDoesNotMatchAnUnobservedAlternative() {
-        let rejected = entry("はか", "ハカ")
+        let rejected = entry("は書", "ハカ")
         let preferred = entry("は可", "ハカ")
         var store = ZenzaiChoiceLearning()
-        for _ in 0..<2 {
+        for _ in 0..<8 {
             XCTAssertTrue(store.record(from: candidate([rejected]), to: candidate([preferred])))
         }
         let particle = entry("は", "ハ")
@@ -79,7 +99,7 @@ final class ZenzaiChoiceLearningTests: XCTestCase {
 
         var reloaded = ZenzaiChoiceLearning()
         XCTAssertTrue(reloaded.configure(directory: directory))
-        XCTAssertEqual(reloaded.preferences["サ"]?.first?.rejected, "斎藤")
+        XCTAssertEqual(reloaded.preferences["サ"]?.first?.contrasts.first?.rejected, "斎藤")
         reloaded.forget(preferred)
         XCTAssertTrue(reloaded.preferences.isEmpty)
         var afterForget = ZenzaiChoiceLearning()

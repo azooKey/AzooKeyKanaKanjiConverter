@@ -206,18 +206,32 @@ struct ZenzCandidateEvaluator {
             memoizationCache: memoizationCache
         )
         let candidateTokens = context.encode(candidateTextForEvaluation, addBOS: false, addEOS: false)
-        var choiceBranches: [Int: (rejected: llama_token, bonus: Float)] = [:]
+        var choiceBranches: [Int: (editStart: Int, gaps: [llama_token: Float])] = [:]
         if !choiceEdits.isEmpty {
             // Evaluation only appends the alignment separator, so surface byte offsets
-            // still apply. Keep that suffix on the rejected alternative as well.
+            // still apply. Keep that suffix on the rejected alternatives as well.
             let bytes = Array(candidateTextForEvaluation.utf8)
-            for edit in choiceEdits {
-                let alternative = String(decoding: bytes[..<edit.range.lowerBound], as: UTF8.self)
-                    + edit.rejected + String(decoding: bytes[edit.range.upperBound...], as: UTF8.self)
-                let rejectedTokens = context.encode(alternative, addBOS: false, addEOS: false)
-                let common = zip(candidateTokens, rejectedTokens).prefix(while: { $0 == $1 }).count
-                guard common < candidateTokens.count, choiceBranches[common] == nil else { return .error }
-                choiceBranches[common] = (common < rejectedTokens.count ? rejectedTokens[common] : context.eosToken, edit.bonus)
+            // Bound tokenization work and reserve at least one contrast for each edit.
+            var remainingContrasts = 16
+            for (index, edit) in choiceEdits.enumerated() {
+                let prefix = String(decoding: bytes[..<edit.range.lowerBound], as: UTF8.self)
+                let suffix = String(decoding: bytes[edit.range.upperBound...], as: UTF8.self)
+                let contrasts = edit.contrasts.prefix(remainingContrasts - (choiceEdits.count - index - 1))
+                remainingContrasts -= contrasts.count
+                var hasBranch = false
+                for contrast in contrasts {
+                    let rejectedTokens = context.encode(prefix + contrast.rejected + suffix, addBOS: false, addEOS: false)
+                    let common = zip(candidateTokens, rejectedTokens).prefix(while: { $0 == $1 }).count
+                    guard common < candidateTokens.count else { continue }
+                    let rejected = common < rejectedTokens.count ? rejectedTokens[common] : context.eosToken
+                    var branch = choiceBranches[common] ?? (editStart: edit.range.lowerBound, gaps: [:])
+                    // A token may straddle two edits. Do not combine evidence from those spans.
+                    guard branch.editStart == edit.range.lowerBound else { return .error }
+                    branch.gaps[rejected] = max(branch.gaps[rejected] ?? 0, contrast.maximumLogitGap)
+                    choiceBranches[common] = branch
+                    hasBranch = true
+                }
+                guard hasBranch else { return .error }
             }
         }
         let addressedTokens: [llama_token]
@@ -384,9 +398,8 @@ struct ZenzCandidateEvaluator {
                 let continuesUserWord = userWordContinuations.map {
                     candidateTokenIndex < $0.count && $0[candidateTokenIndex]
                 } ?? false
-                let prefersChoice = choiceBranches[candidateTokenIndex].map {
-                    $0.rejected == maxItem.token
-                        && logits[startIndex + Int(tokenID)] + $0.bonus > maxItem.logit
+                let prefersChoice = choiceBranches[candidateTokenIndex]?.gaps[maxItem.token].map {
+                    maxItem.logit - logits[startIndex + Int(tokenID)] < $0
                 } ?? false
                 if maxItem.token != tokenID, !continuesUserWord, !prefersChoice {
                     if maxItem.token == context.eosToken {
