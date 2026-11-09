@@ -276,7 +276,7 @@ extension Kana2Kanji {
         var latticeIsComplete = true
         var constructedCandidates: [(RegisteredNode, Candidate)] = []
         var insertedCandidates: [(RegisteredNode, Candidate)] = []
-        var ordinaryChoiceDraft: Candidate?
+        var choiceHint: (constraint: PrefixConstraint, ordinaryDraft: Candidate?)?
         func makeCache(
             constraint: PrefixConstraint,
             satisfyingCandidate: Candidate?,
@@ -284,9 +284,9 @@ extension Kana2Kanji {
         ) -> ZenzaiCache {
             ZenzaiCache(
                 latticeInputData,
-                constraint: ordinaryChoiceDraft == nil ? constraint : .init([]),
-                satisfyingCandidate: ordinaryChoiceDraft ?? satisfyingCandidate,
-                evaluatedSatisfyingCandidate: ordinaryChoiceDraft == nil ? evaluatedSatisfyingCandidate : nil,
+                constraint: choiceHint?.constraint ?? constraint,
+                satisfyingCandidate: choiceHint == nil ? satisfyingCandidate : choiceHint?.ordinaryDraft,
+                evaluatedSatisfyingCandidate: choiceHint == nil ? evaluatedSatisfyingCandidate : nil,
                 prefixCandidate: prefixCandidate,
                 lattice: latticeIsComplete ? lattice : nil
             )
@@ -442,14 +442,17 @@ extension Kana2Kanji {
                     insertedCandidates = [(preferredNode, preferred), (draftResult.result.prevs[index], candidate)]
                     // Keep the ordinary draft as the next key's search hint. Recheck the
                     // learned decision without treating it as an already accepted prefix.
-                    ordinaryChoiceDraft = candidate
+                    choiceHint = (.init([]), candidate)
                     return (eosNode, lattice, makeCache(constraint: constraint, satisfyingCandidate: nil))
                 }
                 var reviewedConstraint = trialConstraint
                 if case .continue = self.review(
                     candidateIndex: 0, candidates: [preferred], reviewResult: review, constraint: &reviewedConstraint
                 ) {
-                    ordinaryChoiceDraft = candidate
+                    // Carry over only the verified bytes before the first history edit.
+                    // The ordinary draft's suffix was not verified on rejection.
+                    let ordinaryPrefix = Array(reviewedConstraint.constraint.prefix(edits[0].range.lowerBound))
+                    choiceHint = (.init(ordinaryPrefix), nil)
                     constraint = reviewedConstraint
                     if self.candidate(candidate, satisfies: reviewedConstraint) {
                         previousEvaluationPrompt = trialPrompt
