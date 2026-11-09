@@ -276,7 +276,7 @@ extension Kana2Kanji {
         var latticeIsComplete = true
         var constructedCandidates: [(RegisteredNode, Candidate)] = []
         var insertedCandidates: [(RegisteredNode, Candidate)] = []
-        var usedChoiceConstraint = false
+        var ordinaryChoiceDraft: Candidate?
         func makeCache(
             constraint: PrefixConstraint,
             satisfyingCandidate: Candidate?,
@@ -284,9 +284,9 @@ extension Kana2Kanji {
         ) -> ZenzaiCache {
             ZenzaiCache(
                 latticeInputData,
-                constraint: usedChoiceConstraint ? .init([]) : constraint,
-                satisfyingCandidate: usedChoiceConstraint ? nil : satisfyingCandidate,
-                evaluatedSatisfyingCandidate: usedChoiceConstraint ? nil : evaluatedSatisfyingCandidate,
+                constraint: ordinaryChoiceDraft == nil ? constraint : .init([]),
+                satisfyingCandidate: ordinaryChoiceDraft ?? satisfyingCandidate,
+                evaluatedSatisfyingCandidate: ordinaryChoiceDraft == nil ? evaluatedSatisfyingCandidate : nil,
                 prefixCandidate: prefixCandidate,
                 lattice: latticeIsComplete ? lattice : nil
             )
@@ -440,17 +440,25 @@ extension Kana2Kanji {
                 inferenceLimit -= 1
                 if case .pass = review {
                     insertedCandidates = [(preferredNode, preferred), (draftResult.result.prevs[index], candidate)]
-                    // A learned decision belongs to this request. Recheck it after further input.
-                    return (eosNode, lattice, makeCache(constraint: .init([]), satisfyingCandidate: nil))
+                    // Keep the ordinary draft as the next key's search hint. Recheck the
+                    // learned decision without treating it as an already accepted prefix.
+                    ordinaryChoiceDraft = candidate
+                    return (eosNode, lattice, makeCache(constraint: constraint, satisfyingCandidate: nil))
                 }
                 var reviewedConstraint = trialConstraint
                 if case .continue = self.review(
                     candidateIndex: 0, candidates: [preferred], reviewResult: review, constraint: &reviewedConstraint
                 ) {
-                    insertedCandidates.append((draftResult.result.prevs[index], candidate))
+                    ordinaryChoiceDraft = candidate
                     constraint = reviewedConstraint
-                    usedChoiceConstraint = true
-                    continue
+                    if self.candidate(candidate, satisfies: reviewedConstraint) {
+                        // This ordinary path is already a valid fallback for the verified
+                        // prefix, so reuse it without walking the lattice again.
+                        previousEvaluationPrompt = trialPrompt
+                    } else {
+                        insertedCandidates.append((draftResult.result.prevs[index], candidate))
+                        continue
+                    }
                 }
             }
 
