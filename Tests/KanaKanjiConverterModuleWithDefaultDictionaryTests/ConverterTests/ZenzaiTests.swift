@@ -322,6 +322,43 @@ final class ZenzaiTests: XCTestCase {
     }
 
     @MainActor
+    func testChoiceLearningWithAlignmentSeparator() throws {
+        var options = self.requestOptions(inferenceLimit: 1)
+        let weight = options.zenzaiMode.weightURL
+        try XCTSkipUnless(FileManager.default.fileExists(atPath: weight.path))
+
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        options.memoryDirectoryURL = directory
+        options.learningType = .inputAndOutput
+        options.zenzaiMode = .on(
+            weight: weight,
+            inferenceLimit: 1,
+            personalizationMode: nil,
+            versionDependentMode: .v3(.init(enableAlignmentSeparator: true))
+        )
+
+        let converter = KanaKanjiConverter.withDefaultDictionary()
+        var composingText = ComposingText()
+        composingText.insertAtCursorPosition("わたなべさん", inputStyle: .direct)
+        _ = composingText.moveCursorFromCursorPosition(count: -2)
+
+        for _ in 0..<5 {
+            let candidates = converter.requestCandidates(composingText, options: options).mainResults
+            let original = try XCTUnwrap(candidates.first(where: { $0.data.map(\.ruby).joined() == "ワタナベ" }))
+            if original.text == "渡邉" { break }
+            XCTAssertEqual(original.text, "渡辺")
+            let selected = try XCTUnwrap(candidates.first(where: { $0.text == "渡邉" }))
+            converter.recordZenzaiCorrection(from: original, to: selected)
+            converter.stopComposition()
+        }
+
+        let candidates = converter.requestCandidates(composingText, options: options).mainResults
+        XCTAssertEqual(candidates.first(where: { $0.data.map(\.ruby).joined() == "ワタナベ" })?.text, "渡邉")
+    }
+
+    @MainActor
     func testGradualConversionDoesNotReusePrefixEvaluatedForPrediction() throws {
         let options = self.desktopPredictiveInputOptions(leftSideContext: nil)
         try XCTSkipUnless(FileManager.default.fileExists(atPath: options.zenzaiMode.weightURL.path))
