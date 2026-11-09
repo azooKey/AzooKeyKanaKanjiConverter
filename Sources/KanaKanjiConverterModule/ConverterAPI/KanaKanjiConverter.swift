@@ -33,6 +33,8 @@ public final class KanaKanjiConverter {
         var predictiveInputCache: PredictiveInputCacheEntry?
         var stablePredictionCandidateCache: StablePredictionCandidateCacheEntry?
         var lastData: DicdataElement?
+        var usesZenzai = false
+        var zenzaiChoiceDirectoryForCommit: URL?
     }
     private static let defaultSessionID = ConversionSessionID(rawValue: "default")
 
@@ -72,6 +74,7 @@ public final class KanaKanjiConverter {
     private var zenzaiPersonalization: (mode: ConvertRequestOptions.ZenzaiMode.PersonalizationMode, base: EfficientNGram, personal: EfficientNGram)?
     public private(set) var zenzStatus: String = ""
     private var dicdataStoreState: DicdataStoreState
+    private var zenzaiChoices = ZenzaiChoiceLearning()
 
     private var currentSessionState: ConversionSessionState {
         self.sessions[self.activeSessionID] ?? .init()
@@ -493,7 +496,9 @@ public final class KanaKanjiConverter {
     /// - Warning:
     ///   `commitUpdateLearningData`を呼び出すまで永続化されません。
     public func updateLearningData(_ candidate: Candidate) {
-        self.dicdataStoreState.updateLearningData(candidate, with: self.currentSessionState.lastData)
+        if self.dicdataStoreState.legacyLearningEnabled {
+            self.dicdataStoreState.updateLearningData(candidate, with: self.currentSessionState.lastData)
+        }
         self.updateCurrentSessionState {
             $0.lastData = candidate.data.last
         }
@@ -505,25 +510,44 @@ public final class KanaKanjiConverter {
     /// - Warning:
     ///   `commitUpdateLearningData`を呼び出すまで永続化されません。
     public func updateLearningData(_ candidate: Candidate, with predictionCandidate: PostCompositionPredictionCandidate) {
-        self.dicdataStoreState.updateLearningData(candidate, with: predictionCandidate)
+        if self.dicdataStoreState.legacyLearningEnabled {
+            self.dicdataStoreState.updateLearningData(candidate, with: predictionCandidate)
+        }
         self.updateCurrentSessionState {
             $0.lastData = predictionCandidate.lastData
         }
     }
 
+    /// 明示的な候補の選び直しを Zenzai の学習に記録します。
+    /// 同じ読みを消費する、直前の先頭候補と選択した候補を、確定処理の前に渡してください。
+    /// 予測の受理やライブ変換の自動確定からは呼び出さないでください。
+    public func recordZenzaiCorrection(from original: Candidate, to selected: Candidate) {
+        guard let directory = self.currentSessionState.zenzaiChoiceDirectoryForCommit,
+              self.zenzaiChoices.configure(directory: directory),
+              self.zenzaiChoices.record(from: original, to: selected) else { return }
+        self.updateCurrentSessionState { $0.zenzaiChoiceDirectoryForCommit = nil }
+    }
+
     /// 確定操作後の学習メモリの更新を確定させます。
     public func commitUpdateLearningData() {
         self.dicdataStoreState.saveMemory()
+        self.zenzaiChoices.save()
     }
 
     /// 確定操作後の学習メモリの更新を確定させます。
     public func forgetMemory(_ candidate: Candidate) {
         self.dicdataStoreState.forgetMemory(candidate)
+        if let directory = self.dicdataStoreState.memoryURL, self.zenzaiChoices.configure(directory: directory) {
+            self.zenzaiChoices.forget(candidate)
+        }
     }
 
     /// 確定操作後の学習メモリの更新を確定させます。
     public func resetMemory() {
         self.dicdataStoreState.resetMemory()
+        if let directory = self.dicdataStoreState.memoryURL, self.zenzaiChoices.configure(directory: directory) {
+            self.zenzaiChoices.reset()
+        }
     }
 
     /// 賢い変換候補を生成する関数。
@@ -1225,13 +1249,13 @@ public final class KanaKanjiConverter {
     ///   - N_best: 計算途中で保存する候補数。実際に得られる候補数とは異なる。
     /// - Returns:
     ///   結果のラティスノードと、計算済みノードの全体
-    private func convertToLattice(_ inputData: ComposingText, N_best: Int, zenzaiMode: ConvertRequestOptions.ZenzaiMode, needTypoCorrection: Bool) -> (result: LatticeNode, lattice: Lattice)? {
+    private func convertToLattice(_ inputData: ComposingText, N_best: Int, zenzaiMode: ConvertRequestOptions.ZenzaiMode, model: Zenz?, useZenzaiChoices: Bool, needTypoCorrection: Bool) -> (result: LatticeNode, lattice: Lattice)? {
         if inputData.convertTarget.isEmpty {
             return nil
         }
 
         // FIXME: enable cache based zenzai
-        if zenzaiMode.enabled, let model = self.getModel(modelURL: zenzaiMode.weightURL) {
+        if let model {
             let (result, nodes, cache) = self.converter.all_zenzai(
                 inputData,
                 zenz: model,
@@ -1241,7 +1265,8 @@ public final class KanaKanjiConverter {
                 requestRichCandidates: zenzaiMode.requestRichCandidates,
                 personalizationMode: self.getZenzaiPersonalization(mode: zenzaiMode.personalizationMode),
                 versionDependentConfig: zenzaiMode.versionDependentMode,
-                dicdataStoreState: self.dicdataStoreState
+                dicdataStoreState: self.dicdataStoreState,
+                choicePreferences: useZenzaiChoices ? self.zenzaiChoices.preferences : [:]
             )
             self.updateCurrentSessionState {
                 $0.previousInputData = inputData
@@ -1331,15 +1356,31 @@ public final class KanaKanjiConverter {
         debug("requestCandidates 入力は", inputData)
         // 変換対象が無の場合
         if inputData.convertTarget.isEmpty {
+            self.updateCurrentSessionState { $0.zenzaiChoiceDirectoryForCommit = nil }
             return ConversionResult(mainResults: [], predictionResults: [], englishPredictionResults: [], firstClauseResults: [])
         }
+        let model = options.zenzaiMode.enabled ? self.getModel(modelURL: options.zenzaiMode.weightURL) : nil
+        let usesZenzai = model != nil
+        self.dicdataStoreState.legacyLearningEnabled = !usesZenzai
+        self.dicdataStoreState.updateIfRequired(options: options)
         if options.shouldResetMemory {
             self.resetMemory()
         }
-        self.dicdataStoreState.updateIfRequired(options: options)
+        let useZenzaiChoices = usesZenzai && options.learningType.needUsingMemory
+            && self.zenzaiChoices.configure(directory: options.memoryDirectoryURL)
+        self.updateCurrentSessionState {
+            if $0.usesZenzai != usesZenzai {
+                $0.previousInputData = nil
+                $0.lattice = .init()
+                $0.zenzaiCache = nil
+            }
+            $0.usesZenzai = usesZenzai
+            $0.zenzaiChoiceDirectoryForCommit = useZenzaiChoices && options.learningType.needUpdateMemory
+                ? options.memoryDirectoryURL : nil
+        }
         let needTypoCorrection = self.isClassicTypoCorrectionEnabled(options)
 
-        guard let result = self.convertToLattice(inputData, N_best: options.N_best, zenzaiMode: options.zenzaiMode, needTypoCorrection: needTypoCorrection) else {
+        guard let result = self.convertToLattice(inputData, N_best: options.N_best, zenzaiMode: options.zenzaiMode, model: model, useZenzaiChoices: useZenzaiChoices, needTypoCorrection: needTypoCorrection) else {
             return ConversionResult(mainResults: [], predictionResults: [], englishPredictionResults: [], firstClauseResults: [])
         }
         return self.processResult(inputData: inputData, result: result, options: options)

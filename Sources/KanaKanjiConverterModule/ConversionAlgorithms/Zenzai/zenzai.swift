@@ -194,10 +194,23 @@ extension Kana2Kanji {
         requestRichCandidates: Bool,
         personalizationMode: (mode: ConvertRequestOptions.ZenzaiMode.PersonalizationMode, base: EfficientNGram, personal: EfficientNGram)?,
         versionDependentConfig: ConvertRequestOptions.ZenzaiVersionDependentMode,
-        dicdataStoreState: DicdataStoreState
+        dicdataStoreState: DicdataStoreState,
+        choicePreferences: [Character: [ZenzaiChoiceLearning.Preference]] = [:]
     ) -> (result: LatticeNode, lattice: Lattice, cache: ZenzaiCache) {
         let latticeInputData = Self.zenzaiLatticeInputData(for: inputData)
         let zenzInputCursorPosition = Self.zenzaiInputCursorPosition(for: inputData)
+        let choiceReading: String? = if choicePreferences.isEmpty {
+            nil
+        } else {
+            latticeInputData.convertTarget.toKatakana()
+        }
+        let hasApplicableChoice = choiceReading.map { reading in
+            reading.indices.contains { index in
+                choicePreferences[reading[index]]?.contains {
+                    reading[index...].hasPrefix($0.reading)
+                } ?? false
+            }
+        } ?? false
         let inputStyle = inputData.input.last?.inputStyle ?? .direct
         let defersEvaluationForPendingInput = !requestRichCandidates
             && personalizationMode == nil
@@ -209,6 +222,7 @@ extension Kana2Kanji {
         let prefixCandidate = zenzaiCache?.prefixCandidate(remainingIn: latticeInputData)
         let resolvedConversionCacheKey: ZenzResolvedConversionCacheKey? =
             if !requestRichCandidates,
+               !hasApplicableChoice,
                personalizationMode == nil,
                dicdataStoreState.canShareStaticConversionResults() {
                 ZenzResolvedConversionCacheKey(
@@ -262,6 +276,7 @@ extension Kana2Kanji {
         var latticeIsComplete = true
         var constructedCandidates: [(RegisteredNode, Candidate)] = []
         var insertedCandidates: [(RegisteredNode, Candidate)] = []
+        var usedChoiceConstraint = false
         func makeCache(
             constraint: PrefixConstraint,
             satisfyingCandidate: Candidate?,
@@ -269,9 +284,9 @@ extension Kana2Kanji {
         ) -> ZenzaiCache {
             ZenzaiCache(
                 latticeInputData,
-                constraint: constraint,
-                satisfyingCandidate: satisfyingCandidate,
-                evaluatedSatisfyingCandidate: evaluatedSatisfyingCandidate,
+                constraint: usedChoiceConstraint ? .init([]) : constraint,
+                satisfyingCandidate: usedChoiceConstraint ? nil : satisfyingCandidate,
+                evaluatedSatisfyingCandidate: usedChoiceConstraint ? nil : evaluatedSatisfyingCandidate,
                 prefixCandidate: prefixCandidate,
                 lattice: latticeIsComplete ? lattice : nil
             )
@@ -290,6 +305,7 @@ extension Kana2Kanji {
             // 初回draftだけを共有する。後続draftは直前の探索状態に依存するため対象外。
             let draftCacheKey: ZenzDraftConversionCacheKey? = if draftIteration == 0,
                                                                  !requestRichCandidates,
+                                                                 !hasApplicableChoice,
                                                                  personalizationMode == nil,
                                                                  dicdataStoreState.canShareStaticConversionResults() {
                 ZenzDraftConversionCacheKey(
@@ -393,6 +409,49 @@ extension Kana2Kanji {
                 // Emptyの場合
                 // 制約が満たせない場合は無視する
                 return (eosNode, lattice, makeCache(constraint: PrefixConstraint([]), satisfyingCandidate: nil))
+            }
+
+            // Keep the ordinary draft as fallback. One preferred draft may use the existing
+            // inference budget. A rejection still provides a verified prefix for the
+            // normal constrained search, which can revise the unverified suffix.
+            if draftIteration == 1, inferenceLimit > 0, !defersEvaluationForPendingInput,
+               constraint.fixedPrefix == nil, personalizationMode == nil, hasApplicableChoice,
+               let choiceReading,
+               let (preferredNode, edits) = self.choiceDraft(
+                   from: draftResult.result.prevs[index],
+                   reading: choiceReading,
+                   preferences: choicePreferences
+               ) {
+                let preferred = self.processClauseCandidate(preferredNode.getCandidateData())
+                var trialPrompt: String?
+                let trialConstraint = PrefixConstraint([])
+                let review = zenz.candidateEvaluate(
+                    convertTarget: inputData.convertTarget,
+                    convertTargetCursorPosition: zenzInputCursorPosition,
+                    candidates: [preferred],
+                    requestRichCandidates: requestRichCandidates,
+                    prefixConstraint: trialConstraint,
+                    personalizationMode: personalizationMode,
+                    versionDependentConfig: versionDependentConfig,
+                    memoizationCache: zenzaiMemoizationCache,
+                    previousEvaluationPrompt: &trialPrompt,
+                    choiceEdits: edits
+                )
+                inferenceLimit -= 1
+                if case .pass = review {
+                    insertedCandidates = [(preferredNode, preferred), (draftResult.result.prevs[index], candidate)]
+                    // A learned decision belongs to this request. Recheck it after further input.
+                    return (eosNode, lattice, makeCache(constraint: .init([]), satisfyingCandidate: nil))
+                }
+                var reviewedConstraint = trialConstraint
+                if case .continue = self.review(
+                    candidateIndex: 0, candidates: [preferred], reviewResult: review, constraint: &reviewedConstraint
+                ) {
+                    insertedCandidates.append((draftResult.result.prevs[index], candidate))
+                    constraint = reviewedConstraint
+                    usedChoiceConstraint = true
+                    continue
+                }
             }
 
             debug("Constrained draft modeling", -start.timeIntervalSinceNow)

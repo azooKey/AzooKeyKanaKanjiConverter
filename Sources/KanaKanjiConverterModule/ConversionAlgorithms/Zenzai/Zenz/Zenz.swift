@@ -73,7 +73,8 @@ package final class Zenz {
         personalizationMode: (mode: ConvertRequestOptions.ZenzaiMode.PersonalizationMode, base: EfficientNGram, personal: EfficientNGram)?,
         versionDependentConfig: ConvertRequestOptions.ZenzaiVersionDependentMode,
         memoizationCache: ZenzaiMemoizationCache,
-        previousEvaluationPrompt: inout String?
+        previousEvaluationPrompt: inout String?,
+        choiceEdits: [ZenzaiChoiceLearning.Edit] = []
     ) -> CandidateEvaluationResult {
         self.inferenceLock.withLock {
             guard let zenzContext else {
@@ -90,7 +91,8 @@ package final class Zenz {
                     personalizationMode: personalizationMode,
                     versionDependentConfig: versionDependentConfig,
                     memoizationCache: memoizationCache,
-                    previousEvaluationPrompt: &previousEvaluationPrompt
+                    previousEvaluationPrompt: &previousEvaluationPrompt,
+                    choiceEdits: choiceEdits
                 )
             }
             return .error

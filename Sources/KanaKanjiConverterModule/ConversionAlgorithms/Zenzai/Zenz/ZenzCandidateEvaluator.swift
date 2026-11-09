@@ -89,7 +89,8 @@ struct ZenzCandidateEvaluator {
         personalizationMode: (mode: ConvertRequestOptions.ZenzaiMode.PersonalizationMode, base: EfficientNGram, personal: EfficientNGram)?,
         versionDependentConfig: ConvertRequestOptions.ZenzaiVersionDependentMode,
         memoizationCache: ZenzaiMemoizationCache,
-        previousEvaluationPrompt: inout String?
+        previousEvaluationPrompt: inout String?,
+        choiceEdits: [ZenzaiChoiceLearning.Edit] = []
     ) -> CandidateEvaluationResult {
         // 固定された部分は、表記を左文脈に移し、読みを入力から除いて、残りだけを評価する。
         // モデルは固定された表記が読みを消費したことを知らないので、残したまま評価すると続きの判断がずれる。
@@ -106,9 +107,11 @@ struct ZenzCandidateEvaluator {
                 personalizationMode: personalizationMode,
                 versionDependentConfig: versionDependentConfig,
                 memoizationCache: memoizationCache,
-                previousEvaluationPrompt: &previousEvaluationPrompt
+                previousEvaluationPrompt: &previousEvaluationPrompt,
+                choiceEdits: choiceEdits
             )
         }
+        guard choiceEdits.isEmpty else { return .error }
         let fixed = Array(prefixConstraint.constraint.prefix(fixedPrefix.byteCount))
         var remainingCandidate = candidate
         remainingCandidate.text = String(decoding: candidate.text.utf8.dropFirst(fixedPrefix.byteCount), as: UTF8.self)
@@ -141,7 +144,8 @@ struct ZenzCandidateEvaluator {
         personalizationMode: (mode: ConvertRequestOptions.ZenzaiMode.PersonalizationMode, base: EfficientNGram, personal: EfficientNGram)?,
         versionDependentConfig: ConvertRequestOptions.ZenzaiVersionDependentMode,
         memoizationCache: ZenzaiMemoizationCache,
-        previousEvaluationPrompt: inout String?
+        previousEvaluationPrompt: inout String?,
+        choiceEdits: [ZenzaiChoiceLearning.Edit] = []
     ) -> CandidateEvaluationResult {
         debug("Evaluate", candidate)
         var userDictionaryPrompt = ""
@@ -161,13 +165,13 @@ struct ZenzCandidateEvaluator {
             versionDependentConfig: versionDependentConfig
         )
         let normalizedPrompt = context.normalizeForModel(prompt)
-        let reusesAddressedPrefix = previousEvaluationPrompt == normalizedPrompt && !requestRichCandidates
+        let reusesAddressedPrefix = previousEvaluationPrompt == normalizedPrompt && !requestRichCandidates && choiceEdits.isEmpty
         // A cache hit must produce the same subsequent incremental-evaluation state
         // as a model evaluation.
         defer {
             previousEvaluationPrompt = normalizedPrompt
         }
-        let cacheKey: ZenzEvaluationCacheKey? = if personalizationMode == nil {
+        let cacheKey: ZenzEvaluationCacheKey? = if personalizationMode == nil && choiceEdits.isEmpty {
             ZenzEvaluationCacheKey(
                 prompt: prompt,
                 candidateTextForEvaluation: candidateTextForEvaluation,
@@ -202,6 +206,19 @@ struct ZenzCandidateEvaluator {
             memoizationCache: memoizationCache
         )
         let candidateTokens = context.encode(candidateTextForEvaluation, addBOS: false, addEOS: false)
+        var choiceBranches: [Int: (rejected: llama_token, bonus: Float)] = [:]
+        if !choiceEdits.isEmpty {
+            guard candidateTextForEvaluation == candidate.text else { return .error }
+            let bytes = Array(candidate.text.utf8)
+            for edit in choiceEdits {
+                let alternative = String(decoding: bytes[..<edit.range.lowerBound], as: UTF8.self)
+                    + edit.rejected + String(decoding: bytes[edit.range.upperBound...], as: UTF8.self)
+                let rejectedTokens = context.encode(alternative, addBOS: false, addEOS: false)
+                let common = zip(candidateTokens, rejectedTokens).prefix(while: { $0 == $1 }).count
+                guard common < candidateTokens.count, choiceBranches[common] == nil else { return .error }
+                choiceBranches[common] = (common < rejectedTokens.count ? rejectedTokens[common] : context.eosToken, edit.bonus)
+            }
+        }
         let addressedTokens: [llama_token]
         if reusesAddressedPrefix {
             var prefix = ""
@@ -366,7 +383,11 @@ struct ZenzCandidateEvaluator {
                 let continuesUserWord = userWordContinuations.map {
                     candidateTokenIndex < $0.count && $0[candidateTokenIndex]
                 } ?? false
-                if maxItem.token != tokenID, !continuesUserWord {
+                let prefersChoice = choiceBranches[candidateTokenIndex].map {
+                    $0.rejected == maxItem.token
+                        && logits[startIndex + Int(tokenID)] + $0.bonus > maxItem.logit
+                } ?? false
+                if maxItem.token != tokenID, !continuesUserWord, !prefersChoice {
                     if maxItem.token == context.eosToken {
                         let cchars = tokens[..<i].reduce(into: []) {
                             $0.append(contentsOf: context.tokenToPiece(token: $1))
@@ -465,7 +486,7 @@ struct ZenzCandidateEvaluator {
         }
     }
 
-    private static let userWordMetadata: DicdataElementMetadata = [.isLearned, .isFromUserDictionary]
+    private static let userWordMetadata: DicdataElementMetadata = .isFromUserDictionary
 
     /// 候補の各tokenが、学習・ユーザ辞書の単語の途中から始まるかどうかを返す
     /// - note: 単語の表記を連結したものが候補の表記と一致しない場合は判定しない
