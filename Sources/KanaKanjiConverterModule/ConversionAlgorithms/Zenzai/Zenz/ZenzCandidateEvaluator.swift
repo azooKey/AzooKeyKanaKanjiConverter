@@ -208,8 +208,9 @@ struct ZenzCandidateEvaluator {
         let candidateTokens = context.encode(candidateTextForEvaluation, addBOS: false, addEOS: false)
         var choiceBranches: [Int: (rejected: llama_token, bonus: Float)] = [:]
         if !choiceEdits.isEmpty {
-            guard candidateTextForEvaluation == candidate.text else { return .error }
-            let bytes = Array(candidate.text.utf8)
+            // Evaluation only appends the alignment separator, so surface byte offsets
+            // still apply. Keep that suffix on the rejected alternative as well.
+            let bytes = Array(candidateTextForEvaluation.utf8)
             for edit in choiceEdits {
                 let alternative = String(decoding: bytes[..<edit.range.lowerBound], as: UTF8.self)
                     + edit.rejected + String(decoding: bytes[edit.range.upperBound...], as: UTF8.self)
