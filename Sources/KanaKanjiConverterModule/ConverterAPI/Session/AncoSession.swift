@@ -303,6 +303,13 @@ package struct AncoSession {
                 throw SessionError.invalidCandidateIndex(index)
             }
             let candidate = self.lastCandidates[index]
+            let inputReading = self.composingText.prefixToCursorPosition().convertTarget.toKatakana()
+            let reading = candidate.data.map(\.ruby).joined()
+            if !reading.isEmpty, inputReading.hasPrefix(reading),
+               let original = self.lastMainCandidates.first(where: { $0.data.map(\.ruby).joined() == reading }),
+               self.lastMainCandidates.contains(candidate) {
+                self.converter.recordZenzaiCorrection(from: original, to: candidate)
+            }
             self.converter.setCompletedData(candidate)
             self.converter.updateLearningData(candidate)
             self.composingText.prefixComplete(composingCount: candidate.composingCount)

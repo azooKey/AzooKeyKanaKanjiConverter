@@ -350,21 +350,23 @@ public final class DicdataStore {
                 }
             }
             // 短期記憶についてはこの位置で処理する
-            let result = state.learningMemoryManager.movingTowardPrefixSearchOnTemporaryMemory(charIDs: consume charIDs)
-            updated = updated || !(result.dicdata.isEmpty)
-            availableMaxIndex = max(availableMaxIndex, result.availableMaxIndex)
-            for (depth, dicdata) in result.dicdata {
-                for data in dicdata {
-                    if info.penalty.isZero {
-                        dynamicDicdata[depth, default: []].append(data)
+            if useMemory {
+                let result = state.learningMemoryManager.movingTowardPrefixSearchOnTemporaryMemory(charIDs: consume charIDs)
+                updated = updated || !(result.dicdata.isEmpty)
+                availableMaxIndex = max(availableMaxIndex, result.availableMaxIndex)
+                for (depth, dicdata) in result.dicdata {
+                    for data in dicdata {
+                        if info.penalty.isZero {
+                            dynamicDicdata[depth, default: []].append(data)
+                        }
+                        let ratio = Self.penaltyRatio[data.lcid]
+                        let pUnit: PValue = Self.getPenalty(data: data) / 2   // 負の値
+                        let adjust = pUnit * info.penalty * ratio
+                        if self.shouldBeRemoved(value: data.value() + adjust, wordCount: data.ruby.count) {
+                            continue
+                        }
+                        dynamicDicdata[depth, default: []].append(data.adjustedData(adjust))
                     }
-                    let ratio = Self.penaltyRatio[data.lcid]
-                    let pUnit: PValue = Self.getPenalty(data: data) / 2   // 負の値
-                    let adjust = pUnit * info.penalty * ratio
-                    if self.shouldBeRemoved(value: data.value() + adjust, wordCount: data.ruby.count) {
-                        continue
-                    }
-                    dynamicDicdata[depth, default: []].append(data.adjustedData(adjust))
                 }
             }
             if !state.dynamicUserDictionary.isEmpty {
@@ -590,7 +592,7 @@ public final class DicdataStore {
             composingText: composingText,
             inputProcessRange: inputProcessRange,
             surfaceProcessRange: surfaceProcessRange,
-            useMemory: state.learningMemoryManager.enabled,
+            useMemory: state.usesLegacyMemory,
             needTypoCorrection: needTypoCorrection,
             state: state
         )
@@ -690,7 +692,7 @@ public final class DicdataStore {
             userDictIndices.append(contentsOf: self.perfectMatchingSearch(query: "user", charIDs: charIDs, state: state))
         }
         result.append(contentsOf: self.getDicdataFromLoudstxt3(identifier: "user", indices: Set(consume userDictIndices), state: state))
-        if state.learningMemoryManager.enabled {
+        if state.usesLegacyMemory {
             var memoryDictIndices = self.startingFromPrefixSearch(query: "memory", charIDs: charIDs, maxCount: maxCount, state: state)
             if includeExactMatch, memoryDictIndices.count < maxCount {
                 memoryDictIndices.append(contentsOf: self.perfectMatchingSearch(query: "memory", charIDs: charIDs, state: state))
@@ -713,7 +715,7 @@ public final class DicdataStore {
         let charOptions = characterOptions.map { $0.compactMap { self.charsID[$0] } }
         var queries = characterOptions[0].map(String.init)
         queries.append("user")
-        if state.learningMemoryManager.enabled { queries.append("memory") }
+        if state.usesLegacyMemory { queries.append("memory") }
         let maxCount = 700
         var result: [DicdataElement] = []
         for query in queries {
@@ -724,7 +726,7 @@ public final class DicdataStore {
                 query == "user" || query == "memory" || Self.predictionUsable[$0.rcid]
             })
         }
-        if state.learningMemoryManager.enabled {
+        if state.usesLegacyMemory {
             result.append(contentsOf: state.learningMemoryManager.temporaryPrefixMatch(charOptions: charOptions, maxCount: maxCount))
         }
         return result

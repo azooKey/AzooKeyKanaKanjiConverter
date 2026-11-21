@@ -194,10 +194,24 @@ extension Kana2Kanji {
         requestRichCandidates: Bool,
         personalizationMode: (mode: ConvertRequestOptions.ZenzaiMode.PersonalizationMode, base: EfficientNGram, personal: EfficientNGram)?,
         versionDependentConfig: ConvertRequestOptions.ZenzaiVersionDependentMode,
-        dicdataStoreState: DicdataStoreState
+        dicdataStoreState: DicdataStoreState,
+        choicePreferences: [Character: [ZenzaiChoiceLearning.Preference]] = [:],
+        wholeInputPreferences: [String: [String: ZenzaiChoiceLearning.Preference]] = [:]
     ) -> (result: LatticeNode, lattice: Lattice, cache: ZenzaiCache) {
         let latticeInputData = Self.zenzaiLatticeInputData(for: inputData)
         let zenzInputCursorPosition = Self.zenzaiInputCursorPosition(for: inputData)
+        let choiceReading: String? = if choicePreferences.isEmpty && wholeInputPreferences.isEmpty {
+            nil
+        } else {
+            latticeInputData.convertTarget.toKatakana()
+        }
+        let hasApplicableWordChoice = choiceReading.map { reading in
+            reading.indices.contains { index in
+                choicePreferences[reading[index]]?.contains {
+                    reading[index...].hasPrefix($0.reading)
+                } ?? false
+            }
+        } ?? false
         let inputStyle = inputData.input.last?.inputStyle ?? .direct
         let defersEvaluationForPendingInput = !requestRichCandidates
             && personalizationMode == nil
@@ -207,8 +221,17 @@ extension Kana2Kanji {
             ).droppedSuffixCount > 0
         var constraint = zenzaiCache?.getNewConstraint(for: latticeInputData) ?? PrefixConstraint([])
         let prefixCandidate = zenzaiCache?.prefixCandidate(remainingIn: latticeInputData)
+        let exactChoices: [String: ZenzaiChoiceLearning.Preference]? =
+            if inputData.isAtEndIndex, constraint.fixedPrefix == nil,
+               personalizationMode == nil, !defersEvaluationForPendingInput, let choiceReading {
+                wholeInputPreferences[choiceReading]
+            } else {
+                nil
+            }
+        let hasApplicableChoice = hasApplicableWordChoice || exactChoices != nil
         let resolvedConversionCacheKey: ZenzResolvedConversionCacheKey? =
             if !requestRichCandidates,
+               !hasApplicableChoice,
                personalizationMode == nil,
                dicdataStoreState.canShareStaticConversionResults() {
                 ZenzResolvedConversionCacheKey(
@@ -262,6 +285,8 @@ extension Kana2Kanji {
         var latticeIsComplete = true
         var constructedCandidates: [(RegisteredNode, Candidate)] = []
         var insertedCandidates: [(RegisteredNode, Candidate)] = []
+        var choiceHint: (constraint: PrefixConstraint, ordinaryDraft: Candidate?)?
+        var wholeInputChoice: (preferred: RegisteredNode, rejected: [String])?
         func makeCache(
             constraint: PrefixConstraint,
             satisfyingCandidate: Candidate?,
@@ -269,15 +294,24 @@ extension Kana2Kanji {
         ) -> ZenzaiCache {
             ZenzaiCache(
                 latticeInputData,
-                constraint: constraint,
-                satisfyingCandidate: satisfyingCandidate,
-                evaluatedSatisfyingCandidate: evaluatedSatisfyingCandidate,
+                constraint: choiceHint?.constraint ?? constraint,
+                satisfyingCandidate: choiceHint == nil ? satisfyingCandidate : choiceHint?.ordinaryDraft,
+                evaluatedSatisfyingCandidate: choiceHint == nil ? evaluatedSatisfyingCandidate : nil,
                 prefixCandidate: prefixCandidate,
                 lattice: latticeIsComplete ? lattice : nil
             )
         }
         defer {
             eosNode.prevs = insertedCandidates.map(\.0)
+            if let (node, ordinary) = insertedCandidates.first, let choiceReading,
+               let preference = exactChoices?[ordinary.text], let firstKana = choiceReading.first,
+               let (preferred, _) = self.choiceDraft(from: node, reading: choiceReading, preferences: [firstKana: [preference]]) {
+                eosNode.prevs.insert(preferred, at: 0)
+            } else if let wholeInputChoice, let ordinary = insertedCandidates.first?.1,
+               wholeInputChoice.rejected.contains(ordinary.text),
+               ordinary.data.map(\.ruby).joined() == choiceReading {
+                eosNode.prevs.insert(wholeInputChoice.preferred, at: 0)
+            }
         }
         var inferenceLimit = inferenceLimit
         var draftIteration = 0
@@ -290,6 +324,7 @@ extension Kana2Kanji {
             // 初回draftだけを共有する。後続draftは直前の探索状態に依存するため対象外。
             let draftCacheKey: ZenzDraftConversionCacheKey? = if draftIteration == 0,
                                                                  !requestRichCandidates,
+                                                                 !hasApplicableChoice,
                                                                  personalizationMode == nil,
                                                                  dicdataStoreState.canShareStaticConversionResults() {
                 ZenzDraftConversionCacheKey(
@@ -393,6 +428,82 @@ extension Kana2Kanji {
                 // Emptyの場合
                 // 制約が満たせない場合は無視する
                 return (eosNode, lattice, makeCache(constraint: PrefixConstraint([]), satisfyingCandidate: nil))
+            }
+
+            // Keep the ordinary draft as fallback. One preferred draft may use the existing
+            // inference budget. A rejection still provides a verified prefix for the
+            // normal constrained search, which can revise the unverified suffix.
+            let learnedDraft: (RegisteredNode, [ZenzaiChoiceLearning.Edit])? =
+                if draftIteration == 1, inferenceLimit > 0, !defersEvaluationForPendingInput,
+                   constraint.fixedPrefix == nil, personalizationMode == nil, hasApplicableWordChoice,
+                   let choiceReading {
+                    self.choiceDraft(from: draftResult.result.prevs[index], reading: choiceReading, preferences: choicePreferences)
+                } else {
+                    nil
+                }
+            if inputData.isAtEndIndex, let (preferredNode, edits) = learnedDraft, edits.count == 1,
+               let edit = edits.first, edit.coversWholeInput {
+                let rejected = edit.contrasts.filter(\.canRerankWholeInput).map(\.rejected)
+                if !rejected.isEmpty {
+                    // A strong correction across word boundaries compares two whole results.
+                    // Let the model produce the ordinary result before applying that choice.
+                    wholeInputChoice = (preferredNode, rejected)
+                }
+            }
+            if wholeInputChoice == nil, let (preferredNode, edits) = learnedDraft {
+                let preferred = self.processClauseCandidate(preferredNode.getCandidateData())
+                var trialPrompt: String?
+                let trialConstraint = PrefixConstraint([])
+                let review = zenz.candidateEvaluate(
+                    convertTarget: inputData.convertTarget,
+                    convertTargetCursorPosition: zenzInputCursorPosition,
+                    candidates: [preferred],
+                    requestRichCandidates: requestRichCandidates,
+                    prefixConstraint: trialConstraint,
+                    personalizationMode: personalizationMode,
+                    versionDependentConfig: versionDependentConfig,
+                    memoizationCache: zenzaiMemoizationCache,
+                    previousEvaluationPrompt: &trialPrompt,
+                    choiceEdits: edits
+                )
+                inferenceLimit -= 1
+                if case .pass = review {
+                    insertedCandidates = [(preferredNode, preferred), (draftResult.result.prevs[index], candidate)]
+                    // Keep the ordinary draft as the next key's search hint. Recheck the
+                    // learned decision without treating it as an already accepted prefix.
+                    choiceHint = (.init([]), candidate)
+                    return (eosNode, lattice, makeCache(constraint: constraint, satisfyingCandidate: nil))
+                }
+                var reviewedConstraint = trialConstraint
+                if case .continue = self.review(
+                    candidateIndex: 0, candidates: [preferred], reviewResult: review, constraint: &reviewedConstraint
+                ) {
+                    // Carry over only the verified bytes before the first history edit.
+                    // The ordinary draft's suffix was not verified on rejection.
+                    let ordinaryPrefix = Array(reviewedConstraint.constraint.prefix(edits[0].range.lowerBound))
+                    choiceHint = (.init(ordinaryPrefix), nil)
+                    constraint = reviewedConstraint
+                    if self.candidate(candidate, satisfies: reviewedConstraint) {
+                        previousEvaluationPrompt = trialPrompt
+                    } else if let alternative = candidates.indices.first(where: {
+                        self.candidate(candidates[$0], satisfies: reviewedConstraint)
+                            && self.heuristicRetryValidation(candidates[$0].text)
+                    }) {
+                        // An ordinary path already satisfies the verified prefix.
+                        insertedCandidates.append((draftResult.result.prevs[index], candidate))
+                        index = alternative
+                        candidate = candidates[alternative]
+                        previousEvaluationPrompt = trialPrompt
+                    } else if inferenceLimit > 0 {
+                        insertedCandidates.append((draftResult.result.prevs[index], candidate))
+                        continue
+                    } else {
+                        // A speculative history draft must not trigger a second lattice
+                        // search after the inference budget has run out.
+                        insertedCandidates.append((draftResult.result.prevs[index], candidate))
+                        return (eosNode, lattice, makeCache(constraint: constraint, satisfyingCandidate: nil))
+                    }
+                }
             }
 
             debug("Constrained draft modeling", -start.timeIntervalSinceNow)

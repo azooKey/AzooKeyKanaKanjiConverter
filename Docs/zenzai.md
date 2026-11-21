@@ -42,3 +42,9 @@ let options = ConvertRequestOptions(
 * zenz-v2: Zenzaiで用いることのできるかな漢字変換モデル「zenz」の第2世代。第1世代の機能に加えて`\uEE00<input_katakana>\uEE02<context>\uEE01<output></s>`というフォーマットで、左文脈を読み込む機能を追加。
 * zenz-v3: Zenzaiで用いることのできるかな漢字変換モデル「zenz」の第3世代。第2世代と異なり、`\uEE02<context>\uEE00<input_katakana>\uEE01<output></s>`のようにコンテキストを前置する方式を推奨。また、`\uEE03`に続けて入力されたプロフィール情報を考慮する動作をネイティブに学習済み。このほか、実験的に`\uEE04`+トピック、`\uEE05`+スタイル、`\uEE06`+設定も考慮できるようになっています。
 * zenz-v3.2: zenz-v3の機能に加えて、`\uEE07`に続けて入力された右文脈を考慮できます。右文脈は通常、左文脈の後、入力の前に置きます。
+
+## 確定候補の選び直しを学習する
+
+Zenzai 有効時の履歴は、同じ読みを消費する候補の表記をユーザーが明示的に選び直したときに更新します。アプリでは、先頭候補 `original` と実際に選択した候補 `selected` を、確定処理の前に `converter.recordZenzaiCorrection(from: original, to: selected)` に渡してください。先頭候補の自動確定や読みを追加する予測の受理からは呼び出さないでください。
+
+保存には `commitUpdateLearningData()` を使います。学習の入力・出力は `LearningType` に従います。Zenzai の選択履歴は通常変換の履歴と別のファイルに保存されます。
