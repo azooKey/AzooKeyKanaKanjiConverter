@@ -87,6 +87,29 @@ final class Roman2KanaTests: XCTestCase {
         XCTAssertEqual(table.applied(currentText: Array("ん"), added: .key(intention: "『", input: "{", modifiers: [])), Array("ん『"))
     }
 
+    func testAZIKCompatibility() throws {
+        let table = InputStyleManager.shared.table(for: .defaultAZIK)
+        let mappings: [(String, String)] = [
+            ("ji", "じ"),
+            ("jk", "じん"),
+            ("ci", "ち"),
+            ("ck", "ちん"),
+            ("jya", "じゃ"),
+            ("lka", "ヵ"),
+            ("lke", "ヶ"),
+            ("lwa", "ゎ"),
+            ("tgu", "とぅ"),
+            ("km", "かも"),
+        ]
+        for (stroke, expected) in mappings {
+            var text: [Character] = []
+            for character in stroke {
+                text = table.applied(currentText: text, added: .character(character))
+            }
+            XCTAssertEqual(String(text), expected, stroke)
+        }
+    }
+
     func testTableMerge() throws {
         let table1 = InputTable(baseMapping: [
             [.piece(.character("k")), .piece(.character("a"))]: [.character("か")],
