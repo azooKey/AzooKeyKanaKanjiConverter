@@ -5,7 +5,7 @@ public protocol SpecialCandidateProvider: Sendable {
 public struct CalendarSpecialCandidateProvider: SpecialCandidateProvider {
     public init() {}
     public func provideCandidates(converter: KanaKanjiConverter, inputData: ComposingText, options _: ConvertRequestOptions) -> [Candidate] {
-        converter.toWarekiCandidates(inputData) + converter.toSeirekiCandidates(inputData)
+        converter.toWarekiCandidates(inputData) + converter.toSeirekiCandidates(inputData) + RelativeDateShortcuts.candidates(inputData)
     }
 }
 
