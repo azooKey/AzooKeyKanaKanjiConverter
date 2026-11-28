@@ -2,7 +2,7 @@ import Foundation
 @_exported public import KanaKanjiConverterModule
 
 public extension DicdataStore {
-    static func withDefaultDictionary(preloadDictionary: Bool = false) -> Self {
+    static func withDefaultDictionary(preloadDictionary: Bool = false, maxCachedLOUDSBytes: Int? = nil) -> Self {
         #if os(iOS) || os(watchOS) || os(tvOS) || os(visionOS)
         let dictionaryDirectory = Bundle.module.bundleURL.appendingPathComponent("Dictionary", isDirectory: true)
         #elseif os(macOS)
@@ -11,13 +11,13 @@ public extension DicdataStore {
         let dictionaryDirectory = Bundle.module.resourceURL!.appendingPathComponent("Dictionary", isDirectory: true)
         #endif
 
-        return .init(dictionaryURL: dictionaryDirectory, preloadDictionary: preloadDictionary)
+        return .init(dictionaryURL: dictionaryDirectory, preloadDictionary: preloadDictionary, maxCachedLOUDSBytes: maxCachedLOUDSBytes)
     }
 }
 
 public extension KanaKanjiConverter {
-    static func withDefaultDictionary(preloadDictionary: Bool = false) -> Self {
-        .init(dicdataStore: .withDefaultDictionary(preloadDictionary: preloadDictionary))
+    static func withDefaultDictionary(preloadDictionary: Bool = false, maxCachedLOUDSBytes: Int? = nil) -> Self {
+        .init(dicdataStore: .withDefaultDictionary(preloadDictionary: preloadDictionary, maxCachedLOUDSBytes: maxCachedLOUDSBytes))
     }
 }
 
