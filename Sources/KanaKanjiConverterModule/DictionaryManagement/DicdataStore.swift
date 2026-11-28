@@ -11,8 +11,18 @@ public import Foundation
 import SwiftUtils
 
 public final class DicdataStore {
-    public init(dictionaryURL: URL, preloadDictionary: Bool = false) {
+    /// - Parameters:
+    ///   - dictionaryURL: The directory of the dictionary.
+    ///   - preloadDictionary: Loads the whole dictionary into memory up front.
+    ///   - maxCachedLOUDSBytes: An upper bound, in bytes, for the LOUDS structures kept in memory
+    ///     once they are loaded. The default `nil` keeps every structure for the lifetime of the
+    ///     store. With a bound, the least recently used ones are dropped and read from the
+    ///     dictionary again when needed, so results do not change; only speed and memory do.
+    ///     Meant for apps with a tight memory limit, such as keyboard extensions. It does not apply
+    ///     to the structures `preloadDictionary` loads.
+    public init(dictionaryURL: URL, preloadDictionary: Bool = false, maxCachedLOUDSBytes: Int? = nil) {
         self.dictionaryURL = dictionaryURL
+        self.maxCachedLOUDSBytes = maxCachedLOUDSBytes
         self.setup(preloadDictionary: preloadDictionary)
     }
 
@@ -23,6 +33,41 @@ public final class DicdataStore {
     private var loudses: [String: LOUDS] = [:]
     private var loudstxts: [String: Data] = [:]
     private var importedLoudses: Set<String> = []
+    private let maxCachedLOUDSBytes: Int?
+    /// Bytes of the structures in `loudses` that count against `maxCachedLOUDSBytes`.
+    private var cachedLOUDSBytes = 0
+    /// When each cached structure was last used, as a counter value.
+    private var loudsLastUse: [String: Int] = [:]
+    private var loudsUseCounter = 0
+
+    /// The dictionary prefixes whose LOUDS is currently cached. For tests.
+    package var cachedLOUDSQueries: Set<String> { Set(loudses.keys) }
+    /// Bytes currently counted against `maxCachedLOUDSBytes`. For tests.
+    package var currentCachedLOUDSBytes: Int { cachedLOUDSBytes }
+
+    private func markLOUDSUsed(_ query: String) {
+        guard maxCachedLOUDSBytes != nil else { return }
+        loudsUseCounter += 1
+        loudsLastUse[query] = loudsUseCounter
+    }
+
+    /// Counts a newly loaded LOUDS and drops the least recently used ones until the cache fits.
+    /// The one just loaded (`keep`) stays, even if it alone is larger than the bound.
+    private func cacheLOUDS(_ louds: LOUDS, for query: String) {
+        loudses[query] = louds
+        importedLoudses.insert(query)
+        guard let maxCachedLOUDSBytes else { return }
+        markLOUDSUsed(query)
+        cachedLOUDSBytes += louds.byteCount
+        while cachedLOUDSBytes > maxCachedLOUDSBytes,
+              let oldest = loudsLastUse.lazy.filter({ $0.key != query }).min(by: { $0.value < $1.value })?.key {
+            if let dropped = loudses.removeValue(forKey: oldest) {
+                cachedLOUDSBytes -= dropped.byteCount
+            }
+            importedLoudses.remove(oldest)
+            loudsLastUse.removeValue(forKey: oldest)
+        }
+    }
     private var charsID: [Character: UInt8] = [:]
 
     /// 辞書のエントリの最大長さ
@@ -174,6 +219,7 @@ public final class DicdataStore {
         }
 
         if self.importedLoudses.contains(query) {
+            self.markLOUDSUsed(query)
             return self.loudses[query]
         }
 
@@ -181,8 +227,7 @@ public final class DicdataStore {
         let identifier = DictionaryBuilder.escapedIdentifier(query)
 
         if let louds = LOUDS.load(identifier, dictionaryURL: self.dictionaryURL) {
-            self.loudses[query] = louds
-            self.importedLoudses.insert(query)
+            self.cacheLOUDS(louds, for: query)
             return louds
         } else {
             // このケースでもinsertは行う

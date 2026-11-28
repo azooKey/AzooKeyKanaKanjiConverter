@@ -26,6 +26,14 @@ package struct LOUDS: Sendable {
     /// LOUDSのサイズが4GBまでは`UInt32`で十分
     private let rankLarge: [UInt32]
 
+    /// Heap bytes held by the LOUDS arrays, for bounding `DicdataStore`'s cache.
+    package var byteCount: Int {
+        bits.count * MemoryLayout<UInt64>.stride
+            + flatChar2nodeIndices.count * MemoryLayout<UInt32>.stride
+            + flatChar2nodeIndicesIndex.count * MemoryLayout<UInt32>.stride
+            + rankLarge.count * MemoryLayout<UInt32>.stride
+    }
+
     @inlinable init(bytes: [UInt64], nodeIndex2ID: [UInt8]) {
         self.bits = bytes
         // flatChar2nodeIndicesIndexを構築する

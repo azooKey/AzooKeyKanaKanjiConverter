@@ -85,4 +85,58 @@ final class DicdataStoreTests: XCTestCase {
             XCTFail("searchNodeIndex failed for user ruby 'か'")
         }
     }
+    /// A bound on the LOUDS cache must change memory only: lookups give the same answers as an
+    /// unbounded store, while the cache stays within the bound and drops the least recently used.
+    func testBoundedLOUDSCacheKeepsResultsAndStaysWithinBudget() throws {
+        let dictionary = try tmpDir("bounded-cache")
+        defer {
+            try? FileManager.default.removeItem(at: dictionary)
+        }
+        let leads: [Character] = ["あ", "い", "う", "え", "お", "か"]
+        let tails: [Character] = ["あ", "い", "う", "え", "お", "か", "き", "く"]
+        let cmap = charMap(leads + tails)
+        // `charID.chid` gives each character the id of its position, so position 0 is a placeholder.
+        let chid = "★" + String(cmap.sorted { $0.value < $1.value }.map(\.key))
+        var entries: [DicdataElement] = []
+        for lead in leads {
+            for a in tails {
+                for b in tails {
+                    entries.append(DicdataElement(word: "\(lead)\(a)\(b)語", ruby: "\(lead)\(a)\(b)", lcid: 10, rcid: 10, mid: 1, value: -50))
+                }
+            }
+        }
+        let loudsDirectory = dictionary.appendingPathComponent("louds", isDirectory: true)
+        try FileManager.default.createDirectory(at: loudsDirectory, withIntermediateDirectories: true)
+        try chid.write(to: loudsDirectory.appendingPathComponent("charID.chid"), atomically: true, encoding: .utf8)
+        try DictionaryBuilder.exportDictionary(
+            entries: entries,
+            to: loudsDirectory,
+            baseName: "",
+            shardByFirstCharacter: true,
+            char2UInt8: cmap
+        )
+
+        let unbounded = DicdataStore(dictionaryURL: dictionary)
+        let unboundedState = unbounded.prepareState()
+        let oneStructure = try XCTUnwrap(unbounded.loadLOUDS(query: "あ", state: unboundedState)).byteCount
+        // Room for two of the six prefixes.
+        let budget = oneStructure * 2 + oneStructure / 2
+        let bounded = DicdataStore(dictionaryURL: dictionary, maxCachedLOUDSBytes: budget)
+        let boundedState = bounded.prepareState()
+
+        for _ in 0..<3 {
+            for lead in leads {
+                let ruby = "\(lead)\(tails[2])\(tails[5])"
+                let ids = ruby.compactMap { cmap[$0] }
+                let expected = unbounded.perfectMatchingSearch(query: String(lead), charIDs: ids, state: unboundedState)
+                let got = bounded.perfectMatchingSearch(query: String(lead), charIDs: ids, state: boundedState)
+                XCTAssertFalse(expected.isEmpty, "\(ruby) is in the dictionary")
+                XCTAssertEqual(got, expected, "\(ruby)")
+                XCTAssertLessThanOrEqual(bounded.currentCachedLOUDSBytes, budget)
+                XCTAssertTrue(bounded.cachedLOUDSQueries.contains(String(lead)), "the prefix just used stays cached")
+                XCTAssertLessThanOrEqual(bounded.cachedLOUDSQueries.count, 2)
+            }
+        }
+        XCTAssertEqual(unbounded.cachedLOUDSQueries.count, leads.count, "without a bound everything stays cached")
+    }
 }

@@ -40,8 +40,8 @@ public final class KanaKanjiConverter {
         self.converter = .init(dicdataStore: dicdataStore)
         self.dicdataStoreState = dicdataStore.prepareState()
     }
-    public convenience init(dictionaryURL: URL, preloadDictionary: Bool = false) {
-        let dicdataStore = DicdataStore(dictionaryURL: dictionaryURL, preloadDictionary: preloadDictionary)
+    public convenience init(dictionaryURL: URL, preloadDictionary: Bool = false, maxCachedLOUDSBytes: Int? = nil) {
+        let dicdataStore = DicdataStore(dictionaryURL: dictionaryURL, preloadDictionary: preloadDictionary, maxCachedLOUDSBytes: maxCachedLOUDSBytes)
         self.init(dicdataStore: dicdataStore)
     }
     static func withoutDictionary() -> KanaKanjiConverter {
