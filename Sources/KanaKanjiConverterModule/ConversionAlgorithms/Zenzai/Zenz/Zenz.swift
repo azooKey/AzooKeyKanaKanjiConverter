@@ -41,17 +41,19 @@ package final class Zenz {
 
     init(resourceURL: URL) throws {
         self.resourceURL = resourceURL
+        // macOS 13〜15 の path(percentEncoded:) は相対 URL を baseURL に対して解決しない。
+        let absoluteURL = resourceURL.absoluteURL
         do {
             #if canImport(Darwin)
             if #available(iOS 16, macOS 13, *) {
-                self.zenzContext = try ZenzContext.createContext(path: resourceURL.path(percentEncoded: false))
+                self.zenzContext = try ZenzContext.createContext(path: absoluteURL.path(percentEncoded: false))
             } else {
                 // this is not percent-encoded
-                self.zenzContext = try ZenzContext.createContext(path: resourceURL.path)
+                self.zenzContext = try ZenzContext.createContext(path: absoluteURL.path)
             }
             #else
             // this is not percent-encoded
-            self.zenzContext = try ZenzContext.createContext(path: resourceURL.path)
+            self.zenzContext = try ZenzContext.createContext(path: absoluteURL.path)
             #endif
             debug("Loaded model \(resourceURL.lastPathComponent)")
         } catch {
